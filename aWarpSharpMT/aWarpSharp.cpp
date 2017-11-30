@@ -1123,12 +1123,12 @@ aWarpSharp::aWarpSharp(PClip _child, int _thresh, int _blur_level, int _blur_typ
 	if (threshC==-1) threshC=thresh;
 	if (depthV==128) depthV=depth;
 	if (depthC==128) depthC = vi.IsYV24() ? depth:(depth>>1);
-	if (depthVC==128) depthVC = vi.IsYV24() ? depthV:(depthV>>1);
+	if (depthVC==128) depthVC = depthC;
 
 	if (blur_level==-1) blur_level=(blur_type==0)?2:3;
 	if (blur_levelV==-1) blur_levelV=blur_level;
 	if (blur_levelC==-1) blur_levelC=(blur_level+1)>>1;
-	if (blur_levelVC==-1) blur_levelVC=(blur_levelV+1)>>1;
+	if (blur_levelVC==-1) blur_levelVC=blur_levelC;
 
 	if (!(vi.IsYUV() && vi.IsPlanar())) env->ThrowError("aWarpSharp: Planar YUV input is required");
 	if ((thresh<0) || (thresh>255)) env->ThrowError("aWarpSharp: 'thresh' must be 0..255");
@@ -2071,7 +2071,7 @@ aBlur::aBlur(PClip _child, int _blur_level, int _blur_type, int _chroma, int _bl
 	if (blur_level==-1) blur_level=(blur_type==0)?2:3;
 	if (blur_levelV==-1) blur_levelV=blur_level;
 	if (blur_levelC==-1) blur_levelC=(blur_level+1)>>1;
-	if (blur_levelVC==-1) blur_levelVC=(blur_levelV+1)>>1;
+	if (blur_levelVC==-1) blur_levelVC=blur_levelC;
 
 	if (!(vi.IsYUV() && vi.IsPlanar())) env->ThrowError("aBlur: Planar YUV input is required");
 	if (blur_level<0) env->ThrowError("aBlur: 'blur' must be >=0");
@@ -2448,9 +2448,9 @@ aWarp::aWarp(PClip _child, PClip _edges, int _depth, int _chroma, int _depthC, b
 	isRGBPfamily = vi.IsPlanarRGB() || vi.IsPlanarRGBA();
 	isAlphaChannel = vi.IsYUVA() || vi.IsPlanarRGBA();
 
-    if (depthC==128) depthC = vi.IsYV24() ? depth:(depth>>1);
 	if (depthV==128) depthV=depth;
-	if (depthVC==128) depthVC = vi.IsYV24() ? depthV:(depthV>>1);
+    if (depthC==128) depthC = vi.IsYV24() ? depth:(depth>>1);
+	if (depthVC==128) depthVC = depthC;
     if (vi.IsY8()) chroma = 1;
 
 	if (!(vi.IsYUV() && vi.IsPlanar() && vi2.IsYUV() && vi2.IsPlanar())) env->ThrowError("aWarp: Planar YUV input is required");
@@ -2921,9 +2921,9 @@ aWarp4::aWarp4(PClip _child, PClip _edges, int _depth, int _chroma, int _depthC,
 	isRGBPfamily = vi.IsPlanarRGB() || vi.IsPlanarRGBA();
 	isAlphaChannel = vi.IsYUVA() || vi.IsPlanarRGBA();
 
-    if (depthC==128) depthC = vi.IsYV24() ? depth:(depth>>1);
 	if (depthV==128) depthV=depth;
-	if (depthVC==128) depthVC = vi.IsYV24() ? depthV:(depthV>>1);
+    if (depthC==128) depthC = vi.IsYV24() ? depth:(depth>>1);
+	if (depthVC==128) depthVC = depthC;
     if (vi.IsY8()) chroma = 1;
 
 	if (!(vi.IsYUV() && vi.IsPlanar() && vi2.IsYUV() && vi2.IsPlanar())) env->ThrowError("aWarp4: Planar YUV input is required");
