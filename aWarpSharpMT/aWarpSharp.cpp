@@ -3447,7 +3447,7 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
     const int type = (args[5].AsInt(2)!=2)?1:0;
     const int blurlevel = args[2].AsInt(2);
     const unsigned int cm = args[4].AsInt(1);
-    static const char map[3] = {2,4,3};
+    static const char map[4] = {1,4,3,2};
 
 	  threads=args[7].AsInt(0);
 	  LogicalCores=args[8].AsBool(true);
@@ -3478,7 +3478,7 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 	  }
 
     return new aWarpSharp(args[0].AsClip(),int(args[3].AsFloat(0.5)*256.0),(type==1)?(blurlevel*3):blurlevel,type,
-		int(args[1].AsFloat(16.0)*blurlevel*0.5),(cm<3)?map[cm]:-1,0,false,-1,128,128,-1,-1,-1,threads,sleep,avsp,env);
+		int(args[1].AsFloat(16.0)*blurlevel*0.5),(cm<4)?map[cm]:-1,128,false,-1,128,128,-1,-1,-1,threads,sleep,avsp,env);
 	break;
 	  }
   case 2:
