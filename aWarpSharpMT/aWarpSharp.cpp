@@ -3478,7 +3478,7 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 	  }
 
     return new aWarpSharp(args[0].AsClip(),int(args[3].AsFloat(0.5)*256.0),(type==1)?(blurlevel*3):blurlevel,type,
-		int(args[1].AsFloat(16.0)*blurlevel*0.5),(cm<4)?map[cm]:-1,args[6].AsInt(128),false,-1,128,128,-1,-1,-1,threads,sleep,avsp,env);
+		int(args[1].AsFloat(16.0)*blurlevel*0.5),(cm<4)?map[cm]:-1,128,false,-1,128,128,-1,-1,-1,threads,sleep,avsp,env);
 	break;
 	  }
   case 2:
