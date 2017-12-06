@@ -2933,7 +2933,7 @@ aWarp4::aWarp4(PClip _child, PClip _edges, int _depth, int _chroma, int _depthC,
 	if ((depthV<-128) || (depthV>127)) env->ThrowError("aWarp4: 'depthV' must be -128..127");
 	if ((depthVC<-128) || (depthVC>127)) env->ThrowError("aWarp4: 'depthVC' must be -128..127");
 
-    if ((vi.width!=(vi2.width<<2))|| (vi.height!=(vi2.height<<2)))
+    if ((vi.width!=(vi2.width<<2)) || (vi.height!=(vi2.height<<2)))
       env->ThrowError("aWarp4: first source must be excatly 4 times width and height of second source");
     if (vi.pixel_type!=vi2.pixel_type) env->ThrowError("aWarp4: both sources must have the colorspace");
 
@@ -3167,7 +3167,7 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
 
 	uint8_t f_proc;
 
-  if ((chroma<5) && ((depth!=0) || (depthV!=0)))
+  if (chroma<5)
   {
 	  f_proc=1;
 
@@ -3176,8 +3176,6 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
 
 	  if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
   }
-  else
-    CopyPlane(src, dst, PLANAR_Y, vi);
 
   switch (chroma)
   {
@@ -3186,13 +3184,9 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
     SetPlane(dst, PLANAR_V, 0x80, vi);
     break;
   case 2:
-    CopyPlane(src, dst, PLANAR_U, vi);
-    CopyPlane(src, dst, PLANAR_V, vi);
     break;
   case 3:
   case 5:
-	  if ((depthC!=0) || (depthVC!=0))
-	  {
 		  f_proc=2;
 
 		  for(uint8_t i=0; i<threads_number; i++)
@@ -3206,17 +3200,9 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
 			  MT_Thread[i].f_process=f_proc;
 
 		  if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
-	  }
-	  else
-	  {
-			CopyPlane(src, dst, PLANAR_U, vi);
-			CopyPlane(src, dst, PLANAR_V, vi);
-	  }
     break;
   case 4:
   case 6:
-	   if ((depthC!=0) || (depthVC!=0))
-	   {
     if (!vi.IsYV24())
     {
 	  if (!GuideChroma_8_Test(SubW_U,SubH_U))
@@ -3287,12 +3273,6 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
 
 	  if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
     }
-	   }
-	   else
-	   {
-		    CopyPlane(src,dst,PLANAR_U,vi);
-			CopyPlane(src,dst,PLANAR_V,vi);
-	   }
     break;
   }
 
@@ -3307,10 +3287,9 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
   else
   {
 
-  if ((chroma<5) && ((depth!=0) || (depthV!=0)))
+  if (chroma<5)
 	Warp2_8(psrc_Y,pedg_Y,pdst_Y,src_pitch_Y,edg_pitch_Y,dst_pitch_Y,dst_row_size_Y,dst_height_Y,depth,depthV);
-  else
-    CopyPlane(src, dst, PLANAR_Y, vi);
+
   switch (chroma)
   {
   case 0:
@@ -3318,26 +3297,14 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
     SetPlane(dst, PLANAR_V, 0x80, vi);
     break;
   case 2:
-    CopyPlane(src, dst, PLANAR_U, vi);
-    CopyPlane(src, dst, PLANAR_V, vi);
     break;
   case 3:
   case 5:
-	  if ((depthC!=0) || (depthVC!=0))
-	  {
-			Warp2_8(psrc_V,pedg_V,pdst_V,src_pitch_V,edg_pitch_V,dst_pitch_V,dst_row_size_V,dst_height_V,depthC,depthVC);
-			Warp2_8(psrc_U,pedg_U,pdst_U,src_pitch_U,edg_pitch_U,dst_pitch_U,dst_row_size_U,dst_height_U,depthC,depthVC);
-	  }
-	  else
-	  {
-			CopyPlane(src, dst, PLANAR_U, vi);
-			CopyPlane(src, dst, PLANAR_V, vi);
-	  }
+		Warp2_8(psrc_V,pedg_V,pdst_V,src_pitch_V,edg_pitch_V,dst_pitch_V,dst_row_size_V,dst_height_V,depthC,depthVC);
+		Warp2_8(psrc_U,pedg_U,pdst_U,src_pitch_U,edg_pitch_U,dst_pitch_U,dst_row_size_U,dst_height_U,depthC,depthVC);
     break;
   case 4:
   case 6:
-	  if ((depthC!=0) || (depthVC!=0))
-	  {
     if (!vi.IsYV24())
     {
       if (edg->IsWritable())
@@ -3368,12 +3335,6 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
 		Warp2_8(psrc_U,pedg_Y,pdst_U,src_pitch_U,edg_pitch_Y,dst_pitch_U,dst_row_size_U,dst_height_U,depthC,depthVC);
 		Warp2_8(psrc_V,pedg_Y,pdst_V,src_pitch_V,edg_pitch_Y,dst_pitch_V,dst_row_size_V,dst_height_V,depthC,depthVC);
     }
-	  }
-	  else
-	  {
-		  CopyPlane(src, dst, PLANAR_U, vi);
-		  CopyPlane(src, dst, PLANAR_V, vi);
-	  }
     break;
   }
 

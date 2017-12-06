@@ -377,32 +377,32 @@ JPSDR_Warp0_8_SSE3_1:
     punpcklbw xmm1,xmm4
 
     movd eax,xmm2
+	psrldq xmm2,4
     pinsrw xmm3,word ptr[eax+esi],0
     pinsrw xmm4,word ptr[eax+edx],0
-    psrldq xmm2,4
     movd eax,xmm2
+	psrldq xmm2,4
     pinsrw xmm3,word ptr[eax+esi+1],1
     pinsrw xmm4,word ptr[eax+edx+1],1
-    psrldq xmm2,4
     movd eax,xmm2
+	psrldq xmm2,4
     pinsrw xmm3,word ptr[eax+esi+2],2
     pinsrw xmm4,word ptr[eax+edx+2],2
-    psrldq xmm2,4
     movd eax,xmm2
     pinsrw xmm3,word ptr[eax+esi+3],3
     pinsrw xmm4,word ptr[eax+edx+3],3
     movd eax,xmm7
+	psrldq xmm7,4
     pinsrw xmm3,word ptr[eax+esi+4],4
     pinsrw xmm4,word ptr[eax+edx+4],4
-    psrldq xmm7,4
     movd eax,xmm7
+	psrldq xmm7,4
     pinsrw xmm3,word ptr[eax+esi+5],5
     pinsrw xmm4,word ptr[eax+edx+5],5
-    psrldq xmm7,4
     movd eax,xmm7
+	psrldq xmm7,4
     pinsrw xmm3,word ptr[eax+esi+6],6
     pinsrw xmm4,word ptr[eax+edx+6],6
-    psrldq xmm7,4
     movd eax,xmm7
     pinsrw xmm3,word ptr[eax+esi+7],7
     pinsrw xmm4,word ptr[eax+edx+7],7
@@ -829,32 +829,32 @@ JPSDR_Warp2_8_SSE3_1:
     punpcklbw xmm1,xmm4
 
     movd eax,xmm2
+	psrldq xmm2,4
     pinsrw xmm3,word ptr[eax+esi],0
     pinsrw xmm4,word ptr[eax+edx],0
-    psrldq xmm2,4
     movd eax,xmm2
+	psrldq xmm2,4
     pinsrw xmm3,word ptr[eax+esi+1*4],1
     pinsrw xmm4,word ptr[eax+edx+1*4],1
-    psrldq xmm2,4
     movd eax,xmm2
+	psrldq xmm2,4
     pinsrw xmm3,word ptr[eax+esi+2*4],2
     pinsrw xmm4,word ptr[eax+edx+2*4],2
-    psrldq xmm2,4
     movd eax,xmm2
     pinsrw xmm3,word ptr[eax+esi+3*4],3
     pinsrw xmm4,word ptr[eax+edx+3*4],3
     movd eax,xmm7
+	psrldq xmm7,4
     pinsrw xmm3,word ptr[eax+esi+4*4],4
     pinsrw xmm4,word ptr[eax+edx+4*4],4
-    psrldq xmm7,4
     movd eax,xmm7
+	psrldq xmm7,4
     pinsrw xmm3,word ptr[eax+esi+5*4],5
     pinsrw xmm4,word ptr[eax+edx+5*4],5
-    psrldq xmm7,4
     movd eax,xmm7
+	psrldq xmm7,4
     pinsrw xmm3,word ptr[eax+esi+6*4],6
     pinsrw xmm4,word ptr[eax+edx+6*4],6
-    psrldq xmm7,4
     movd eax,xmm7
     pinsrw xmm3,word ptr[eax+esi+7*4],7
     pinsrw xmm4,word ptr[eax+edx+7*4],7

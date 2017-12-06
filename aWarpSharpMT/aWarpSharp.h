@@ -20,7 +20,7 @@
 #include "avisynth.h"
 #include "ThreadPoolInterface.h"
 
-#define AWARPSHARP_VERSION "aWarpSharpMT 1.0.1 JPSDR"
+#define AWARPSHARP_VERSION "aWarpSharpMT 1.0.2 JPSDR"
 
 #define myfree(ptr) if (ptr!=NULL) { free(ptr); ptr=NULL;}
 #define myCloseHandle(ptr) if (ptr!=NULL) { CloseHandle(ptr); ptr=NULL;}

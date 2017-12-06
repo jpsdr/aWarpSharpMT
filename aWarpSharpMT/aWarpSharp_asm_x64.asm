@@ -417,38 +417,38 @@ JPSDR_Warp0_8_SSE3_1:
 
     movd eax,xmm2
 	movsxd rax,eax
+	psrldq xmm2,4
     pinsrw xmm3,word ptr[rax+rsi],0
     pinsrw xmm4,word ptr[rax+rdx],0
-    psrldq xmm2,4
     movd eax,xmm2
 	movsxd rax,eax
+	psrldq xmm2,4
     pinsrw xmm3,word ptr[rax+rsi+1],1
     pinsrw xmm4,word ptr[rax+rdx+1],1
-    psrldq xmm2,4
     movd eax,xmm2
 	movsxd rax,eax
+	psrldq xmm2,4
     pinsrw xmm3,word ptr[rax+rsi+2],2
     pinsrw xmm4,word ptr[rax+rdx+2],2
-    psrldq xmm2,4
     movd eax,xmm2
 	movsxd rax,eax
     pinsrw xmm3,word ptr[rax+rsi+3],3
     pinsrw xmm4,word ptr[rax+rdx+3],3
     movd eax,xmm7
 	movsxd rax,eax
+	psrldq xmm7,4
     pinsrw xmm3,word ptr[rax+rsi+4],4
     pinsrw xmm4,word ptr[rax+rdx+4],4
-    psrldq xmm7,4
     movd eax,xmm7
 	movsxd rax,eax
+	psrldq xmm7,4
     pinsrw xmm3,word ptr[rax+rsi+5],5
     pinsrw xmm4,word ptr[rax+rdx+5],5
-    psrldq xmm7,4
     movd eax,xmm7
 	movsxd rax,eax
+	psrldq xmm7,4
     pinsrw xmm3,word ptr[rax+rsi+6],6
     pinsrw xmm4,word ptr[rax+rdx+6],6
-    psrldq xmm7,4
     movd eax,xmm7
 	movsxd rax,eax
     pinsrw xmm3,word ptr[rax+rsi+7],7
@@ -933,38 +933,38 @@ JPSDR_Warp2_8_SSE3_1:
 
     movd eax,xmm2
 	movsxd rax,eax
+	psrldq xmm2,4
     pinsrw xmm3,word ptr[rax+rsi],0
     pinsrw xmm4,word ptr[rax+rdx],0
-    psrldq xmm2,4
     movd eax,xmm2
 	movsxd rax,eax
+	psrldq xmm2,4
     pinsrw xmm3,word ptr[rax+rsi+1*4],1
     pinsrw xmm4,word ptr[rax+rdx+1*4],1
-    psrldq xmm2,4
     movd eax,xmm2
 	movsxd rax,eax
+	psrldq xmm2,4
     pinsrw xmm3,word ptr[rax+rsi+2*4],2
     pinsrw xmm4,word ptr[rax+rdx+2*4],2
-    psrldq xmm2,4
     movd eax,xmm2
 	movsxd rax,eax
     pinsrw xmm3,word ptr[rax+rsi+3*4],3
     pinsrw xmm4,word ptr[rax+rdx+3*4],3
     movd eax,xmm7
 	movsxd rax,eax
+	psrldq xmm7,4
     pinsrw xmm3,word ptr[rax+rsi+4*4],4
     pinsrw xmm4,word ptr[rax+rdx+4*4],4
-    psrldq xmm7,4
     movd eax,xmm7
 	movsxd rax,eax
+	psrldq xmm7,4
     pinsrw xmm3,word ptr[rax+rsi+5*4],5
     pinsrw xmm4,word ptr[rax+rdx+5*4],5
-    psrldq xmm7,4
     movd eax,xmm7
 	movsxd rax,eax
+	psrldq xmm7,4
     pinsrw xmm3,word ptr[rax+rsi+6*4],6
     pinsrw xmm4,word ptr[rax+rdx+6*4],6
-    psrldq xmm7,4
     movd eax,xmm7
 	movsxd rax,eax
     pinsrw xmm3,word ptr[rax+rsi+7*4],7
@@ -1732,7 +1732,7 @@ JPSDR_V_BlurR2_8_SSE2_1:
 	pavgb xmm0,xmm2
 	pavgb xmm0,xmm2
 	pavgb xmm0,xmm1
-	movntdq XMMWORD ptr[esi+edi],xmm0
+	movntdq XMMWORD ptr[rsi+rdi],xmm0
 	add	esi,16
 	sub	ecx,16
 	jnz	short JPSDR_V_BlurR2_8_SSE2_1

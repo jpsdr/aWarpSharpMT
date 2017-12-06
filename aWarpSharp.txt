@@ -81,11 +81,13 @@ Syntax:
     Processing mode for chroma planes (U and V):
       0 - fill with zeroes
       1 - don't care, default for aSobel and aBlur
-      2 - copy
+      2 - copy, don't care on aWarp4.
       3 - process
       4 - guide by luma - aWarpSharp, aWarp and aWarp4 only, default for them
-      5 - same as 3, but don't process luma
-      6 - same as 4, but don't process luma
+      5 - same as 3, but don't process luma, luma not cared on aWarp4.
+      6 - same as 4, but don't process luma, luma not cared on aWarp4.
+    Copy on aWarp4 make no sense, as source size is 4*output size. It's up to the user to use
+    whatever resampling mode he wants to create the "not cared" missing planes.
 
   depthC: -128..127, default depth/2 for non-4:4:4 colorspaces, depth for YV24.
     Strength of the final warping of chroma planes. Negative values result in 
