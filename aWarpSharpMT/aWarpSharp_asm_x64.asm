@@ -1721,7 +1721,8 @@ tmp_pitchn2 equ dword ptr[rbp+64]
 	movsxd rdx,tmp_pitchn2
 	movsxd r8,r9d
 	movsxd r9,tmp_pitchn1
-	sub edi,esi
+	sub rdi,rsi
+	mov r10,16
 	
 JPSDR_V_BlurR2_8_SSE2_1:
 	movdqa xmm0,XMMWORD ptr[rsi+rax]
@@ -1733,8 +1734,8 @@ JPSDR_V_BlurR2_8_SSE2_1:
 	pavgb xmm0,xmm2
 	pavgb xmm0,xmm1
 	movntdq XMMWORD ptr[rsi+rdi],xmm0
-	add	esi,16
-	sub	ecx,16
+	add	rsi,r10
+	sub	rcx,r10
 	jnz	short JPSDR_V_BlurR2_8_SSE2_1
 		  
 	pop rdi
