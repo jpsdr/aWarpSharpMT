@@ -3552,7 +3552,7 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 
 	  if ((aWarpSharp_g_cpuid & CPUF_SSE2)==0) env->ThrowError("aWarp: SSE2 capable CPU is required");
 
-    return new aWarp(args[0].AsClip(),args[1].AsClip(),args[2].AsInt(3),args[3].AsInt(4),args[4].AsInt(-1),is_cplace_mpeg2(args,5),
+    return new aWarp(args[0].AsClip(),args[1].AsClip(),args[2].AsInt(3),args[3].AsInt(4),args[4].AsInt(128),is_cplace_mpeg2(args,5),
 		args[6].AsInt(128),args[7].AsInt(128),threads,sleep,avsp,env);
 	break;
 	  }
@@ -3588,7 +3588,7 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 		  }
 	  }
 
-    return new aWarp4(args[0].AsClip(),args[1].AsClip(),args[2].AsInt(3),args[3].AsInt(4),args[4].AsInt(-1),is_cplace_mpeg2(args,5),
+    return new aWarp4(args[0].AsClip(),args[1].AsClip(),args[2].AsInt(3),args[3].AsInt(4),args[4].AsInt(128),is_cplace_mpeg2(args,5),
 		args[6].AsInt(128),args[7].AsInt(128),threads,sleep,avsp,env);
 	break;
 	  }
