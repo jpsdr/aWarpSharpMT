@@ -19,6 +19,8 @@
 #include <algorithm>
 #include <stdint.h>
 #include <windows.h>
+#include <immintrin.h>
+#include <emmintrin.h>
 #include "avisynth.h"
 #include "aWarpSharp.h"
 
@@ -58,6 +60,1386 @@ extern "C" void JPSDR_GuideChroma2_8_SSE2(const unsigned char *py,unsigned char 
 
 
 __declspec(align(16)) static const unsigned char dq0toF[0x10]={0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15};
+
+
+#ifdef _WIN32
+#define FORCE_INLINE __forceinline
+#else
+#define FORCE_INLINE inline __attribute__((always_inline))
+#endif
+
+
+static FORCE_INLINE __m128i mm_avg_epu(const __m128i &a, const __m128i &b)
+{
+        return _mm_avg_epu16(a, b);
+}
+
+
+static FORCE_INLINE __m128i mm_subs_epu(const __m128i &a, const __m128i &b)
+{
+        return _mm_subs_epu16(a, b);
+}
+
+
+static FORCE_INLINE __m128i mm_adds_epu(const __m128i &a, const __m128i &b)
+{
+        return _mm_adds_epu16(a, b);
+}
+
+
+static FORCE_INLINE __m128i mm_max_epu(const __m128i &a, const __m128i &b)
+{
+        __m128i word_32768 = _mm_set1_epi16(-32768);
+
+        __m128i a_minus = _mm_sub_epi16(a,word_32768);
+        __m128i b_minus = _mm_sub_epi16(b,word_32768);
+
+        return _mm_add_epi16(_mm_max_epi16(a_minus, b_minus),word_32768);
+}
+
+
+static FORCE_INLINE __m128i mm_min_epu(const __m128i &a, const __m128i &b)
+{
+        __m128i word_32768 = _mm_set1_epi16(-32768);
+
+        __m128i a_minus = _mm_sub_epi16(a, word_32768);
+        __m128i b_minus = _mm_sub_epi16(b, word_32768);
+
+        return _mm_add_epi16(_mm_min_epi16(a_minus, b_minus), word_32768);
+}
+
+
+static FORCE_INLINE __m128i mm_set1_epi(uint16_t a)
+{
+        return _mm_set1_epi16(a);
+}
+
+
+static FORCE_INLINE void sobel_xmmword_sse2(const uint16_t *srcp,uint16_t *dstp,const int32_t src_pitch, const __m128i &th, const __m128i &pixel_max)
+{
+    __m128i a11, a21, a31,
+            a12,      a32,
+            a13, a23, a33;
+
+    a11 = _mm_loadu_si128((const __m128i *)(srcp - src_pitch - 1));
+    a21 = _mm_loadu_si128((const __m128i *)(srcp - src_pitch));
+    a31 = _mm_loadu_si128((const __m128i *)(srcp - src_pitch + 1));
+
+    a12 = _mm_loadu_si128((const __m128i *)(srcp - 1));
+    a32 = _mm_loadu_si128((const __m128i *)(srcp + 1));
+
+    a13 = _mm_loadu_si128((const __m128i *)(srcp + src_pitch - 1));
+    a23 = _mm_loadu_si128((const __m128i *)(srcp + src_pitch));
+    a33 = _mm_loadu_si128((const __m128i *)(srcp + src_pitch + 1));
+
+    __m128i avg_up    = mm_avg_epu(a21, mm_avg_epu(a11, a31));
+    __m128i avg_down  = mm_avg_epu(a23, mm_avg_epu(a13, a33));
+    __m128i avg_left  = mm_avg_epu(a12, mm_avg_epu(a13, a11));
+    __m128i avg_right = mm_avg_epu(a32, mm_avg_epu(a33, a31));
+
+    __m128i abs_v = _mm_or_si128(mm_subs_epu(avg_up, avg_down), mm_subs_epu(avg_down, avg_up));
+    __m128i abs_h = _mm_or_si128(mm_subs_epu(avg_left, avg_right), mm_subs_epu(avg_right, avg_left));
+
+    __m128i absolute = mm_adds_epu(abs_v, abs_h);
+    absolute = mm_min_epu(absolute, pixel_max);
+
+    __m128i abs_max = mm_max_epu(abs_h, abs_v);
+
+    absolute = mm_adds_epu(absolute, abs_max);
+    absolute = mm_min_epu(absolute, pixel_max);
+
+    __m128i absolute2 = mm_adds_epu(absolute, absolute);
+    absolute2 = mm_min_epu(absolute2, pixel_max);
+
+    absolute = mm_adds_epu(absolute2, absolute);
+    absolute = mm_min_epu(absolute, pixel_max);
+
+    absolute = mm_adds_epu(absolute, absolute);
+    absolute = mm_min_epu(absolute, pixel_max);
+
+    _mm_storeu_si128((__m128i *)(dstp), mm_min_epu(absolute, th));
+}
+
+
+static void sobel_u16_sse2(const unsigned char *srcp8,unsigned char *dstp8,const int32_t src_pitch_,const int32_t dst_pitch_,
+	const int32_t width,const int32_t height,const int thresh,const uint8_t bits_per_sample)
+{
+    const uint16_t *srcp = (const uint16_t *)srcp8;
+    uint16_t *dstp = (uint16_t *)dstp8;
+	const int32_t src_pitch=src_pitch_ >> 1;
+	const int32_t dst_pitch=dst_pitch_ >> 1;
+
+    __m128i pixel_max = _mm_set1_epi16((1 << bits_per_sample) - 1);
+
+    const int32_t pixels_in_xmm = 8;
+
+    uint16_t *dstp_orig = dstp;
+
+    srcp += src_pitch;
+    dstp += dst_pitch;
+
+    __m128i th = mm_set1_epi(thresh << (bits_per_sample-8));
+
+    int32_t width_sse2 = (width & ~(pixels_in_xmm - 1)) + 2;
+    if (width_sse2 > src_pitch)
+        width_sse2 -= pixels_in_xmm;
+
+	const int32_t width_sse2m1=width_sse2-1;
+	const int32_t ym1=height-1;
+	const bool testw=(width+2)>width_sse2;
+
+    for (int32_t y=1; y<ym1; y++)
+	{
+        for (int32_t x=1; x<width_sse2m1; x+=pixels_in_xmm)
+            sobel_xmmword_sse2(srcp+x,dstp+x,src_pitch,th,pixel_max);
+
+        if (testw)
+            sobel_xmmword_sse2(srcp+(width-pixels_in_xmm-1),dstp+(width-pixels_in_xmm-1),src_pitch,th,pixel_max);
+
+        dstp[0] = dstp[1];
+        dstp[width-1] = dstp[width-2];
+
+        srcp += src_pitch;
+        dstp += dst_pitch;
+    }
+
+    memcpy(dstp_orig,dstp_orig+dst_pitch,width << 1);
+    memcpy(dstp,dstp-dst_pitch,width << 1);
+}
+
+
+
+static void sobel_u16_sse2_MT(const unsigned char *srcp8,unsigned char *dstp8,const int32_t src_pitch_,const int32_t dst_pitch_,
+	const int32_t width,const int32_t height,const int thresh,const uint8_t bits_per_sample,const int32_t ymin,const int32_t ymax)
+{
+    const uint16_t *srcp = (const uint16_t *)(srcp8+(ymin*src_pitch_));
+    uint16_t *dstp = (uint16_t *)(dstp8+(ymin*dst_pitch_));
+	const int32_t src_pitch=src_pitch_ >> 1;
+	const int32_t dst_pitch=dst_pitch_ >> 1;
+
+    __m128i pixel_max = _mm_set1_epi16((1 << bits_per_sample) - 1);
+
+    const int32_t pixels_in_xmm = 8;
+
+    uint16_t *dstp_orig = dstp;
+
+	if (ymin==0)
+	{
+		srcp += src_pitch;
+		dstp += dst_pitch;
+	}
+
+    __m128i th = mm_set1_epi(thresh << (bits_per_sample-8));
+
+    int32_t width_sse2 = (width & ~(pixels_in_xmm - 1)) + 2;
+    if (width_sse2 > src_pitch)
+        width_sse2 -= pixels_in_xmm;
+
+	const int32_t width_sse2m1=width_sse2-1;
+	const bool testw=(width+2)>width_sse2;
+	const int32_t y0=std::max(1,ymin);
+	const int32_t y1=std::min(ymax,height-1);
+
+    for (int32_t y=y0; y<y1; y++)
+	{
+        for (int32_t x=1; x<width_sse2m1; x+=pixels_in_xmm)
+            sobel_xmmword_sse2(srcp+x,dstp+x,src_pitch,th,pixel_max);
+
+        if (testw)
+            sobel_xmmword_sse2(srcp+(width-pixels_in_xmm-1),dstp+(width-pixels_in_xmm-1),src_pitch,th,pixel_max);
+
+        dstp[0] = dstp[1];
+        dstp[width-1] = dstp[width-2];
+
+        srcp += src_pitch;
+        dstp += dst_pitch;
+    }
+
+    if (ymin==0) memcpy(dstp_orig,dstp_orig+dst_pitch,width << 1);
+    if (ymax==height) memcpy(dstp,dstp-dst_pitch,width << 1);
+}
+
+
+
+static FORCE_INLINE void blur_r6_h_left_sse2(const uint16_t *srcp, uint16_t *dstp)
+{
+    __m128i avg12 = mm_avg_epu(_mm_loadu_si128((const __m128i *)(srcp + 1)), _mm_loadu_si128((const __m128i *)(srcp + 2)));
+    __m128i avg34 = mm_avg_epu(_mm_loadu_si128((const __m128i *)(srcp + 3)), _mm_loadu_si128((const __m128i *)(srcp + 4)));
+    __m128i avg56 = mm_avg_epu(_mm_loadu_si128((const __m128i *)(srcp + 5)), _mm_loadu_si128((const __m128i *)(srcp + 6)));
+
+    __m128i avg012 = mm_avg_epu(_mm_loadu_si128((const __m128i *)(srcp)), avg12);
+    __m128i avg3456 = mm_avg_epu(avg34, avg56);
+    __m128i avg0123456 = mm_avg_epu(avg012, avg3456);
+    __m128i avg = mm_avg_epu(avg012, avg0123456);
+
+    _mm_storeu_si128((__m128i *)(dstp), avg);
+}
+
+
+static FORCE_INLINE void blur_r6_h_middle_sse2(const uint16_t *srcp, uint16_t *dstp)
+{
+    __m128i avg11 = mm_avg_epu(_mm_loadu_si128((const __m128i *)(srcp - 1)), _mm_loadu_si128((const __m128i *)(srcp + 1)));
+    __m128i avg22 = mm_avg_epu(_mm_loadu_si128((const __m128i *)(srcp - 2)), _mm_loadu_si128((const __m128i *)(srcp + 2)));
+    __m128i avg33 = mm_avg_epu(_mm_loadu_si128((const __m128i *)(srcp - 3)), _mm_loadu_si128((const __m128i *)(srcp + 3)));
+    __m128i avg44 = mm_avg_epu(_mm_loadu_si128((const __m128i *)(srcp - 4)), _mm_loadu_si128((const __m128i *)(srcp + 4)));
+    __m128i avg55 = mm_avg_epu(_mm_loadu_si128((const __m128i *)(srcp - 5)), _mm_loadu_si128((const __m128i *)(srcp + 5)));
+    __m128i avg66 = mm_avg_epu(_mm_loadu_si128((const __m128i *)(srcp - 6)), _mm_loadu_si128((const __m128i *)(srcp + 6)));
+
+    __m128i avg12 = mm_avg_epu(avg11, avg22);
+    __m128i avg34 = mm_avg_epu(avg33, avg44);
+    __m128i avg56 = mm_avg_epu(avg55, avg66);
+    __m128i avg012 = mm_avg_epu(_mm_loadu_si128((const __m128i *)(srcp)), avg12);
+    __m128i avg3456 = mm_avg_epu(avg34, avg56);
+    __m128i avg0123456 = mm_avg_epu(avg012, avg3456);
+    __m128i avg = mm_avg_epu(avg012, avg0123456);
+
+    _mm_storeu_si128((__m128i *)(dstp), avg);
+}
+
+
+static FORCE_INLINE void blur_r6_h_right_sse2(const uint16_t *srcp, uint16_t *dstp)
+{
+    __m128i avg12 = mm_avg_epu(_mm_loadu_si128((const __m128i *)(srcp - 1)), _mm_loadu_si128((const __m128i *)(srcp - 2)));
+    __m128i avg34 = mm_avg_epu(_mm_loadu_si128((const __m128i *)(srcp - 3)), _mm_loadu_si128((const __m128i *)(srcp - 4)));
+    __m128i avg56 = mm_avg_epu(_mm_loadu_si128((const __m128i *)(srcp - 5)), _mm_loadu_si128((const __m128i *)(srcp - 6)));
+
+    __m128i avg012 = mm_avg_epu(_mm_loadu_si128((const __m128i *)(srcp)), avg12);
+    __m128i avg3456 = mm_avg_epu(avg34, avg56);
+    __m128i avg0123456 = mm_avg_epu(avg012, avg3456);
+    __m128i avg = mm_avg_epu(avg012, avg0123456);
+
+    // This is the right edge. Only the highest six pixels are needed.
+        int extra_bytes = dstp[0];
+        avg = _mm_insert_epi16(avg, extra_bytes, 0);
+        extra_bytes = dstp[1];
+        avg = _mm_insert_epi16(avg, extra_bytes, 1);
+        _mm_storeu_si128((__m128i *)(dstp), avg);
+}
+
+
+static FORCE_INLINE void blur_r6_v_top_sse2(const uint16_t *srcp, uint16_t *dstp, int32_t scr_pitch)
+{
+    __m128i l0 = _mm_loadu_si128((const __m128i *)(srcp));
+    __m128i l1 = _mm_loadu_si128((const __m128i *)(srcp + scr_pitch));
+    __m128i l2 = _mm_loadu_si128((const __m128i *)(srcp + scr_pitch*2));
+    __m128i l3 = _mm_loadu_si128((const __m128i *)(srcp + scr_pitch*3));
+    __m128i l4 = _mm_loadu_si128((const __m128i *)(srcp + scr_pitch*4));
+    __m128i l5 = _mm_loadu_si128((const __m128i *)(srcp + scr_pitch*5));
+    __m128i l6 = _mm_loadu_si128((const __m128i *)(srcp + scr_pitch*6));
+
+    __m128i avg12 = mm_avg_epu(l1, l2);
+    __m128i avg34 = mm_avg_epu(l3, l4);
+    __m128i avg56 = mm_avg_epu(l5, l6);
+
+    __m128i avg3456 = mm_avg_epu(avg34, avg56);
+    __m128i avg012 = mm_avg_epu(l0, avg12);
+    __m128i avg0123456 = mm_avg_epu(avg012, avg3456);
+    __m128i avg = mm_avg_epu(avg012, avg0123456);
+
+    _mm_storeu_si128((__m128i *)(dstp), avg);
+}
+
+
+static FORCE_INLINE void blur_r6_v_middle_sse2(const uint16_t *srcp, uint16_t *dstp, int32_t scr_pitch)
+{
+    __m128i m6 = _mm_loadu_si128((const __m128i *)(srcp - scr_pitch*6));
+    __m128i m5 = _mm_loadu_si128((const __m128i *)(srcp - scr_pitch*5));
+    __m128i m4 = _mm_loadu_si128((const __m128i *)(srcp - scr_pitch*4));
+    __m128i m3 = _mm_loadu_si128((const __m128i *)(srcp - scr_pitch*3));
+    __m128i m2 = _mm_loadu_si128((const __m128i *)(srcp - scr_pitch*2));
+    __m128i m1 = _mm_loadu_si128((const __m128i *)(srcp - scr_pitch));
+    __m128i l0 = _mm_loadu_si128((const __m128i *)(srcp));
+    __m128i l1 = _mm_loadu_si128((const __m128i *)(srcp + scr_pitch));
+    __m128i l2 = _mm_loadu_si128((const __m128i *)(srcp + scr_pitch*2));
+    __m128i l3 = _mm_loadu_si128((const __m128i *)(srcp + scr_pitch*3));
+    __m128i l4 = _mm_loadu_si128((const __m128i *)(srcp + scr_pitch*4));
+    __m128i l5 = _mm_loadu_si128((const __m128i *)(srcp + scr_pitch*5));
+    __m128i l6 = _mm_loadu_si128((const __m128i *)(srcp + scr_pitch*6));
+
+    __m128i avg11 = mm_avg_epu(m1, l1);
+    __m128i avg22 = mm_avg_epu(m2, l2);
+    __m128i avg33 = mm_avg_epu(m3, l3);
+    __m128i avg44 = mm_avg_epu(m4, l4);
+    __m128i avg55 = mm_avg_epu(m5, l5);
+    __m128i avg66 = mm_avg_epu(m6, l6);
+
+    __m128i avg12 = mm_avg_epu(avg11, avg22);
+    __m128i avg34 = mm_avg_epu(avg33, avg44);
+    __m128i avg56 = mm_avg_epu(avg55, avg66);
+    __m128i avg012 = mm_avg_epu(l0, avg12);
+    __m128i avg3456 = mm_avg_epu(avg34, avg56);
+    __m128i avg0123456 = mm_avg_epu(avg012, avg3456);
+    __m128i avg = mm_avg_epu(avg012, avg0123456);
+
+    _mm_storeu_si128((__m128i *)(dstp), avg);
+}
+
+
+static FORCE_INLINE void blur_r6_v_bottom_sse2(const uint16_t *srcp, uint16_t *dstp, int32_t scr_pitch)
+{
+    __m128i m6 = _mm_loadu_si128((const __m128i *)(srcp - scr_pitch*6));
+    __m128i m5 = _mm_loadu_si128((const __m128i *)(srcp - scr_pitch*5));
+    __m128i m4 = _mm_loadu_si128((const __m128i *)(srcp - scr_pitch*4));
+    __m128i m3 = _mm_loadu_si128((const __m128i *)(srcp - scr_pitch*3));
+    __m128i m2 = _mm_loadu_si128((const __m128i *)(srcp - scr_pitch*2));
+    __m128i m1 = _mm_loadu_si128((const __m128i *)(srcp - scr_pitch));
+    __m128i l0 = _mm_loadu_si128((const __m128i *)(srcp));
+
+    __m128i avg12 = mm_avg_epu(m1, m2);
+    __m128i avg34 = mm_avg_epu(m3, m4);
+    __m128i avg56 = mm_avg_epu(m5, m6);
+    __m128i avg012 = mm_avg_epu(l0, avg12);
+    __m128i avg3456 = mm_avg_epu(avg34, avg56);
+    __m128i avg0123456 = mm_avg_epu(avg012, avg3456);
+    __m128i avg = mm_avg_epu(avg012, avg0123456);
+
+    _mm_storeu_si128((__m128i *)(dstp), avg);
+}
+
+
+static void blur_r6_u16_sse2(unsigned char *mask8,unsigned char *temp8,const int32_t mask_pitch_,const int32_t temp_pitch_,
+	const int32_t width,const int32_t height,bool processH,bool processV)
+{
+    // Horizontal blur from mask to temp.
+    // Vertical blur from temp back to mask.
+
+    uint16_t *mask = (uint16_t *)mask8;
+    uint16_t *temp = (uint16_t *)temp8;
+
+	const int32_t mask_pitch=mask_pitch_ >> 1;
+	const int32_t temp_pitch=temp_pitch_ >> 1;
+	const int32_t width2=width << 1;
+
+    const int32_t pixels_in_xmm = 8;
+
+    int32_t width_sse2 = (width & ~(pixels_in_xmm - 1)) + 12;
+    if (width_sse2 > mask_pitch)
+        width_sse2 -= pixels_in_xmm;
+
+    uint16_t *mask_orig = mask;
+    uint16_t *temp_orig = temp;
+
+	if (processH)
+	{
+	    // Horizontal blur.
+
+		const int32_t width_sse2m6=width_sse2-6;
+		const bool testwh=(width+12)>width_sse2;
+
+	    for (int32_t y=0; y<height; y++)
+		{
+			blur_r6_h_left_sse2(mask,temp);
+
+	        for (int32_t x=6; x<width_sse2m6; x+=pixels_in_xmm)
+		        blur_r6_h_middle_sse2(mask+x,temp+x);
+
+	        if (testwh)
+		        blur_r6_h_middle_sse2(mask+(width-pixels_in_xmm-6),temp+(width-pixels_in_xmm-6));
+
+	        blur_r6_h_right_sse2(mask+(width-pixels_in_xmm),temp+(width-pixels_in_xmm));
+
+	        mask += mask_pitch;
+		    temp += temp_pitch;
+		}
+	}
+	else
+	{
+	    for (int32_t y=0; y<height; y++)
+		{
+			memcpy(temp,mask,width2);
+			mask += mask_pitch;
+			temp += temp_pitch;
+		}
+	}
+
+	mask = mask_orig;
+	temp = temp_orig;
+
+	if (processV)
+	{
+	    // Vertical blur.
+
+		width_sse2 = width & ~(pixels_in_xmm - 1);
+		const bool testwv=width>width_sse2;
+
+	    for (int32_t y=0; y<6; y++)
+		{
+			for (int32_t x=0; x<width_sse2; x+=pixels_in_xmm)
+				blur_r6_v_top_sse2(temp+x,mask+x,temp_pitch);
+
+	        if (testwv)
+		        blur_r6_v_top_sse2(temp+(width-pixels_in_xmm),mask+(width-pixels_in_xmm),temp_pitch);
+
+	        mask += mask_pitch;
+		    temp += temp_pitch;
+		}
+
+		const int32_t heightm6=height-6;
+
+	    for (int32_t y=6; y<heightm6; y++)
+		{
+			for (int32_t x=0; x<width_sse2; x+=pixels_in_xmm)
+				blur_r6_v_middle_sse2(temp+x,mask+x,temp_pitch);
+
+	        if (testwv)
+		        blur_r6_v_middle_sse2(temp+(width-pixels_in_xmm),mask+(width-pixels_in_xmm),temp_pitch);
+
+			mask += mask_pitch;
+			temp += temp_pitch;
+		}
+
+	    for (int32_t y=heightm6; y<height; y++)
+		{
+			for (int32_t x=0; x<width_sse2; x+=pixels_in_xmm)
+				blur_r6_v_bottom_sse2(temp+x,mask+x,temp_pitch);
+
+	        if (testwv)
+		        blur_r6_v_bottom_sse2(temp+(width-pixels_in_xmm),mask+(width-pixels_in_xmm),temp_pitch);
+
+			mask += mask_pitch;
+			temp += temp_pitch;
+		}
+	}
+	else
+	{
+	    for (int32_t y=0; y<height; y++)
+		{
+			memcpy(mask,temp,width2);
+			mask += mask_pitch;
+			temp += temp_pitch;
+		}
+	}
+}
+
+
+static void blur_r6_u16_sse2_MT_H(unsigned char *mask8,unsigned char *temp8,const int32_t mask_pitch_,const int32_t temp_pitch_,
+	const int32_t width,const int32_t height,bool process,const int32_t ymin,const int32_t ymax)
+{
+    // Horizontal blur from mask to temp.
+    // Vertical blur from temp back to mask.
+
+    uint16_t *mask = (uint16_t *)(mask8+(ymin*mask_pitch_));
+    uint16_t *temp = (uint16_t *)(temp8+(ymin*temp_pitch_));
+
+	const int32_t mask_pitch=mask_pitch_ >> 1;
+	const int32_t temp_pitch=temp_pitch_ >> 1;
+	const int32_t width2=width << 1;
+
+    const int32_t pixels_in_xmm = 8;
+
+    int32_t width_sse2 = (width & ~(pixels_in_xmm - 1)) + 12;
+    if (width_sse2 > mask_pitch)
+        width_sse2 -= pixels_in_xmm;
+
+	if (process)
+	{
+	    // Horizontal blur.
+
+		const int32_t width_sse2m6=width_sse2-6;
+		const bool testwh=(width+12)>width_sse2;
+
+	    for (int32_t y=ymin; y<ymax; y++)
+		{
+			blur_r6_h_left_sse2(mask,temp);
+
+	        for (int32_t x=6; x<width_sse2m6; x+=pixels_in_xmm)
+		        blur_r6_h_middle_sse2(mask+x,temp+x);
+
+	        if (testwh)
+		        blur_r6_h_middle_sse2(mask+(width-pixels_in_xmm-6),temp+(width-pixels_in_xmm-6));
+
+	        blur_r6_h_right_sse2(mask+(width-pixels_in_xmm),temp+(width-pixels_in_xmm));
+
+	        mask += mask_pitch;
+		    temp += temp_pitch;
+		}
+	}
+	else
+	{
+	    for (int32_t y=ymin; y<ymax; y++)
+		{
+			memcpy(temp,mask,width2);
+			mask += mask_pitch;
+			temp += temp_pitch;
+		}
+	}
+}
+
+
+static void blur_r6_u16_sse2_MT_V(unsigned char *mask8,unsigned char *temp8,const int32_t mask_pitch_,const int32_t temp_pitch_,
+	const int32_t width,const int32_t height,bool process,const int32_t ymin,const int32_t ymax)
+{
+    // Horizontal blur from mask to temp.
+    // Vertical blur from temp back to mask.
+
+    uint16_t *mask = (uint16_t *)(mask8+(ymin*mask_pitch_));
+    uint16_t *temp = (uint16_t *)(temp8+(ymin*temp_pitch_));
+
+	const int32_t mask_pitch=mask_pitch_ >> 1;
+	const int32_t temp_pitch=temp_pitch_ >> 1;
+	const int32_t width2=width << 1;
+
+    const int32_t pixels_in_xmm = 8;
+
+	if (process)
+	{
+	    // Vertical blur.
+
+		int32_t width_sse2 = width & ~(pixels_in_xmm - 1);
+		const bool testwv=width>width_sse2;
+
+		int32_t y;
+		const int32_t heightm6=height-6;
+
+		if (ymin<6)
+		{
+			const int32_t ymax0=std::min(6,ymax);
+
+			for (y=ymin; y<ymax0; y++)
+			{
+				for (int32_t x=0; x<width_sse2; x+=pixels_in_xmm)
+					blur_r6_v_top_sse2(temp+x,mask+x,temp_pitch);
+
+				if (testwv)
+					blur_r6_v_top_sse2(temp+(width-pixels_in_xmm),mask+(width-pixels_in_xmm),temp_pitch);
+
+				mask += mask_pitch;
+				temp += temp_pitch;
+			}
+		}
+		else y=ymin;
+
+		if (ymax>6)
+		{
+			const int32_t ymax0=std::min(heightm6,ymax);
+
+			if (y<heightm6)
+			{
+				for (; y<ymax0; y++)
+				{
+					for (int32_t x=0; x<width_sse2; x+=pixels_in_xmm)
+						blur_r6_v_middle_sse2(temp+x,mask+x,temp_pitch);
+
+					if (testwv)
+						blur_r6_v_middle_sse2(temp+(width-pixels_in_xmm),mask+(width-pixels_in_xmm),temp_pitch);
+
+					mask += mask_pitch;
+					temp += temp_pitch;
+				}
+			}
+
+			if (ymax>heightm6)
+			{
+				for (; y<ymax; y++)
+				{
+					for (int32_t x=0; x<width_sse2; x+=pixels_in_xmm)
+						blur_r6_v_bottom_sse2(temp+x,mask+x,temp_pitch);
+
+					if (testwv)
+						blur_r6_v_bottom_sse2(temp+(width-pixels_in_xmm),mask+(width-pixels_in_xmm),temp_pitch);
+
+					mask += mask_pitch;
+					temp += temp_pitch;
+				}
+			}
+		}
+	}
+	else
+	{
+	    for (int32_t y=ymin; y<ymax; y++)
+		{
+			memcpy(mask,temp,width2);
+			mask += mask_pitch;
+			temp += temp_pitch;
+		}
+	}
+}
+
+
+
+static FORCE_INLINE void blur_r2_h_sse2(const uint16_t *srcp, uint16_t *dstp)
+{
+    __m128i avg1 = mm_avg_epu(_mm_loadu_si128((const __m128i *)(srcp - 1)), _mm_loadu_si128((const __m128i *)(srcp + 1)));
+    __m128i avg2 = mm_avg_epu(_mm_loadu_si128((const __m128i *)(srcp - 2)), _mm_loadu_si128((const __m128i *)(srcp + 2)));
+    __m128i middle = _mm_loadu_si128((const __m128i *)(srcp));
+    __m128i avg = mm_avg_epu(avg2, middle);
+    avg = mm_avg_epu(avg, middle);
+    avg = mm_avg_epu(avg, avg1);
+
+    _mm_storeu_si128((__m128i *)(dstp), avg);
+}
+
+
+static FORCE_INLINE void blur_r2_v_sse2(const uint16_t *srcp, uint16_t *dstp,const int32_t scr_pitch_p2,const int32_t scr_pitch_p1,
+	const int32_t scr_pitch_n1,const int32_t scr_pitch_n2)
+{
+    __m128i m2 = _mm_loadu_si128((const __m128i *)(srcp+scr_pitch_p2));
+    __m128i m1 = _mm_loadu_si128((const __m128i *)(srcp+scr_pitch_p1));
+    __m128i l0 = _mm_loadu_si128((const __m128i *)(srcp));
+    __m128i l1 = _mm_loadu_si128((const __m128i *)(srcp+scr_pitch_n1));
+    __m128i l2 = _mm_loadu_si128((const __m128i *)(srcp+scr_pitch_n2));
+
+    __m128i avg1 = mm_avg_epu(m1, l1);
+    __m128i avg2 = mm_avg_epu(m2, l2);
+    __m128i avg = mm_avg_epu(avg2, l0);
+    avg = mm_avg_epu(avg, l0);
+    avg = mm_avg_epu(avg, avg1);
+
+    _mm_storeu_si128((__m128i *)(dstp), avg);
+}
+
+
+static void blur_r2_u16_sse2(unsigned char *mask8,unsigned char *temp8,const int32_t mask_pitch_,const int32_t temp_pitch_,
+	const int32_t width,const int32_t height,bool processH,bool processV)
+{
+    // Horizontal blur from mask to temp.
+    // Vertical blur from temp back to mask.
+
+    uint16_t *mask = (uint16_t *)mask8;
+    uint16_t *temp = (uint16_t *)temp8;
+
+	const int32_t mask_pitch=mask_pitch_ >> 1;
+	const int32_t temp_pitch=temp_pitch_ >> 1;
+	const int32_t width2=width << 1;
+
+    const int32_t pixels_in_xmm = 8;
+
+    int32_t width_sse2 = (width & ~(pixels_in_xmm - 1)) + 4;
+    if (width_sse2 > mask_pitch)
+        width_sse2 -= pixels_in_xmm;
+		
+    uint16_t *mask_orig = mask;
+    uint16_t *temp_orig = temp;
+
+	if (processH)
+	{
+	    // Horizontal blur.
+
+		const int32_t width_sse2m2=width_sse2-2;
+		const bool testwh=(width+4)>width_sse2;
+
+		for (int32_t y=0; y<height; y++)
+		{
+		    int32_t avg,avg1,avg2;
+
+	        avg1=(mask[0]+mask[1]+1) >> 1;
+		    avg2=(mask[0]+mask[2]+1) >> 1;
+			avg=(avg2+mask[0]+1) >> 1;
+	        avg=(avg+mask[0]+1) >> 1;
+		    avg=(avg+avg1+1) >> 1;
+
+	        temp[0]=avg;
+
+		    avg1=(mask[0]+mask[2]+1) >> 1;
+			avg2=(mask[0]+mask[3]+1) >> 1;
+	        avg=(avg2+mask[1]+1) >> 1;
+		    avg=(avg+mask[1]+1) >> 1;
+			avg=(avg+avg1+1) >> 1;
+
+	        temp[1]=avg;
+
+		    for (int32_t x=2; x<width_sse2m2; x+=pixels_in_xmm)
+			    blur_r2_h_sse2(mask+x,temp+x);
+
+	        if (testwh)
+		        blur_r2_h_sse2(mask+(width-pixels_in_xmm-2),temp+(width-pixels_in_xmm-2));
+
+	        avg1=(mask[width-3]+mask[width-1]+1) >> 1;
+		    avg2=(mask[width-4]+mask[width-1]+1) >> 1;
+			avg=(avg2+ mask[width-2]+1) >> 1;
+	        avg=(avg+mask[width-2]+1) >> 1;
+		    avg=(avg+avg1+1) >> 1;
+
+	        temp[width-2]=avg;
+
+		    avg1=(mask[width-2]+mask[width-1]+1) >> 1;
+			avg2=(mask[width-3]+mask[width-1]+1) >> 1;
+	        avg=(avg2+mask[width-1]+1) >> 1;
+		    avg=(avg+mask[width-1]+1) >> 1;
+			avg=(avg+avg1+1) >> 1;
+
+	        temp[width-1]=avg;
+
+		    mask += mask_pitch;
+			temp += temp_pitch;
+		}
+	}
+	else
+	{
+	    for (int32_t y=0; y<height; y++)
+		{
+			memcpy(temp,mask,width2);
+			mask += mask_pitch;
+			temp += temp_pitch;
+		}
+	}
+
+	if (processV)
+	{
+	    // Vertical blur.
+
+		width_sse2 = width & ~(pixels_in_xmm - 1);
+		const bool testwv=width>width_sse2;
+
+	    mask = mask_orig;
+		temp = temp_orig;
+
+	    for (int32_t y=0; y<height; y++)
+		{
+			int temp_pitch_p1 = y ? -temp_pitch : 0;
+	        int temp_pitch_p2 = y > 1 ? temp_pitch_p1 * 2 : temp_pitch_p1;
+		    int temp_pitch_n1 = y < height - 1 ? temp_pitch : 0;
+			int temp_pitch_n2 = y < height - 2 ? temp_pitch_n1 * 2 : temp_pitch_n1;
+
+	        for (int32_t x=0; x<width_sse2; x+=pixels_in_xmm)
+		        blur_r2_v_sse2(temp+x,mask+x,temp_pitch_p2,temp_pitch_p1,temp_pitch_n1,temp_pitch_n2);
+
+			if (testwv)
+				blur_r2_v_sse2(temp+(width-pixels_in_xmm),mask+(width-pixels_in_xmm),
+					temp_pitch_p2,temp_pitch_p1,temp_pitch_n1,temp_pitch_n2);
+
+			mask += mask_pitch;
+			temp += temp_pitch;
+		}
+	}
+	else
+	{
+	    for (int32_t y=0; y<height; y++)
+		{
+			memcpy(mask,temp,width2);
+			mask += mask_pitch;
+			temp += temp_pitch;
+		}
+	}
+}
+
+
+
+static void blur_r2_u16_sse2_MT_H(unsigned char *mask8,unsigned char *temp8,const int32_t mask_pitch_,const int32_t temp_pitch_,
+	const int32_t width,const int32_t height,bool process,const int32_t ymin,const int32_t ymax)
+{
+    // Horizontal blur from mask to temp.
+    // Vertical blur from temp back to mask.
+
+    uint16_t *mask = (uint16_t *)(mask8+(ymin*mask_pitch_));
+    uint16_t *temp = (uint16_t *)(temp8+(ymin*temp_pitch_));
+
+	const int32_t mask_pitch=mask_pitch_ >> 1;
+	const int32_t temp_pitch=temp_pitch_ >> 1;
+	const int32_t width2=width << 1;
+
+    const int32_t pixels_in_xmm = 8;
+
+    int32_t width_sse2 = (width & ~(pixels_in_xmm - 1)) + 4;
+    if (width_sse2 > mask_pitch)
+        width_sse2 -= pixels_in_xmm;
+
+	if (process)
+	{
+	    // Horizontal blur.
+
+		const int32_t width_sse2m2=width_sse2-2;
+		const bool testwh=(width+4)>width_sse2;
+
+		for (int32_t y=ymin; y<ymax; y++)
+		{
+		    int32_t avg,avg1,avg2;
+
+	        avg1=(mask[0]+mask[1]+1) >> 1;
+		    avg2=(mask[0]+mask[2]+1) >> 1;
+			avg=(avg2+mask[0]+1) >> 1;
+	        avg=(avg+mask[0]+1) >> 1;
+		    avg=(avg+avg1+1) >> 1;
+
+	        temp[0]=avg;
+
+		    avg1=(mask[0]+mask[2]+1) >> 1;
+			avg2=(mask[0]+mask[3]+1) >> 1;
+	        avg=(avg2+mask[1]+1) >> 1;
+		    avg=(avg+mask[1]+1) >> 1;
+			avg=(avg+avg1+1) >> 1;
+
+	        temp[1]=avg;
+
+		    for (int32_t x=2; x<width_sse2m2; x+=pixels_in_xmm)
+			    blur_r2_h_sse2(mask+x,temp+x);
+
+	        if (testwh)
+		        blur_r2_h_sse2(mask+(width-pixels_in_xmm-2),temp+(width-pixels_in_xmm-2));
+
+	        avg1=(mask[width-3]+mask[width-1]+1) >> 1;
+		    avg2=(mask[width-4]+mask[width-1]+1) >> 1;
+			avg=(avg2+ mask[width-2]+1) >> 1;
+	        avg=(avg+mask[width-2]+1) >> 1;
+		    avg=(avg+avg1+1) >> 1;
+
+	        temp[width-2]=avg;
+
+		    avg1=(mask[width-2]+mask[width-1]+1) >> 1;
+			avg2=(mask[width-3]+mask[width-1]+1) >> 1;
+	        avg=(avg2+mask[width-1]+1) >> 1;
+		    avg=(avg+mask[width-1]+1) >> 1;
+			avg=(avg+avg1+1) >> 1;
+
+	        temp[width-1]=avg;
+
+		    mask += mask_pitch;
+			temp += temp_pitch;
+		}
+	}
+	else
+	{
+	    for (int32_t y=ymin; y<ymax; y++)
+		{
+			memcpy(temp,mask,width2);
+			mask += mask_pitch;
+			temp += temp_pitch;
+		}
+	}
+}
+
+
+
+static void blur_r2_u16_sse2_MT_V(unsigned char *mask8,unsigned char *temp8,const int32_t mask_pitch_,const int32_t temp_pitch_,
+	const int32_t width,const int32_t height,bool process,const int32_t ymin,const int32_t ymax)
+{
+    // Horizontal blur from mask to temp.
+    // Vertical blur from temp back to mask.
+
+    uint16_t *mask = (uint16_t *)(mask8+(ymin*mask_pitch_));
+    uint16_t *temp = (uint16_t *)(temp8+(ymin*temp_pitch_));
+
+	const int32_t mask_pitch=mask_pitch_ >> 1;
+	const int32_t temp_pitch=temp_pitch_ >> 1;
+	const int32_t width2=width << 1;
+
+    const int32_t pixels_in_xmm = 8;
+
+	if (process)
+	{
+	    // Vertical blur.
+
+		const int32_t width_sse2 = width & ~(pixels_in_xmm - 1);
+		const bool testwv=width>width_sse2;
+
+	    for (int32_t y=ymin; y<ymax; y++)
+		{
+			int temp_pitch_p1 = y ? -temp_pitch : 0;
+	        int temp_pitch_p2 = y > 1 ? temp_pitch_p1 * 2 : temp_pitch_p1;
+		    int temp_pitch_n1 = y < height - 1 ? temp_pitch : 0;
+			int temp_pitch_n2 = y < height - 2 ? temp_pitch_n1 * 2 : temp_pitch_n1;
+
+	        for (int32_t x=0; x<width_sse2; x+=pixels_in_xmm)
+		        blur_r2_v_sse2(temp+x,mask+x,temp_pitch_p2,temp_pitch_p1,temp_pitch_n1,temp_pitch_n2);
+
+			if (testwv)
+				blur_r2_v_sse2(temp+(width-pixels_in_xmm),mask+(width-pixels_in_xmm),
+					temp_pitch_p2,temp_pitch_p1,temp_pitch_n1,temp_pitch_n2);
+
+			mask += mask_pitch;
+			temp += temp_pitch;
+		}
+	}
+	else
+	{
+	    for (int32_t y=ymin; y<ymax; y++)
+		{
+			memcpy(mask,temp,width2);
+			mask += mask_pitch;
+			temp += temp_pitch;
+		}
+	}
+}
+
+
+
+static void warp0_u16_c(const unsigned char *srcp8,const unsigned char *edgep8,unsigned char *dstp8,const int32_t src_pitch_,
+	const int32_t edge_pitch_,const int32_t dst_pitch_,const int32_t width,const int32_t height,int depth,int depthV,
+	const uint8_t bits_per_sample)
+{
+    const uint16_t *srcp = (const uint16_t *)srcp8;
+    const uint16_t *edgep = (const uint16_t *)edgep8;
+    uint16_t *dstp = (uint16_t *)dstp8;
+
+	const int32_t src_pitch=src_pitch_ >> 1;
+	const int32_t edge_pitch=edge_pitch_ >> 1;
+	const int32_t dst_pitch=dst_pitch_ >> 1;
+
+    const uint8_t extra_bits = bits_per_sample-8;
+    const int32_t pixel_max = (1 << bits_per_sample)-1;
+
+    depth <<= 8;
+	depthV <<= 8;
+
+    const int32_t x_limit_min = 0;
+    const int32_t x_limit_max = width-1;
+	const int32_t heightm1 = height-1;
+
+    for (int32_t y=0; y<height; y++)
+	{
+        int32_t y_limit_min = -y*128;
+        int32_t y_limit_max = (height-y)*128-129; // (height - y - 1) * 128 - 1
+
+        for (int32_t x=0; x<width; x++)
+		{
+            // calculate displacement
+
+            int32_t above,below;
+
+            if (y==0) above=edgep[x];
+            else above=edgep[edge_pitch-x];
+
+            if (y==heightm1) below=edgep[x];
+            else below=edgep[x+edge_pitch];
+
+            int32_t left,right;
+
+            if (x==0) left=edgep[x];
+            else left=edgep[x-1];
+
+            if (x==x_limit_max) right=edgep[x];
+            else right=edgep[x+1];
+
+            int32_t h=left-right;
+            int32_t v=above-below;
+
+            h <<= 7;
+            v <<= 7;
+
+			h >>= extra_bits;
+            v >>= extra_bits;
+
+            h *= depth;
+            h >>= 16;
+            v *= depthV;
+            v >>= 16;
+
+            v = std::max(v,y_limit_min);
+            v = std::min(v,y_limit_max);
+
+            int32_t remainder_h = h;
+            int32_t remainder_v = v;
+
+            remainder_h &= 127; // remainder of the division by 128 (or 32 if it was shifted left by 2 above)
+            remainder_v &= 127;
+
+            h >>= 7; // shift by 7 (or 5); division by 128 (or 32)
+            v >>= 7;
+
+            h += x;
+            h = std::min(std::max(h,-32768),32767); // likely pointless
+
+            bool remainder_needed = (x_limit_max>h) && !(x_limit_min>h);
+            if (!remainder_needed) remainder_h = 0; // probably correct
+
+            h = std::min(h,x_limit_max);
+            h = std::max(h,x_limit_min);
+
+            // h and v contain the displacement now.
+
+            int32_t s00 = srcp[v*src_pitch+h];
+            int32_t s01 = srcp[v*src_pitch+h+1];
+            int32_t s10 = srcp[(v+1)*src_pitch+h];
+            int32_t s11 = srcp[(v+1)*src_pitch+h+1];
+
+            int32_t s0 = s00*(128-remainder_h);
+            int32_t s1 = s10*(128-remainder_h);
+
+            s0 += s01*remainder_h;
+            s1 += s11*remainder_h;
+
+            s0 += 64;
+            s1 += 64;
+
+            s0 >>= 7;
+            s1 >>= 7;
+
+            s0 *= 128-remainder_v;
+            s1 *= remainder_v;
+
+            int32_t s = s0+s1;
+
+            s += 64;
+
+            s >>= 7;
+
+            dstp[x]=(uint16_t)std::min(std::max(s,0),pixel_max);
+        }
+
+        srcp += src_pitch;
+        edgep += edge_pitch;
+        dstp += dst_pitch;
+    }
+}
+
+
+static void warp0_u16_c_MT(const unsigned char *srcp8,const unsigned char *edgep8,unsigned char *dstp8,const int32_t src_pitch_,
+	const int32_t edge_pitch_,const int32_t dst_pitch_,const int32_t width,const int32_t height,int depth,int depthV,
+	const uint8_t bits_per_sample,const int32_t ymin,const int32_t ymax)
+{
+    const uint16_t *srcp = (const uint16_t *)(srcp8+(ymin*src_pitch_));
+    const uint16_t *edgep = (const uint16_t *)(edgep8+(ymin*edge_pitch_));
+    uint16_t *dstp = (uint16_t *)(dstp8+(ymin*dst_pitch_));
+
+	const int32_t src_pitch=src_pitch_ >> 1;
+	const int32_t edge_pitch=edge_pitch_ >> 1;
+	const int32_t dst_pitch=dst_pitch_ >> 1;
+
+    const uint8_t extra_bits = bits_per_sample-8;
+    const int32_t pixel_max = (1 << bits_per_sample)-1;
+
+    depth <<= 8;
+	depthV <<= 8;
+
+    const int32_t x_limit_min = 0;
+    const int32_t x_limit_max = width-1;
+	const int32_t heightm1 = height-1;
+
+    for (int32_t y=ymin; y<ymax; y++)
+	{
+        int32_t y_limit_min = -y*128;
+        int32_t y_limit_max = (height-y)*128-129; // (height - y - 1) * 128 - 1
+
+        for (int32_t x=0; x<width; x++)
+		{
+            // calculate displacement
+
+            int32_t above,below;
+
+            if (y==0) above=edgep[x];
+            else above=edgep[edge_pitch-x];
+
+            if (y==heightm1) below=edgep[x];
+            else below=edgep[x+edge_pitch];
+
+            int32_t left,right;
+
+            if (x==0) left=edgep[x];
+            else left=edgep[x-1];
+
+            if (x==x_limit_max) right=edgep[x];
+            else right=edgep[x+1];
+
+            int32_t h=left-right;
+            int32_t v=above-below;
+
+            h <<= 7;
+            v <<= 7;
+
+            h >>= extra_bits;
+            v >>= extra_bits;
+
+            h *= depth;
+            h >>= 16;
+            v *= depthV;
+            v >>= 16;
+
+            v = std::max(v,y_limit_min);
+            v = std::min(v,y_limit_max);
+
+            int32_t remainder_h = h;
+            int32_t remainder_v = v;
+
+            remainder_h &= 127; // remainder of the division by 128 (or 32 if it was shifted left by 2 above)
+            remainder_v &= 127;
+
+            h >>= 7; // shift by 7 (or 5); division by 128 (or 32)
+            v >>= 7;
+
+            h += x;
+            h = std::min(std::max(h,-32768),32767); // likely pointless
+
+            bool remainder_needed = (x_limit_max>h) && !(x_limit_min>h);
+            if (!remainder_needed) remainder_h = 0; // probably correct
+
+            h = std::min(h,x_limit_max);
+            h = std::max(h,x_limit_min);
+
+            // h and v contain the displacement now.
+
+            int32_t s00 = srcp[v*src_pitch+h];
+            int32_t s01 = srcp[v*src_pitch+h+1];
+            int32_t s10 = srcp[(v+1)*src_pitch+h];
+            int32_t s11 = srcp[(v+1)*src_pitch+h+1];
+
+            int32_t s0 = s00*(128-remainder_h);
+            int32_t s1 = s10*(128-remainder_h);
+
+            s0 += s01*remainder_h;
+            s1 += s11*remainder_h;
+
+            s0 += 64;
+            s1 += 64;
+
+            s0 >>= 7;
+            s1 >>= 7;
+
+            s0 *= 128-remainder_v;
+            s1 *= remainder_v;
+
+            int32_t s = s0+s1;
+
+            s += 64;
+
+            s >>= 7;
+
+            dstp[x]=(uint16_t)std::min(std::max(s,0),pixel_max);
+        }
+
+        srcp += src_pitch;
+        edgep += edge_pitch;
+        dstp += dst_pitch;
+    }
+}
+
+
+static void warp2_u16_c(const unsigned char *srcp8,const unsigned char *edgep8,unsigned char *dstp8,const int32_t src_pitch_,
+	const int32_t edge_pitch_,const int32_t dst_pitch_,const int32_t width,const int32_t height, int depth, int depthV,
+	const uint8_t bits_per_sample)
+{
+    const uint16_t *srcp = (const uint16_t *)srcp8;
+    const uint16_t *edgep = (const uint16_t *)edgep8;
+    uint16_t *dstp = (uint16_t *)dstp8;
+
+	const int32_t src_pitch=src_pitch_ >> 1;
+	const int32_t edge_pitch=edge_pitch_ >> 1;
+	const int32_t dst_pitch=dst_pitch_ >> 1;
+
+    const uint8_t extra_bits = bits_per_sample-8;
+    const int32_t pixel_max = (1 << bits_per_sample)-1;
+
+    depth <<= 8;
+	depthV <<= 8;
+
+    const int32_t x_limit_min = 0;
+    const int32_t x_limit_max = (width-1) << 2;
+	const int32_t heightm1 = height-1;
+	const int32_t widthm1 = width-1;
+
+    for (int32_t y=0; y<height; y++)
+	{
+        int32_t y_limit_min = -y*128;
+        int32_t y_limit_max = (height-y)*128-129; // (height - y - 1) * 128 - 1
+
+        for (int32_t x=0; x<width; x++)
+		{
+            // calculate displacement
+
+            int32_t above,below;
+
+            if (y==0) above = edgep[x];
+            else above = edgep[x-edge_pitch];
+
+            if (y==heightm1) below = edgep[x];
+            else below = edgep[x+edge_pitch];
+
+            int32_t left,right;
+
+            if (x==0) left = edgep[x];
+            else left = edgep[x-1];
+
+            if (x==widthm1) right = edgep[x];
+            else right = edgep[x+1];
+
+            int32_t h = left-right;
+            int32_t v = above-below;
+
+            h <<= 7;
+            v <<= 7;
+
+			h >>= extra_bits;
+            v >>= extra_bits;
+
+            h *= depth;
+            h >>= 16;
+            v *= depthV;
+            v >>= 16;
+
+            v = std::max(v,y_limit_min);
+            v = std::min(v,y_limit_max);
+
+            int32_t remainder_h = h;
+            int32_t remainder_v = v;
+
+            remainder_h <<= 2; // shift by 2; multiply by 4
+            remainder_v <<= 2;
+
+            remainder_h &= 127; // remainder of the division by 128 (or 32 if it was shifted left by 2 above)
+            remainder_v &= 127;
+
+            h >>= 7 - 2; // shift by 7 (or 5); division by 128 (or 32)
+            v >>= 7 - 2;
+
+            h += x << 2;
+            h = std::min(std::max(h,-32768),32767); // likely pointless
+
+            bool remainder_needed = (x_limit_max>h) && !(x_limit_min>h);
+            if (!remainder_needed) remainder_h = 0; // probably correct
+
+            h = std::min(h,x_limit_max);
+            h = std::max(h,x_limit_min);
+
+            // h and v contain the displacement now.
+
+            int32_t s00 = srcp[v*src_pitch+h];
+            int32_t s01 = srcp[v*src_pitch+h+1];
+            int32_t s10 = srcp[(v + 1)*src_pitch+h];
+            int32_t s11 = srcp[(v + 1)*src_pitch+h+1];
+
+            int32_t s0 = s00*(128-remainder_h);
+            int32_t s1 = s10*(128-remainder_h);
+
+            s0 += s01*remainder_h;
+            s1 += s11*remainder_h;
+
+            s0 += 64;
+            s1 += 64;
+
+            s0 >>= 7;
+            s1 >>= 7;
+
+            s0 *= 128-remainder_v;
+            s1 *= remainder_v;
+
+            int32_t s = s0+s1;
+
+            s += 64;
+
+            s >>= 7;
+
+            dstp[x] = (uint16_t)std::min(std::max(s,0),pixel_max);
+        }
+
+        srcp += src_pitch << 2;
+        edgep += edge_pitch;
+        dstp += dst_pitch;
+    }
+}
+
+
+static void warp2_u16_c_MT(const unsigned char *srcp8,const unsigned char *edgep8,unsigned char *dstp8,const int32_t src_pitch_,
+	const int32_t edge_pitch_,const int32_t dst_pitch_,const int32_t width,const int32_t height, int depth, int depthV,
+	const uint8_t bits_per_sample,const int32_t ymin,const int32_t ymax)
+{
+    const uint16_t *srcp = (const uint16_t *)(srcp8+(ymin*(src_pitch_ << 2)));
+    const uint16_t *edgep = (const uint16_t *)(edgep8+(ymin*edge_pitch_));
+    uint16_t *dstp = (uint16_t *)(dstp8+(ymin*dst_pitch_));
+
+	const int32_t src_pitch=src_pitch_ >> 1;
+	const int32_t edge_pitch=edge_pitch_ >> 1;
+	const int32_t dst_pitch=dst_pitch_ >> 1;
+
+    const uint8_t extra_bits = bits_per_sample-8;
+    const int32_t pixel_max = (1 << bits_per_sample)-1;
+
+    depth <<= 8;
+	depthV <<= 8;
+
+    const int32_t x_limit_min = 0;
+    const int32_t x_limit_max = (width-1) << 2;
+	const int32_t heightm1 = height-1;
+	const int32_t widthm1 = width-1;
+
+    for (int32_t y=ymin; y<ymax; y++)
+	{
+        int32_t y_limit_min = -y*128;
+        int32_t y_limit_max = (height-y)*128-129; // (height - y - 1) * 128 - 1
+
+        for (int32_t x=0; x<width; x++)
+		{
+            // calculate displacement
+
+            int32_t above,below;
+
+            if (y==0) above = edgep[x];
+            else above = edgep[x-edge_pitch];
+
+            if (y==heightm1) below = edgep[x];
+            else below = edgep[x+edge_pitch];
+
+            int32_t left,right;
+
+            if (x==0) left = edgep[x];
+            else left = edgep[x-1];
+
+            if (x==widthm1) right = edgep[x];
+            else right = edgep[x+1];
+
+            int32_t h = left-right;
+            int32_t v = above-below;
+
+            h <<= 7;
+            v <<= 7;
+
+			h >>= extra_bits;
+            v >>= extra_bits;
+
+            h *= depth;
+            h >>= 16;
+            v *= depthV;
+            v >>= 16;
+
+            v = std::max(v,y_limit_min);
+            v = std::min(v,y_limit_max);
+
+            int32_t remainder_h = h;
+            int32_t remainder_v = v;
+
+            remainder_h <<= 2; // shift by 2; multiply by 4
+            remainder_v <<= 2;
+
+            remainder_h &= 127; // remainder of the division by 128 (or 32 if it was shifted left by 2 above)
+            remainder_v &= 127;
+
+            h >>= 7 - 2; // shift by 7 (or 5); division by 128 (or 32)
+            v >>= 7 - 2;
+
+            h += x << 2;
+            h = std::min(std::max(h,-32768),32767); // likely pointless
+
+            bool remainder_needed = (x_limit_max>h) && !(x_limit_min>h);
+            if (!remainder_needed) remainder_h = 0; // probably correct
+
+            h = std::min(h,x_limit_max);
+            h = std::max(h,x_limit_min);
+
+            // h and v contain the displacement now.
+
+            int32_t s00 = srcp[v*src_pitch+h];
+            int32_t s01 = srcp[v*src_pitch+h+1];
+            int32_t s10 = srcp[(v + 1)*src_pitch+h];
+            int32_t s11 = srcp[(v + 1)*src_pitch+h+1];
+
+            int32_t s0 = s00*(128-remainder_h);
+            int32_t s1 = s10*(128-remainder_h);
+
+            s0 += s01*remainder_h;
+            s1 += s11*remainder_h;
+
+            s0 += 64;
+            s1 += 64;
+
+            s0 >>= 7;
+            s1 >>= 7;
+
+            s0 *= 128-remainder_v;
+            s1 *= remainder_v;
+
+            int32_t s = s0+s1;
+
+            s += 64;
+
+            s >>= 7;
+
+            dstp[x] = (uint16_t)std::min(std::max(s,0),pixel_max);
+        }
+
+        srcp += src_pitch << 2;
+        edgep += edge_pitch;
+        dstp += dst_pitch;
+    }
+}
+
 
 
 static void Warp0_8(const unsigned char *psrc,const unsigned char *pedg,unsigned char *pdst,const int32_t src_pitch,
@@ -421,8 +1803,8 @@ static void BlurR6_8(unsigned char *const psrc,unsigned char *const ptmp,const i
 }
 
 
-static void BlurR6_8_MT(unsigned char *const psrc,unsigned char *const ptmp,const int32_t src_pitch,const int32_t tmp_pitch,
-	const int32_t src_height,const int32_t src_row_size,bool processH,bool processV,const int32_t ymin,const int32_t ymax)
+static void BlurR6_8_MT_H(unsigned char *const psrc,unsigned char *const ptmp,const int32_t src_pitch,const int32_t tmp_pitch,
+	const int32_t src_height,const int32_t src_row_size,bool process,const int32_t ymin,const int32_t ymax)
 {
   const int32_t src_row_size_16 = (src_row_size + 15) >> 4;
   unsigned char *psrc2,*ptmp2;
@@ -432,7 +1814,7 @@ static void BlurR6_8_MT(unsigned char *const psrc,unsigned char *const ptmp,cons
 
   // Horizontal Blur
   // WxH min: 1x1, mul: 1x1 (write 16x1)
-  if (processH)
+  if (process)
   {
 	  if ((aWarpSharp_g_cpuid & CPUF_SSSE3)!=0) // SSSE3
 		// SSSE3 version (palignr, pshufb)
@@ -461,12 +1843,20 @@ static void BlurR6_8_MT(unsigned char *const psrc,unsigned char *const ptmp,cons
 		  ptmp2 += tmp_pitch;
 	  }
   }
+}
 
+
+static void BlurR6_8_MT_V(unsigned char *const psrc,unsigned char *const ptmp,const int32_t src_pitch,const int32_t tmp_pitch,
+	const int32_t src_height,const int32_t src_row_size,bool process,const int32_t ymin,const int32_t ymax)
+{
+  const int32_t src_row_size_16 = (src_row_size + 15) >> 4;
+  unsigned char *psrc2,*ptmp2;
+   
   // Vertical Blur
   // WxH min: 1x12, mul: 1x1 (write 16x1)
   psrc2 = psrc+ymin*src_pitch;
 
-  if (processV)
+  if (process)
   {
     // SSE2 version
     int32_t y;
@@ -527,7 +1917,6 @@ static void BlurR6_8_MT(unsigned char *const psrc,unsigned char *const ptmp,cons
   }
 
 }
-
 
 // WxH min: 1x1, mul: 1x1 (write 16x1)
 // (2)/8 + (1)*4/8 + (0)*3/8
@@ -609,8 +1998,8 @@ static void BlurR2_8(unsigned char *const psrc,unsigned char *const ptmp,const i
 
 // WxH min: 1x1, mul: 1x1 (write 16x1)
 // (2)/8 + (1)*4/8 + (0)*3/8
-static void BlurR2_8_MT(unsigned char *const psrc,unsigned char *const ptmp,const int32_t src_pitch,const int32_t tmp_pitch,
-	 const int32_t src_height,const int32_t src_row_size,bool processH,bool processV,const int32_t ymin,const int32_t ymax)
+static void BlurR2_8_MT_H(unsigned char *const psrc,unsigned char *const ptmp,const int32_t src_pitch,const int32_t tmp_pitch,
+	 const int32_t src_height,const int32_t src_row_size,bool process,const int32_t ymin,const int32_t ymax)
 {
   const int32_t src_row_size_16 = (src_row_size+0xF) & ~0xF;
   unsigned char *psrc2,*ptmp2;
@@ -620,7 +2009,7 @@ static void BlurR2_8_MT(unsigned char *const psrc,unsigned char *const ptmp,cons
 
   // Horizontal Blur
   // WxH min: 1x1, mul: 1x1 (write 16x1)
-  if (processH)
+  if (process)
   {
 	  if ((aWarpSharp_g_cpuid & CPUF_SSSE3)!=0)
 		// SSSE3 version (palignr, pshufb)
@@ -649,13 +2038,26 @@ static void BlurR2_8_MT(unsigned char *const psrc,unsigned char *const ptmp,cons
 		  ptmp2 += tmp_pitch;
 	  }
   }
+}
+
+
+// WxH min: 1x1, mul: 1x1 (write 16x1)
+// (2)/8 + (1)*4/8 + (0)*3/8
+static void BlurR2_8_MT_V(unsigned char *const psrc,unsigned char *const ptmp,const int32_t src_pitch,const int32_t tmp_pitch,
+	 const int32_t src_height,const int32_t src_row_size,bool process,const int32_t ymin,const int32_t ymax)
+{
+  const int32_t src_row_size_16 = (src_row_size+0xF) & ~0xF;
+  unsigned char *psrc2,*ptmp2;
+
+  psrc2 = psrc+src_pitch*ymin;
+  ptmp2 = ptmp+tmp_pitch*ymin;
 
   psrc2 = psrc+src_pitch*ymin;
   ptmp2 = ptmp+tmp_pitch*ymin;
 
   // Vertical Blur
   // WxH min: 1x1, mul: 1x1 (write 16x1)
-  if (processV)
+  if (process)
   {
 	 // SSE2 version
 	const int32_t height_1=src_height-1,height_2=src_height-2;
@@ -683,7 +2085,6 @@ static void BlurR2_8_MT(unsigned char *const psrc,unsigned char *const ptmp,cons
 	  }
   }
 }
-
 
 static bool GuideChroma_8(const unsigned char *py,unsigned char *pu,const int32_t src_pitch_y,const int32_t dst_pitch_uv,
 	const int32_t dst_height_uv,const int32_t dst_width_uv,const int32_t subspl_dst_h_l2,
@@ -779,6 +2180,118 @@ static bool GuideChroma_8(const unsigned char *py,unsigned char *pu,const int32_
 		memcpy(pu,py,dst_width_uv);
 		pu+=dst_pitch_uv;
 		py+=src_pitch_y;
+    }
+
+	return(true);
+  }
+
+  else return(false);
+}
+
+
+static bool GuideChroma_16(const unsigned char *py_,unsigned char *pu_,const int32_t src_pitch_y,const int32_t dst_pitch_uv,
+	const int32_t dst_height_uv,const int32_t dst_width_uv,const int32_t subspl_dst_h_l2,
+	const int32_t subspl_dst_v_l2,bool cplace_mpeg2_flag)
+{
+  const int32_t src_pitch_y2=src_pitch_y >> 1;
+  const int32_t dst_pitch_uv2 = dst_pitch_uv >> 1;
+  const int32_t dst_width_uv2 = dst_width_uv << 1;
+  const uint16_t *py=(const uint16_t *)py_;
+  uint16_t *pu=(uint16_t *)pu_;
+
+  // 4:2:0
+  if ((subspl_dst_h_l2==1) && (subspl_dst_v_l2==1))
+  {
+    // MPEG-2 chroma placement
+    if (cplace_mpeg2_flag)
+    {
+      for (int32_t y=0; y<dst_height_uv; y++)
+      {
+        int32_t c2 = py[0]+py[src_pitch_y2];
+
+        for (int32_t x=0; x<dst_width_uv; x++)
+        {
+		  const int32_t x_2=x << 1;
+          const int32_t c0=c2;
+          const int32_t c1=py[x_2]+py[src_pitch_y2+x_2];
+          c2 = py[x_2+1]+py[src_pitch_y2+x_2+1];
+          pu[x] = static_cast <uint16_t> ((c0 + (c1<<1) + c2 + 4) >> 3);
+        }
+        py += src_pitch_y;
+        pu += dst_pitch_uv2;
+      }
+    }
+
+    // MPEG-1
+    else
+    {
+        for (int32_t y=0; y<dst_height_uv; y++)
+        {
+			for (int32_t x=0; x<dst_width_uv; x++)
+			{
+				const int32_t x_2=x << 1;
+				const int avg1=(py[x_2]+py[x_2+1]+1)>>1;
+				const int avg2=(py[src_pitch_y2+x_2]+py[src_pitch_y2+x_2+1]+1)>>1;
+				pu[x]= static_cast <uint16_t> (avg1 + avg2 + 1) >> 1;
+			}
+          py += src_pitch_y;
+          pu += dst_pitch_uv2;
+        }
+    }	// MPEG-1
+
+	return(true);
+  }
+
+  // 4:2:2
+  else if ((subspl_dst_h_l2==1) && (subspl_dst_v_l2==0))
+  {
+    // MPEG-2 chroma placement
+    if (cplace_mpeg2_flag)
+    {
+      for (int32_t y=0; y<dst_height_uv; y++)
+      {
+        int32_t c2 = py[0];
+
+        for (int32_t x=0; x<dst_width_uv; x++)
+        {
+		  const int32_t x_2=x<<1;
+          const int32_t c0=c2;
+          const int32_t c1=py[x_2];
+
+          c2 = py[x_2+1];
+          pu[x] = static_cast <uint16_t> ((c0 + (c1 << 1) + c2 + 2) >> 2);
+        }
+        py += src_pitch_y2;
+        pu += dst_pitch_uv2;
+      }
+    }
+
+    // MPEG-1
+    else
+    {
+        for (int32_t y=0; y<dst_height_uv; y++)
+        {
+			for (int32_t x=0; x<dst_width_uv; x++)
+			{
+				const int32_t x_2=x << 1;
+				pu[x] = static_cast <uint16_t> (py[x_2]+py[x_2]+1)>>1;
+			}
+          py += src_pitch_y2;
+          pu += dst_pitch_uv2;
+        }
+    }	// MPEG-1
+
+	return(true);
+  }
+
+  // 4:4:4
+  else if ((subspl_dst_h_l2==0) && (subspl_dst_v_l2==0))
+  {
+    for (int32_t y=0; y<dst_height_uv; y++)
+    {
+		memcpy(pu,py,dst_width_uv2);
+		pu+=dst_pitch_uv2;
+		py+=src_pitch_y2;
     }
 
 	return(true);
@@ -893,7 +2406,124 @@ void GuideChroma_8_MT(const unsigned char *py,unsigned char *pu,const int32_t sr
 }
 
 
-static bool GuideChroma_8_Test(const int32_t subspl_dst_h_l2,const int32_t subspl_dst_v_l2)
+void GuideChroma_16_MT(const unsigned char *py_,unsigned char *pu_,const int32_t src_pitch_y,const int32_t dst_pitch_uv,
+	const int32_t dst_height_uv,const int32_t dst_width_uv,const int32_t subspl_dst_h_l2,
+	const int32_t subspl_dst_v_l2,bool cplace_mpeg2_flag,const int32_t ymin,const int32_t ymax)
+{
+  const int32_t src_pitch_y2=src_pitch_y >> 1;
+  const int32_t dst_pitch_uv2 = dst_pitch_uv >> 1;
+  const int32_t dst_width_uv2 = dst_width_uv << 1;
+  const uint16_t *py=(const uint16_t *)py_;
+  uint16_t *pu=(uint16_t *)pu_;
+  
+  // 4:2:0
+  if ((subspl_dst_h_l2==1) && (subspl_dst_v_l2==1))
+  {
+	  py += src_pitch_y*ymin;
+	  pu += dst_pitch_uv2*ymin;
+    // MPEG-2 chroma placement
+    if (cplace_mpeg2_flag)
+    {
+      for (int32_t y=ymin; y<ymax; y++)
+      {
+        int32_t c2 = py[0]+py[src_pitch_y];
+
+        for (int32_t x=0; x<dst_width_uv; x++)
+        {
+		  const int32_t x_2=x << 1;
+          const int32_t c0=c2;
+          const int32_t c1=py[x_2]+py[src_pitch_y+x_2];
+
+          c2 = py[x_2+1]+py[src_pitch_y+x_2+1];
+          pu[x] = static_cast <unsigned char> ((c0 + (c1<<1) + c2 + 4) >> 3);
+        }
+        py += src_pitch_y;
+        pu += dst_pitch_uv2;
+      }
+    }
+
+    // MPEG-1
+    else
+    {
+		for (int32_t y=ymin; y<ymax; y++)
+		{
+			for (int32_t x=0; x<dst_width_uv; x++)
+			{
+				const int32_t x_2=x << 1;
+				const int avg1=(py[x_2]+py[x_2+1]+1)>>1;
+				const int avg2=(py[src_pitch_y2+x_2]+py[src_pitch_y2+x_2+1]+1)>>1;
+
+				pu[x]= static_cast <uint16_t> (avg1 + avg2 + 1) >> 1;
+			}
+          py += src_pitch_y;
+          pu += dst_pitch_uv2;
+        }
+    }	// MPEG-1
+  }
+
+  // 4:2:2
+  else if ((subspl_dst_h_l2==1) && (subspl_dst_v_l2==0))
+  {
+	  py += src_pitch_y2*ymin;
+	  pu += dst_pitch_uv2*ymin;
+
+    // MPEG-2 chroma placement
+    if (cplace_mpeg2_flag)
+    {
+      for (int32_t y=ymin; y<ymax; y++)
+      {
+        int32_t c2 = py[0];
+
+        for (int32_t x=0; x<dst_width_uv; x++)
+        {
+		  const int32_t x_2=x<<1;
+          const int32_t c0=c2;
+          const int32_t c1=py[x_2];
+
+          c2 = py[x_2+1];
+          pu[x] = static_cast <unsigned char> ((c0 + (c1 << 1) + c2 + 2) >> 2);
+        }
+        py += src_pitch_y2;
+        pu += dst_pitch_uv2;
+      }
+    }
+
+    // MPEG-1
+    else
+    {
+		for (int32_t y=ymin; y<ymax; y++)
+		{
+			for (int32_t x=0; x<dst_width_uv; x++)
+			{
+				const int32_t x_2=x << 1;
+
+				pu[x] = static_cast <uint16_t> (py[x_2]+py[x_2]+1)>>1;
+			}
+          py += src_pitch_y2;
+          pu += dst_pitch_uv2;
+        }
+    }	// MPEG-1
+
+  }
+
+  // 4:4:4
+  else if ((subspl_dst_h_l2==0) && (subspl_dst_v_l2==0))
+  {
+	  py += src_pitch_y2*ymin;
+	  pu += dst_pitch_uv2*ymin;
+
+    for (int32_t y=ymin; y<ymax; y++)
+    {
+		memcpy(pu,py,dst_width_uv2);
+		pu+=dst_pitch_uv2;
+		py+=src_pitch_y2;
+    }
+  }
+
+}
+
+
+static bool GuideChroma_Test(const int32_t subspl_dst_h_l2,const int32_t subspl_dst_v_l2)
 {
   // 4:2:0
   if ((subspl_dst_h_l2==1) && (subspl_dst_v_l2==1))
@@ -916,7 +2546,7 @@ static bool GuideChroma_8_Test(const int32_t subspl_dst_h_l2,const int32_t subsp
 }
 
 
-static void SetPlane(PVideoFrame &dst, int plane, int value, const VideoInfo &dst_vi)
+static void SetPlane(PVideoFrame &dst,const int plane,const uint16_t value, const VideoInfo &dst_vi)
 {
   const int dst_pitch = dst->GetPitch(plane);
   unsigned char *pdst = dst->GetWritePtr(plane);
@@ -928,6 +2558,23 @@ static void SetPlane(PVideoFrame &dst, int plane, int value, const VideoInfo &ds
   else
     for (; height--; pdst += dst_pitch)
       memset(pdst, value, dst_row_size);
+}
+
+
+static void SetPlane_16(PVideoFrame &dst, int plane,const uint16_t value, const VideoInfo &dst_vi)
+{
+  const int dst_pitch = dst->GetPitch(plane);
+  unsigned char *pdst = dst->GetWritePtr(plane);
+  const int width = (dst->GetRowSize() >> dst_vi.GetPlaneWidthSubsampling(plane)) >> 1;
+  int height = dst->GetHeight() >> dst_vi.GetPlaneHeightSubsampling(plane);
+
+    for (; height--; pdst += dst_pitch)
+	{
+		uint16_t *p=(uint16_t *)pdst;
+
+		for(uint16_t i=0; i<width; i++)
+			*p++=value;
+	}
 }
 
 
@@ -1118,8 +2765,12 @@ aWarpSharp::aWarpSharp(PClip _child, int _thresh, int _blur_level, int _blur_typ
 	isRGBPfamily = vi.IsPlanarRGB() || vi.IsPlanarRGBA();
 	isAlphaChannel = vi.IsYUVA() || vi.IsPlanarRGBA();
 
-	if (vi.IsY8()) chroma = 1;
+	pixelsize = (uint8_t)vi.ComponentSize(); // AVS16
+	bits_per_pixel = (uint8_t)vi.BitsPerComponent();
 
+	if (grey) chroma = 1;
+
+	if (pixelsize>2) env->ThrowError("aWarpSharp: Only 8 -> 16 bits supported");
 	if (!(vi.IsYUV() && vi.IsPlanar())) env->ThrowError("aWarpSharp: Planar YUV input is required");
 	if ((thresh<0) || (thresh>255)) env->ThrowError("aWarpSharp: 'thresh' must be 0..255");
 	if ((threshC<0) || (threshC>255)) env->ThrowError("aWarpSharp: 'threshC' must be 0..255");
@@ -1216,104 +2867,99 @@ void aWarpSharp::StaticThreadpool(void *ptr)
 				mt_data_inf.row_size_Y2,ptrClass->thresh,mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
 			break;
 		case 2 :
-			BlurR2_8_MT((unsigned char *const)mt_data_inf.dst_Y1,(unsigned char *const)mt_data_inf.dst_Y2,
+			BlurR2_8_MT_H((unsigned char *const)mt_data_inf.dst_Y1,(unsigned char *const)mt_data_inf.dst_Y2,
 				mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_Y2,mt_data_inf.dst_Y_h,
-				mt_data_inf.row_size_Y2,true,true,mt_data_inf.dst_Y_h_min,mt_data_inf.dst_Y_h_max);
+				mt_data_inf.row_size_Y2,true,mt_data_inf.dst_Y_h_min,mt_data_inf.dst_Y_h_max);
 			break;
 		case 3 :
-			BlurR6_8_MT((unsigned char *const)mt_data_inf.dst_Y1,(unsigned char *const)mt_data_inf.dst_Y2,
+			BlurR2_8_MT_V((unsigned char *const)mt_data_inf.dst_Y1,(unsigned char *const)mt_data_inf.dst_Y2,
 				mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_Y2,mt_data_inf.dst_Y_h,
-				mt_data_inf.row_size_Y2,true,true,mt_data_inf.dst_Y_h_min,mt_data_inf.dst_Y_h_max);
+				mt_data_inf.row_size_Y2,true,mt_data_inf.dst_Y_h_min,mt_data_inf.dst_Y_h_max);
 			break;
 		case 4 :
-			BlurR2_8_MT((unsigned char *const)mt_data_inf.dst_Y1,(unsigned char *const)mt_data_inf.dst_Y2,
+			BlurR6_8_MT_H((unsigned char *const)mt_data_inf.dst_Y1,(unsigned char *const)mt_data_inf.dst_Y2,
 				mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_Y2,mt_data_inf.dst_Y_h,
-				mt_data_inf.row_size_Y2,mt_data_inf.processH,mt_data_inf.processV,mt_data_inf.dst_Y_h_min,mt_data_inf.dst_Y_h_max);
+				mt_data_inf.row_size_Y2,true,mt_data_inf.dst_Y_h_min,mt_data_inf.dst_Y_h_max);
 			break;
 		case 5 :
-			BlurR6_8_MT((unsigned char *const)mt_data_inf.dst_Y1,(unsigned char *const)mt_data_inf.dst_Y2,
+			BlurR6_8_MT_V((unsigned char *const)mt_data_inf.dst_Y1,(unsigned char *const)mt_data_inf.dst_Y2,
 				mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_Y2,mt_data_inf.dst_Y_h,
-				mt_data_inf.row_size_Y2,mt_data_inf.processH,mt_data_inf.processV,mt_data_inf.dst_Y_h_min,mt_data_inf.dst_Y_h_max);
+				mt_data_inf.row_size_Y2,true,mt_data_inf.dst_Y_h_min,mt_data_inf.dst_Y_h_max);
 			break;
 		case 6 :
+			BlurR2_8_MT_H((unsigned char *const)mt_data_inf.dst_Y1,(unsigned char *const)mt_data_inf.dst_Y2,
+				mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_Y2,mt_data_inf.dst_Y_h,
+				mt_data_inf.row_size_Y2,mt_data_inf.processH,mt_data_inf.dst_Y_h_min,mt_data_inf.dst_Y_h_max);
+			break;
+		case 7 :
+			BlurR2_8_MT_V((unsigned char *const)mt_data_inf.dst_Y1,(unsigned char *const)mt_data_inf.dst_Y2,
+				mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_Y2,mt_data_inf.dst_Y_h,
+				mt_data_inf.row_size_Y2,mt_data_inf.processV,mt_data_inf.dst_Y_h_min,mt_data_inf.dst_Y_h_max);
+			break;
+		case 8 :
+			BlurR6_8_MT_H((unsigned char *const)mt_data_inf.dst_Y1,(unsigned char *const)mt_data_inf.dst_Y2,
+				mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_Y2,mt_data_inf.dst_Y_h,
+				mt_data_inf.row_size_Y2,mt_data_inf.processH,mt_data_inf.dst_Y_h_min,mt_data_inf.dst_Y_h_max);
+			break;
+		case 9 :
+			BlurR6_8_MT_V((unsigned char *const)mt_data_inf.dst_Y1,(unsigned char *const)mt_data_inf.dst_Y2,
+				mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_Y2,mt_data_inf.dst_Y_h,
+				mt_data_inf.row_size_Y2,mt_data_inf.processV,mt_data_inf.dst_Y_h_min,mt_data_inf.dst_Y_h_max);
+			break;
+		case 10 :
 			Warp0_8_MT((const unsigned char *)mt_data_inf.src_Y1,(const unsigned char *)mt_data_inf.src_Y2,
 				(unsigned char *)mt_data_inf.dst_Y2,
 				mt_data_inf.src_pitch_Y1,mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_Y2,
 				mt_data_inf.row_size_Y3,mt_data_inf.dst_Y_h,ptrClass->depth,ptrClass->depthV,
 				mt_data_inf.dst_Y_h_min,mt_data_inf.dst_Y_h_max);
 			break;
-		case 7 :
+		case 11 :
 			Sobel_8_MT((const unsigned char *)mt_data_inf.src_U1,(unsigned char *)mt_data_inf.dst_U1,
 				mt_data_inf.src_pitch_U1,mt_data_inf.src_pitch_U2,mt_data_inf.src_U_h,
 				mt_data_inf.row_size_U1,ptrClass->threshC,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
 			break;
-		case 8 :
-			BlurR2_8_MT((unsigned char *const)mt_data_inf.dst_U1,(unsigned char *const)mt_data_inf.dst_U2,
-				mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U2,mt_data_inf.dst_U_h,
-				mt_data_inf.row_size_U1,true,true,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
-			break;
-		case 9 :
-			BlurR6_8_MT((unsigned char *const)mt_data_inf.dst_U1,(unsigned char *const)mt_data_inf.dst_U2,
-				mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U2,mt_data_inf.dst_U_h,
-				mt_data_inf.row_size_U1,true,true,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
-			break;
-		case 10 :
-			BlurR2_8_MT((unsigned char *const)mt_data_inf.dst_U1,(unsigned char *const)mt_data_inf.dst_U2,
-				mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U2,mt_data_inf.dst_U_h,
-				mt_data_inf.row_size_U1,mt_data_inf.cprocessH,mt_data_inf.cprocessV,
-				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
-			break;
-		case 11 :
-			BlurR6_8_MT((unsigned char *const)mt_data_inf.dst_U1,(unsigned char *const)mt_data_inf.dst_U2,
-				mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U2,mt_data_inf.dst_U_h,
-				mt_data_inf.row_size_U1,mt_data_inf.cprocessH,mt_data_inf.cprocessV,
-				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
-			break;
 		case 12 :
-			Warp0_8_MT((const unsigned char *)mt_data_inf.src_U1,(const unsigned char *)mt_data_inf.src_U2,
-				(unsigned char *)mt_data_inf.dst_U2,
-				mt_data_inf.src_pitch_U1,mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U2,
-				mt_data_inf.row_size_U2,mt_data_inf.dst_U_h,ptrClass->depthC,ptrClass->depthVC,
-				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			BlurR2_8_MT_H((unsigned char *const)mt_data_inf.dst_U1,(unsigned char *const)mt_data_inf.dst_U2,
+				mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U2,mt_data_inf.dst_U_h,
+				mt_data_inf.row_size_U1,true,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
 			break;
 		case 13 :
-			Sobel_8_MT((const unsigned char *)mt_data_inf.src_V1,(unsigned char *)mt_data_inf.dst_V1,
-				mt_data_inf.src_pitch_V1,mt_data_inf.src_pitch_V2,mt_data_inf.src_V_h,
-				mt_data_inf.row_size_V1,ptrClass->threshC,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			BlurR2_8_MT_V((unsigned char *const)mt_data_inf.dst_U1,(unsigned char *const)mt_data_inf.dst_U2,
+				mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U2,mt_data_inf.dst_U_h,
+				mt_data_inf.row_size_U1,true,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
 			break;
 		case 14 :
-			BlurR2_8_MT((unsigned char *const)mt_data_inf.dst_V1,(unsigned char *const)mt_data_inf.dst_V2,
-				mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V2,mt_data_inf.dst_V_h,
-				mt_data_inf.row_size_V1,true,true,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			BlurR6_8_MT_H((unsigned char *const)mt_data_inf.dst_U1,(unsigned char *const)mt_data_inf.dst_U2,
+				mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U2,mt_data_inf.dst_U_h,
+				mt_data_inf.row_size_U1,true,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
 			break;
 		case 15 :
-			BlurR6_8_MT((unsigned char *const)mt_data_inf.dst_V1,(unsigned char *const)mt_data_inf.dst_V2,
-				mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V2,mt_data_inf.dst_V_h,
-				mt_data_inf.row_size_V1,true,true,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			BlurR6_8_MT_V((unsigned char *const)mt_data_inf.dst_U1,(unsigned char *const)mt_data_inf.dst_U2,
+				mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U2,mt_data_inf.dst_U_h,
+				mt_data_inf.row_size_U1,true,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
 			break;
 		case 16 :
-			BlurR2_8_MT((unsigned char *const)mt_data_inf.dst_V1,(unsigned char *const)mt_data_inf.dst_V2,
-				mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V2,mt_data_inf.dst_V_h,
-				mt_data_inf.row_size_V1,mt_data_inf.cprocessH,mt_data_inf.cprocessV,
+			BlurR2_8_MT_H((unsigned char *const)mt_data_inf.dst_U1,(unsigned char *const)mt_data_inf.dst_U2,
+				mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U2,mt_data_inf.dst_U_h,
+				mt_data_inf.row_size_U1,mt_data_inf.cprocessH,
 				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
 			break;
 		case 17 :
-			BlurR6_8_MT((unsigned char *const)mt_data_inf.dst_V1,(unsigned char *const)mt_data_inf.dst_V2,
-				mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V2,mt_data_inf.dst_V_h,
-				mt_data_inf.row_size_V1,mt_data_inf.cprocessH,mt_data_inf.cprocessV,
+			BlurR2_8_MT_V((unsigned char *const)mt_data_inf.dst_U1,(unsigned char *const)mt_data_inf.dst_U2,
+				mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U2,mt_data_inf.dst_U_h,
+				mt_data_inf.row_size_U1,mt_data_inf.cprocessV,
 				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
 			break;
 		case 18 :
-			Warp0_8_MT((const unsigned char *)mt_data_inf.src_V1,(const unsigned char *)mt_data_inf.src_V2,
-				(unsigned char *)mt_data_inf.dst_V2,
-				mt_data_inf.src_pitch_V1,mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V2,
-				mt_data_inf.row_size_V2,mt_data_inf.dst_V_h,ptrClass->depthC,ptrClass->depthVC,
+			BlurR6_8_MT_H((unsigned char *const)mt_data_inf.dst_U1,(unsigned char *const)mt_data_inf.dst_U2,
+				mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U2,mt_data_inf.dst_U_h,
+				mt_data_inf.row_size_U1,mt_data_inf.cprocessH,
 				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
 			break;
 		case 19 :
-			GuideChroma_8_MT((const unsigned char *)mt_data_inf.src_Y2,(unsigned char *)mt_data_inf.dst_U1,
-				mt_data_inf.src_pitch_Y2,mt_data_inf.src_pitch_U2,mt_data_inf.dst_U_h,
-				mt_data_inf.row_size_U1,mt_data_inf.SubW_U,mt_data_inf.SubH_U,ptrClass->cplace_mpeg2_flag,
+			BlurR6_8_MT_V((unsigned char *const)mt_data_inf.dst_U1,(unsigned char *const)mt_data_inf.dst_U2,
+				mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U2,mt_data_inf.dst_U_h,
+				mt_data_inf.row_size_U1,mt_data_inf.cprocessV,
 				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
 			break;
 		case 20 :
@@ -1324,24 +2970,277 @@ void aWarpSharp::StaticThreadpool(void *ptr)
 				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
 			break;
 		case 21 :
+			Sobel_8_MT((const unsigned char *)mt_data_inf.src_V1,(unsigned char *)mt_data_inf.dst_V1,
+				mt_data_inf.src_pitch_V1,mt_data_inf.src_pitch_V2,mt_data_inf.src_V_h,
+				mt_data_inf.row_size_V1,ptrClass->threshC,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			break;
+		case 22 :
+			BlurR2_8_MT_H((unsigned char *const)mt_data_inf.dst_V1,(unsigned char *const)mt_data_inf.dst_V2,
+				mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V2,mt_data_inf.dst_V_h,
+				mt_data_inf.row_size_V1,true,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			break;
+		case 23 :
+			BlurR2_8_MT_V((unsigned char *const)mt_data_inf.dst_V1,(unsigned char *const)mt_data_inf.dst_V2,
+				mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V2,mt_data_inf.dst_V_h,
+				mt_data_inf.row_size_V1,true,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			break;
+		case 24 :
+			BlurR6_8_MT_H((unsigned char *const)mt_data_inf.dst_V1,(unsigned char *const)mt_data_inf.dst_V2,
+				mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V2,mt_data_inf.dst_V_h,
+				mt_data_inf.row_size_V1,true,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			break;
+		case 25 :
+			BlurR6_8_MT_V((unsigned char *const)mt_data_inf.dst_V1,(unsigned char *const)mt_data_inf.dst_V2,
+				mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V2,mt_data_inf.dst_V_h,
+				mt_data_inf.row_size_V1,true,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			break;
+		case 26 :
+			BlurR2_8_MT_H((unsigned char *const)mt_data_inf.dst_V1,(unsigned char *const)mt_data_inf.dst_V2,
+				mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V2,mt_data_inf.dst_V_h,
+				mt_data_inf.row_size_V1,mt_data_inf.cprocessH,
+				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			break;
+		case 27 :
+			BlurR2_8_MT_V((unsigned char *const)mt_data_inf.dst_V1,(unsigned char *const)mt_data_inf.dst_V2,
+				mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V2,mt_data_inf.dst_V_h,
+				mt_data_inf.row_size_V1,mt_data_inf.cprocessV,
+				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			break;
+		case 28 :
+			BlurR6_8_MT_H((unsigned char *const)mt_data_inf.dst_V1,(unsigned char *const)mt_data_inf.dst_V2,
+				mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V2,mt_data_inf.dst_V_h,
+				mt_data_inf.row_size_V1,mt_data_inf.cprocessH,
+				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			break;
+		case 29 :
+			BlurR6_8_MT_V((unsigned char *const)mt_data_inf.dst_V1,(unsigned char *const)mt_data_inf.dst_V2,
+				mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V2,mt_data_inf.dst_V_h,
+				mt_data_inf.row_size_V1,mt_data_inf.cprocessV,
+				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			break;
+		case 30 :
+			Warp0_8_MT((const unsigned char *)mt_data_inf.src_V1,(const unsigned char *)mt_data_inf.src_V2,
+				(unsigned char *)mt_data_inf.dst_V2,
+				mt_data_inf.src_pitch_V1,mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V2,
+				mt_data_inf.row_size_V2,mt_data_inf.dst_V_h,ptrClass->depthC,ptrClass->depthVC,
+				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			break;
+		case 31 :
+			GuideChroma_8_MT((const unsigned char *)mt_data_inf.src_Y2,(unsigned char *)mt_data_inf.dst_U1,
+				mt_data_inf.src_pitch_Y2,mt_data_inf.src_pitch_U2,mt_data_inf.dst_U_h,
+				mt_data_inf.row_size_U1,mt_data_inf.SubW_U,mt_data_inf.SubH_U,ptrClass->cplace_mpeg2_flag,
+				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			break;
+		case 32 :
+			Warp0_8_MT((const unsigned char *)mt_data_inf.src_U1,(const unsigned char *)mt_data_inf.src_U2,
+				(unsigned char *)mt_data_inf.dst_U2,
+				mt_data_inf.src_pitch_U1,mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U2,
+				mt_data_inf.row_size_U2,mt_data_inf.dst_U_h,ptrClass->depthC,ptrClass->depthVC,
+				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			break;
+		case 33 :
 			Warp0_8_MT((const unsigned char *)mt_data_inf.src_V1,(const unsigned char *)mt_data_inf.src_U2,
 				(unsigned char *)mt_data_inf.dst_V2,
 				mt_data_inf.src_pitch_V1,mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_V2,
 				mt_data_inf.row_size_V2,mt_data_inf.dst_V_h,ptrClass->depthC,ptrClass->depthVC,
 				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
 			break;
-		case 22 :
+		case 34 :
 			Warp0_8_MT((const unsigned char *)mt_data_inf.src_U1,(const unsigned char *)mt_data_inf.src_Y2,
 				(unsigned char *)mt_data_inf.dst_U2,
 				mt_data_inf.src_pitch_U1,mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_U2,
 				mt_data_inf.row_size_U2,mt_data_inf.dst_U_h,ptrClass->depthC,ptrClass->depthVC,
 				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
 			break;
-		case 23 :
+		case 35 :
 			Warp0_8_MT((const unsigned char *)mt_data_inf.src_V1,(const unsigned char *)mt_data_inf.src_Y2,
 				(unsigned char *)mt_data_inf.dst_V2,
 				mt_data_inf.src_pitch_V1,mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_V2,
 				mt_data_inf.row_size_V2,mt_data_inf.dst_V_h,ptrClass->depthC,ptrClass->depthVC,
+				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			break;
+			// 16 bits
+		case 36 :
+			sobel_u16_sse2_MT((const unsigned char *)mt_data_inf.src_Y1,(unsigned char *)mt_data_inf.dst_Y1,
+				mt_data_inf.src_pitch_Y1,mt_data_inf.src_pitch_Y2,mt_data_inf.row_size_Y2 >> 1,mt_data_inf.src_Y_h,
+				ptrClass->thresh,ptrClass->bits_per_pixel,mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
+			break;
+		case 37 :
+			blur_r2_u16_sse2_MT_H((unsigned char *)mt_data_inf.dst_Y1,(unsigned char *)mt_data_inf.dst_Y2,
+				mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_Y2,mt_data_inf.row_size_Y2 >> 1,mt_data_inf.dst_Y_h,
+				true,mt_data_inf.dst_Y_h_min,mt_data_inf.dst_Y_h_max);
+			break;
+		case 38 :
+			blur_r2_u16_sse2_MT_V((unsigned char *)mt_data_inf.dst_Y1,(unsigned char *)mt_data_inf.dst_Y2,
+				mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_Y2,mt_data_inf.row_size_Y2 >> 1,mt_data_inf.dst_Y_h,
+				true,mt_data_inf.dst_Y_h_min,mt_data_inf.dst_Y_h_max);
+			break;
+		case 39 :
+			blur_r6_u16_sse2_MT_H((unsigned char *)mt_data_inf.dst_Y1,(unsigned char *)mt_data_inf.dst_Y2,
+				mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_Y2,mt_data_inf.row_size_Y2 >> 1,mt_data_inf.dst_Y_h,
+				true,mt_data_inf.dst_Y_h_min,mt_data_inf.dst_Y_h_max);
+			break;
+		case 40 :
+			blur_r6_u16_sse2_MT_V((unsigned char *)mt_data_inf.dst_Y1,(unsigned char *)mt_data_inf.dst_Y2,
+				mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_Y2,mt_data_inf.row_size_Y2 >> 1,mt_data_inf.dst_Y_h,
+				true,mt_data_inf.dst_Y_h_min,mt_data_inf.dst_Y_h_max);
+			break;
+		case 41 :
+			blur_r2_u16_sse2_MT_H((unsigned char *)mt_data_inf.dst_Y1,(unsigned char *)mt_data_inf.dst_Y2,
+				mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_Y2,mt_data_inf.row_size_Y2 >> 1,mt_data_inf.dst_Y_h,
+				mt_data_inf.processH,mt_data_inf.dst_Y_h_min,mt_data_inf.dst_Y_h_max);
+			break;
+		case 42 :
+			blur_r2_u16_sse2_MT_V((unsigned char *)mt_data_inf.dst_Y1,(unsigned char *)mt_data_inf.dst_Y2,
+				mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_Y2,mt_data_inf.row_size_Y2 >> 1,mt_data_inf.dst_Y_h,
+				mt_data_inf.processV,mt_data_inf.dst_Y_h_min,mt_data_inf.dst_Y_h_max);
+			break;
+		case 43 :
+			blur_r6_u16_sse2_MT_H((unsigned char *)mt_data_inf.dst_Y1,(unsigned char *)mt_data_inf.dst_Y2,
+				mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_Y2,mt_data_inf.row_size_Y2 >> 1,mt_data_inf.dst_Y_h,
+				mt_data_inf.processH,mt_data_inf.dst_Y_h_min,mt_data_inf.dst_Y_h_max);
+			break;
+		case 44 :
+			blur_r6_u16_sse2_MT_V((unsigned char *)mt_data_inf.dst_Y1,(unsigned char *)mt_data_inf.dst_Y2,
+				mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_Y2,mt_data_inf.row_size_Y2 >> 1,mt_data_inf.dst_Y_h,
+				mt_data_inf.processV,mt_data_inf.dst_Y_h_min,mt_data_inf.dst_Y_h_max);
+			break;
+		case 45 :
+			warp0_u16_c_MT((const unsigned char *)mt_data_inf.src_Y1,(const unsigned char *)mt_data_inf.src_Y2,
+				(unsigned char *)mt_data_inf.dst_Y2,mt_data_inf.src_pitch_Y1,mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_Y2,
+				mt_data_inf.row_size_Y3 >> 1,mt_data_inf.dst_Y_h,ptrClass->depth,ptrClass->depthV,ptrClass->bits_per_pixel,
+				mt_data_inf.dst_Y_h_min,mt_data_inf.dst_Y_h_max);
+			break;
+		case 46 :
+			sobel_u16_sse2_MT((const unsigned char *)mt_data_inf.src_U1,(unsigned char *)mt_data_inf.dst_U1,
+				mt_data_inf.src_pitch_U1,mt_data_inf.src_pitch_U2,mt_data_inf.row_size_U1 >> 1,mt_data_inf.src_U_h,
+				ptrClass->threshC,ptrClass->bits_per_pixel,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			break;
+		case 47 :
+			blur_r2_u16_sse2_MT_H((unsigned char *)mt_data_inf.dst_U1,(unsigned char *)mt_data_inf.dst_U2,
+				mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U2,mt_data_inf.row_size_U1 >> 1,mt_data_inf.dst_U_h,
+				true,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			break;
+		case 48 :
+			blur_r2_u16_sse2_MT_V((unsigned char *)mt_data_inf.dst_U1,(unsigned char *)mt_data_inf.dst_U2,
+				mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U2,mt_data_inf.row_size_U1 >> 1,mt_data_inf.dst_U_h,
+				true,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			break;
+		case 49 :
+			blur_r6_u16_sse2_MT_V((unsigned char *)mt_data_inf.dst_U1,(unsigned char *)mt_data_inf.dst_U2,
+				mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U2,mt_data_inf.row_size_U1 >> 1,mt_data_inf.dst_U_h,
+				true,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			break;
+		case 50 :
+			blur_r6_u16_sse2_MT_H((unsigned char *)mt_data_inf.dst_U1,(unsigned char *)mt_data_inf.dst_U2,
+				mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U2,mt_data_inf.row_size_U1 >> 1,mt_data_inf.dst_U_h,
+				true,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			break;
+		case 51 :
+			blur_r2_u16_sse2_MT_H((unsigned char *)mt_data_inf.dst_U1,(unsigned char *)mt_data_inf.dst_U2,
+				mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U2,mt_data_inf.row_size_U1 >> 1,mt_data_inf.dst_U_h,
+				mt_data_inf.cprocessH,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			break;
+		case 52 :
+			blur_r2_u16_sse2_MT_V((unsigned char *)mt_data_inf.dst_U1,(unsigned char *)mt_data_inf.dst_U2,
+				mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U2,mt_data_inf.row_size_U1 >> 1,mt_data_inf.dst_U_h,
+				mt_data_inf.cprocessV,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			break;
+		case 53 :
+			blur_r6_u16_sse2_MT_H((unsigned char *)mt_data_inf.dst_U1,(unsigned char *)mt_data_inf.dst_U2,
+				mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U2,mt_data_inf.row_size_U1 >> 1,mt_data_inf.dst_U_h,
+				mt_data_inf.cprocessH,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			break;
+		case 54 :
+			blur_r6_u16_sse2_MT_V((unsigned char *)mt_data_inf.dst_U1,(unsigned char *)mt_data_inf.dst_U2,
+				mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U2,mt_data_inf.row_size_U1 >> 1,mt_data_inf.dst_U_h,
+				mt_data_inf.cprocessV,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			break;
+		case 55 :
+			warp0_u16_c_MT((const unsigned char *)mt_data_inf.src_U1,(const unsigned char *)mt_data_inf.src_U2,
+				(unsigned char *)mt_data_inf.dst_U2,mt_data_inf.src_pitch_U1,mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U2,
+				mt_data_inf.row_size_U2 >> 1,mt_data_inf.dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
+				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			break;
+		case 56 :
+			sobel_u16_sse2_MT((const unsigned char *)mt_data_inf.src_V1,(unsigned char *)mt_data_inf.dst_V1,
+				mt_data_inf.src_pitch_V1,mt_data_inf.src_pitch_V2,mt_data_inf.row_size_V1 >> 1,mt_data_inf.src_V_h,
+				ptrClass->threshC,ptrClass->bits_per_pixel,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			break;
+		case 57 :
+			blur_r2_u16_sse2_MT_H((unsigned char *)mt_data_inf.dst_V1,(unsigned char *)mt_data_inf.dst_V2,
+				mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V2,mt_data_inf.row_size_V1 >> 1,mt_data_inf.dst_V_h,
+				true,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			break;
+		case 58 :
+			blur_r2_u16_sse2_MT_V((unsigned char *)mt_data_inf.dst_V1,(unsigned char *)mt_data_inf.dst_V2,
+				mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V2,mt_data_inf.row_size_V1 >> 1,mt_data_inf.dst_V_h,
+				true,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			break;
+		case 59 :
+			blur_r6_u16_sse2_MT_H((unsigned char *)mt_data_inf.dst_V1,(unsigned char *)mt_data_inf.dst_V2,
+				mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V2,mt_data_inf.row_size_V1 >> 1,mt_data_inf.dst_V_h,
+				true,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			break;
+		case 60 :
+			blur_r6_u16_sse2_MT_V((unsigned char *)mt_data_inf.dst_V1,(unsigned char *)mt_data_inf.dst_V2,
+				mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V2,mt_data_inf.row_size_V1 >> 1,mt_data_inf.dst_V_h,
+				true,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			break;
+		case 61 :
+			blur_r2_u16_sse2_MT_H((unsigned char *)mt_data_inf.dst_V1,(unsigned char *)mt_data_inf.dst_V2,
+				mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V2,mt_data_inf.row_size_V1 >> 1,mt_data_inf.dst_V_h,
+				mt_data_inf.cprocessH,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			break;
+		case 62 :
+			blur_r2_u16_sse2_MT_V((unsigned char *)mt_data_inf.dst_V1,(unsigned char *)mt_data_inf.dst_V2,
+				mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V2,mt_data_inf.row_size_V1 >> 1,mt_data_inf.dst_V_h,
+				mt_data_inf.cprocessV,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			break;
+		case 63 :
+			blur_r6_u16_sse2_MT_H((unsigned char *)mt_data_inf.dst_V1,(unsigned char *)mt_data_inf.dst_V2,
+				mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V2,mt_data_inf.row_size_V1 >> 1,mt_data_inf.dst_V_h,
+				mt_data_inf.cprocessH,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			break;
+		case 64 :
+			blur_r6_u16_sse2_MT_V((unsigned char *)mt_data_inf.dst_V1,(unsigned char *)mt_data_inf.dst_V2,
+				mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V2,mt_data_inf.row_size_V1 >> 1,mt_data_inf.dst_V_h,
+				mt_data_inf.cprocessV,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			break;
+		case 65 :
+			warp0_u16_c_MT((const unsigned char *)mt_data_inf.src_V1,(const unsigned char *)mt_data_inf.src_V2,
+				(unsigned char *)mt_data_inf.dst_V2,mt_data_inf.src_pitch_V1,mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V2,
+				mt_data_inf.row_size_V2 >> 1,mt_data_inf.dst_V_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
+				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			break;
+		case 66 :
+			GuideChroma_16_MT((const unsigned char *)mt_data_inf.src_Y2,(unsigned char *)mt_data_inf.dst_U1,
+				mt_data_inf.src_pitch_Y2,mt_data_inf.src_pitch_U2,mt_data_inf.dst_U_h,
+				mt_data_inf.row_size_U1 >> 1,mt_data_inf.SubW_U,mt_data_inf.SubH_U,ptrClass->cplace_mpeg2_flag,
+				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			break;
+		case 67 :
+			warp0_u16_c_MT((const unsigned char *)mt_data_inf.src_U1,(const unsigned char *)mt_data_inf.src_U2,
+				(unsigned char *)mt_data_inf.dst_U2,mt_data_inf.src_pitch_U1,mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U2,
+				mt_data_inf.row_size_U2 >> 1,mt_data_inf.dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
+				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			break;
+		case 68 :
+			warp0_u16_c_MT((const unsigned char *)mt_data_inf.src_V1,(const unsigned char *)mt_data_inf.src_U2,
+				(unsigned char *)mt_data_inf.dst_V2,mt_data_inf.src_pitch_V1,mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_V2,
+				mt_data_inf.row_size_V2 >> 1,mt_data_inf.dst_V_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
+				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			break;
+		case 69 :
+			warp0_u16_c_MT((const unsigned char *)mt_data_inf.src_U1,(const unsigned char *)mt_data_inf.src_Y2,
+				(unsigned char *)mt_data_inf.dst_U2,mt_data_inf.src_pitch_U1,mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_U2,
+				mt_data_inf.row_size_U2 >> 1,mt_data_inf.dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
+				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			break;
+		case 70 :
+			warp0_u16_c_MT((const unsigned char *)mt_data_inf.src_V1,(const unsigned char *)mt_data_inf.src_Y2,
+				(unsigned char *)mt_data_inf.dst_V2,mt_data_inf.src_pitch_V1,mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_V2,
+				mt_data_inf.row_size_V2 >> 1,mt_data_inf.dst_V_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
 				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
 			break;
 		default : ;
@@ -1490,34 +3389,46 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 
 		uint8_t f_proc;
 
+		const uint8_t offs_16b=(pixelsize==1) ? 0:35;
+
   if (chroma!=5)
   {
-	  f_proc=1;
+	  f_proc=1+offs_16b;
 
 	  for(uint8_t i=0; i<threads_number; i++)
 		  MT_Thread[i].f_process=f_proc;
 
 	  if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
 
-	  f_proc=blur_type ? 2:3;
-
-	  for(uint8_t i=0; i<threads_number; i++)
-		  MT_Thread[i].f_process=f_proc;
+	  f_proc=(blur_type==1) ? (2+offs_16b):(4+offs_16b);
 
 	for (int i=0; i<blurL; i++)
+	{
+		for(uint8_t i=0; i<threads_number; i++)
+			MT_Thread[i].f_process=f_proc;
 		if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
 
-	f_proc=blur_type ? 4:5;
+		for(uint8_t i=0; i<threads_number; i++)
+			MT_Thread[i].f_process++;
+		if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
+	}
 
-	for(uint8_t i=0; i<threads_number; i++)
-		MT_Thread[i].f_process=f_proc;
+	f_proc=(blur_type==1) ? (6+offs_16b):(8+offs_16b);
 
 	for (int i=0; i<blurLr; i++)
+	{
+		for(uint8_t i=0; i<threads_number; i++)
+			MT_Thread[i].f_process=f_proc;
 		if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
+
+		for(uint8_t i=0; i<threads_number; i++)
+			MT_Thread[i].f_process++;
+		if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
+	}
 
     if ((chroma!=6) && ((depth!=0) || (depthV!=0)))
 	{
-		f_proc=6;
+		f_proc=10+offs_16b;
 
 		for(uint8_t i=0; i<threads_number; i++)
 			MT_Thread[i].f_process=f_proc;
@@ -1525,79 +3436,107 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 		if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
 	}
     else
-      CopyPlane(src, dst, PLANAR_Y, vi);
+      CopyPlane(src,dst,PLANAR_Y,vi);
   }
   else
-    CopyPlane(src, dst, PLANAR_Y, vi);
+    CopyPlane(src,dst,PLANAR_Y,vi);
 
   switch (chroma)
   {
-  case 0:
-    SetPlane(dst, PLANAR_U, 0x80, vi);
-    SetPlane(dst, PLANAR_V, 0x80, vi);
+  case 0 :
+	  if (pixelsize==1)
+	  {
+		  SetPlane(dst,PLANAR_U,0x80,vi);
+		  SetPlane(dst,PLANAR_V,0x80,vi);
+	  }
+	  else
+	  {
+		  SetPlane_16(dst,PLANAR_U,0x80 << (bits_per_pixel-8),vi);
+		  SetPlane_16(dst,PLANAR_V,0x80 << (bits_per_pixel-8),vi);
+	  }
     break;
-  case 2:
-    CopyPlane(src, dst, PLANAR_U, vi);
-    CopyPlane(src, dst, PLANAR_V, vi);
+  case 2 :
+    CopyPlane(src,dst,PLANAR_U,vi);
+    CopyPlane(src,dst,PLANAR_V,vi);
     break;
-  case 3:
-  case 5:
+  case 3 :
+  case 5 :
 	  if ((depthC!=0) || (depthVC!=0))
 	  {
-		  f_proc=7;
+		  f_proc=11+offs_16b;
 
 		  for(uint8_t i=0; i<threads_number; i++)
 			  MT_Thread[i].f_process=f_proc;
 
 		  if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
 
-		  f_proc=blur_type ? 8:9;
-
-		  for(uint8_t i=0; i<threads_number; i++)
-			  MT_Thread[i].f_process=f_proc;
+		  f_proc=(blur_type==1) ? (12+offs_16b):(14+offs_16b);
 
 	for (int i=0; i<cblurL; i++)
+	{
+		for(uint8_t i=0; i<threads_number; i++)
+			MT_Thread[i].f_process=f_proc;
 		if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
 
-		  f_proc=blur_type ? 10:11;
+		for(uint8_t i=0; i<threads_number; i++)
+			MT_Thread[i].f_process++;
+		if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
+	}
 
-		  for(uint8_t i=0; i<threads_number; i++)
-			  MT_Thread[i].f_process=f_proc;
+		  f_proc=(blur_type==1) ? (16+offs_16b):(18+offs_16b);
 
 	for (int i=0; i<cblurLr; i++)
+	{
+		for(uint8_t i=0; i<threads_number; i++)
+			MT_Thread[i].f_process=f_proc;
 		if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
 
-	f_proc=12;
+		for(uint8_t i=0; i<threads_number; i++)
+			MT_Thread[i].f_process++;
+		if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
+	}
+
+	f_proc=20+offs_16b;
 
 	for(uint8_t i=0; i<threads_number; i++)
 		MT_Thread[i].f_process=f_proc;
 
 	if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
 
-	f_proc=13;
+	f_proc=21+offs_16b;
 
 	for(uint8_t i=0; i<threads_number; i++)
 		MT_Thread[i].f_process=f_proc;
 
 	if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
 
-	f_proc=blur_type ? 14:15;
-
-	for(uint8_t i=0; i<threads_number; i++)
-		MT_Thread[i].f_process=f_proc;
+	f_proc=(blur_type==1) ? (22+offs_16b):(24+offs_16b);
 
 	for (int i=0; i<cblurL; i++)
+	{
+		for(uint8_t i=0; i<threads_number; i++)
+			MT_Thread[i].f_process=f_proc;
 		if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
 
-	f_proc=blur_type ? 16:17;
+		for(uint8_t i=0; i<threads_number; i++)
+			MT_Thread[i].f_process++;
+		if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
+	}
 
-	for(uint8_t i=0; i<threads_number; i++)
-		MT_Thread[i].f_process=f_proc;
+	f_proc=(blur_type==1) ? (26+offs_16b):(28+offs_16b);
 
 	for (int i=0; i<cblurLr; i++)
+	{
+		for(uint8_t i=0; i<threads_number; i++)
+			MT_Thread[i].f_process=f_proc;
 		if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
 
-	f_proc=18;
+		for(uint8_t i=0; i<threads_number; i++)
+			MT_Thread[i].f_process++;
+		if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
+	}
+
+	f_proc=30+offs_16b;
 
 	for(uint8_t i=0; i<threads_number; i++)
 		MT_Thread[i].f_process=f_proc;
@@ -1607,36 +3546,36 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 	  }
 	  else
 	  {
-		   CopyPlane(src, dst, PLANAR_U, vi);
-		   CopyPlane(src, dst, PLANAR_V, vi);
+		   CopyPlane(src,dst,PLANAR_U,vi);
+		   CopyPlane(src,dst,PLANAR_V,vi);
 	  }
     break;
-  case 4:
-  case 6:
+  case 4 :
+  case 6 :
 	  if ((depthC!=0) || (depthVC!=0))
 	  {
-    if (!vi.IsYV24())
+    if (!vi.Is444())
     {
-	  if (!GuideChroma_8_Test(SubW_U,SubH_U))
+	  if (!GuideChroma_Test(SubW_U,SubH_U))
 	  {
 		  ReleaseMutex(ghMutex);
 		  env->ThrowError("aWarpSharp: Unsuported colorspace");
 	  }
-	  f_proc=19;
+	  f_proc=31+offs_16b;
 
 	  for(uint8_t i=0; i<threads_number; i++)
 		  MT_Thread[i].f_process=f_proc;
 
 	  if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
 
-	  f_proc=20;
+	  f_proc=32+offs_16b;
 
 	  for(uint8_t i=0; i<threads_number; i++)
 		  MT_Thread[i].f_process=f_proc;
 
 	  if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
 
-	  f_proc=21;
+	  f_proc=33+offs_16b;
 
 	  for(uint8_t i=0; i<threads_number; i++)
 		  MT_Thread[i].f_process=f_proc;
@@ -1645,14 +3584,14 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
     }
     else
     {
-	  f_proc=22;
+	  f_proc=34+offs_16b;
 
 	  for(uint8_t i=0; i<threads_number; i++)
 		  MT_Thread[i].f_process=f_proc;
 
 	  if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
 
-	  f_proc=23;
+	  f_proc=35+offs_16b;
 
 	  for(uint8_t i=0; i<threads_number; i++)
 		  MT_Thread[i].f_process=f_proc;
@@ -1662,8 +3601,8 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 	  }
 	  else
 	  {
-		   CopyPlane(src, dst, PLANAR_U, vi);
-		   CopyPlane(src, dst, PLANAR_V, vi);
+		   CopyPlane(src,dst,PLANAR_U,vi);
+		   CopyPlane(src,dst,PLANAR_V,vi);
 	  }
   }
 
@@ -1680,96 +3619,186 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 
   if (chroma!=5)
   {
-	Sobel_8(psrc_Y,dptmp_Y,src_pitch_Y,tmp_pitch_Y,src_height_Y,tmp_row_size_Y,thresh);
+	if (pixelsize==1) Sobel_8(psrc_Y,dptmp_Y,src_pitch_Y,tmp_pitch_Y,src_height_Y,tmp_row_size_Y,thresh);
+	else sobel_u16_sse2(psrc_Y,dptmp_Y,src_pitch_Y,tmp_pitch_Y,tmp_row_size_Y >> 1,src_height_Y,thresh,bits_per_pixel);
 	for (int i=0; i<blurL; i++)
 	{
-		if (blur_type) BlurR2_8(wptmp_Y,wpdst_Y,tmp_pitch_Y,dst_pitch_Y,tmp_height_Y,tmp_row_size_Y,true,true);
-		else BlurR6_8(wptmp_Y,wpdst_Y,tmp_pitch_Y,dst_pitch_Y,tmp_height_Y,tmp_row_size_Y,true,true);
+		if (pixelsize==1)
+		{
+			if (blur_type==1) BlurR2_8(wptmp_Y,wpdst_Y,tmp_pitch_Y,dst_pitch_Y,tmp_height_Y,tmp_row_size_Y,true,true);
+			else BlurR6_8(wptmp_Y,wpdst_Y,tmp_pitch_Y,dst_pitch_Y,tmp_height_Y,tmp_row_size_Y,true,true);
+		}
+		else
+		{
+			if (blur_type==1) blur_r2_u16_sse2(wptmp_Y,wpdst_Y,tmp_pitch_Y,dst_pitch_Y,tmp_row_size_Y >> 1,tmp_height_Y,true,true);
+			else blur_r6_u16_sse2(wptmp_Y,wpdst_Y,tmp_pitch_Y,dst_pitch_Y,tmp_row_size_Y >> 1,tmp_height_Y,true,true);
+		}
 	}
 	for (int i=0; i<blurLr; i++)
 	{
-		if (blur_type) BlurR2_8(wptmp_Y,wpdst_Y,tmp_pitch_Y,dst_pitch_Y,tmp_height_Y,tmp_row_size_Y,processH,processV);
-		else BlurR6_8(wptmp_Y,wpdst_Y,tmp_pitch_Y,dst_pitch_Y,tmp_height_Y,tmp_row_size_Y,processH,processV);
+		if (pixelsize==1)
+		{
+			if (blur_type==1) BlurR2_8(wptmp_Y,wpdst_Y,tmp_pitch_Y,dst_pitch_Y,tmp_height_Y,tmp_row_size_Y,processH,processV);
+			else BlurR6_8(wptmp_Y,wpdst_Y,tmp_pitch_Y,dst_pitch_Y,tmp_height_Y,tmp_row_size_Y,processH,processV);
+		}
+		else
+		{
+			if (blur_type==1) blur_r2_u16_sse2(wptmp_Y,wpdst_Y,tmp_pitch_Y,dst_pitch_Y,tmp_row_size_Y >> 1,tmp_height_Y,processH,processV);
+			else blur_r6_u16_sse2(wptmp_Y,wpdst_Y,tmp_pitch_Y,dst_pitch_Y,tmp_row_size_Y >> 1,tmp_height_Y,processH,processV);
+		}
 	}
     if ((chroma!=6) && ((depth!=0) || (depthV!=0)))
-		Warp0_8(psrc_Y,ptmp_Y,pdst_Y,src_pitch_Y,tmp_pitch_Y,dst_pitch_Y,dst_row_size_Y,dst_height_Y,depth,depthV);
+	{
+		if (pixelsize==1) Warp0_8(psrc_Y,ptmp_Y,pdst_Y,src_pitch_Y,tmp_pitch_Y,dst_pitch_Y,dst_row_size_Y,dst_height_Y,depth,depthV);
+		else warp0_u16_c(psrc_Y,ptmp_Y,pdst_Y,src_pitch_Y,tmp_pitch_Y,dst_pitch_Y,dst_row_size_Y >> 1,dst_height_Y,
+			depth,depthV,bits_per_pixel);
+	}
     else
-      CopyPlane(src, dst, PLANAR_Y, vi);
+      CopyPlane(src,dst,PLANAR_Y,vi);
   }
   else
-    CopyPlane(src, dst, PLANAR_Y, vi);
+    CopyPlane(src,dst,PLANAR_Y,vi);
 
   switch (chroma)
   {
-  case 0:
-    SetPlane(dst, PLANAR_U, 0x80, vi);
-    SetPlane(dst, PLANAR_V, 0x80, vi);
-    break;
-  case 2:
-    CopyPlane(src, dst, PLANAR_U, vi);
-    CopyPlane(src, dst, PLANAR_V, vi);
-    break;
-  case 3:
-  case 5:
-	  if ((depthC!=0) || (depthVC!=0))
+  case 0 :
+	  if (pixelsize==1)
 	  {
-	Sobel_8(psrc_U,dptmp_U,src_pitch_U,tmp_pitch_U,src_height_U,tmp_row_size_U,threshC);
-	for (int i=0; i<cblurL; i++)
-	{
-		if (blur_type) BlurR2_8(wptmp_U,wpdst_U,tmp_pitch_U,dst_pitch_U,tmp_height_U,tmp_row_size_U,true,true);
-		else BlurR6_8(wptmp_U,wpdst_U,tmp_pitch_U,dst_pitch_U,tmp_height_U,tmp_row_size_U,true,true);
-	}
-	for (int i=0; i<cblurLr; i++)
-	{
-		if (blur_type) BlurR2_8(wptmp_U,wpdst_U,tmp_pitch_U,dst_pitch_U,tmp_height_U,tmp_row_size_U,cprocessH,cprocessV);
-		else BlurR6_8(wptmp_U,wpdst_U,tmp_pitch_U,dst_pitch_U,tmp_height_U,tmp_row_size_U,cprocessH,cprocessV);
-	}
-	Warp0_8(psrc_U,ptmp_U,pdst_U,src_pitch_U,tmp_pitch_U,dst_pitch_U,dst_row_size_U,dst_height_U,depthC,depthVC);
-
-	Sobel_8(psrc_V,dptmp_V,src_pitch_V,tmp_pitch_V,src_height_V,tmp_row_size_V,threshC);
-	for (int i=0; i<cblurL; i++)
-	{
-		if (blur_type) BlurR2_8(wptmp_V,wpdst_V,tmp_pitch_V,dst_pitch_V,tmp_height_V,tmp_row_size_V,true,true);
-		else BlurR6_8(wptmp_V,wpdst_V,tmp_pitch_V,dst_pitch_V,tmp_height_V,tmp_row_size_V,true,true);
-	}
-	for (int i=0; i<cblurLr; i++)
-	{
-		if (blur_type) BlurR2_8(wptmp_V,wpdst_V,tmp_pitch_V,dst_pitch_V,tmp_height_V,tmp_row_size_V,cprocessH,cprocessV);
-		else BlurR6_8(wptmp_V,wpdst_V,tmp_pitch_V,dst_pitch_V,tmp_height_V,tmp_row_size_V,cprocessH,cprocessV);
-	}
-	Warp0_8(psrc_V,ptmp_V,pdst_V,src_pitch_V,tmp_pitch_V,dst_pitch_V,dst_row_size_V,dst_height_V,depthC,depthVC);
+		  SetPlane(dst,PLANAR_U,0x80,vi);
+		  SetPlane(dst,PLANAR_V,0x80,vi);
 	  }
 	  else
 	  {
-		   CopyPlane(src, dst, PLANAR_U, vi);
-		   CopyPlane(src, dst, PLANAR_V, vi);
+		  SetPlane_16(dst,PLANAR_U,0x80 << (bits_per_pixel-8),vi);
+		  SetPlane_16(dst,PLANAR_V,0x80 << (bits_per_pixel-8),vi);
 	  }
     break;
-  case 4:
-  case 6:
+  case 2 :
+    CopyPlane(src, dst, PLANAR_U, vi);
+    CopyPlane(src, dst, PLANAR_V, vi);
+    break;
+  case 3 :
+  case 5 :
 	  if ((depthC!=0) || (depthVC!=0))
 	  {
-    if (!vi.IsYV24())
+	if (pixelsize==1) Sobel_8(psrc_U,dptmp_U,src_pitch_U,tmp_pitch_U,src_height_U,tmp_row_size_U,threshC);
+	else sobel_u16_sse2(psrc_U,dptmp_U,src_pitch_U,tmp_pitch_U,tmp_row_size_U >> 1,src_height_U,threshC,bits_per_pixel);
+	for (int i=0; i<cblurL; i++)
+	{
+		if (pixelsize==1)
+		{
+			if (blur_type==1) BlurR2_8(wptmp_U,wpdst_U,tmp_pitch_U,dst_pitch_U,tmp_height_U,tmp_row_size_U,true,true);
+			else BlurR6_8(wptmp_U,wpdst_U,tmp_pitch_U,dst_pitch_U,tmp_height_U,tmp_row_size_U,true,true);
+		}
+		else
+		{
+			if (blur_type==1) blur_r2_u16_sse2(wptmp_U,wpdst_U,tmp_pitch_U,dst_pitch_U,tmp_row_size_U >> 1,tmp_height_U,true,true);
+			else blur_r6_u16_sse2(wptmp_U,wpdst_U,tmp_pitch_U,dst_pitch_U,tmp_row_size_U >> 1,tmp_height_U,true,true);
+		}
+	}
+	for (int i=0; i<cblurLr; i++)
+	{
+		if (pixelsize==1)
+		{
+			if (blur_type) BlurR2_8(wptmp_U,wpdst_U,tmp_pitch_U,dst_pitch_U,tmp_height_U,tmp_row_size_U,cprocessH,cprocessV);
+			else BlurR6_8(wptmp_U,wpdst_U,tmp_pitch_U,dst_pitch_U,tmp_height_U,tmp_row_size_U,cprocessH,cprocessV);
+		}
+		else
+		{
+			if (blur_type==1) blur_r2_u16_sse2(wptmp_U,wpdst_U,tmp_pitch_U,dst_pitch_U,tmp_row_size_U >> 1,tmp_height_U,cprocessH,cprocessV);
+			else blur_r6_u16_sse2(wptmp_U,wpdst_U,tmp_pitch_U,dst_pitch_U,tmp_row_size_U >> 1,tmp_height_U,cprocessH,cprocessV);
+		}
+	}
+	if (pixelsize==1) Warp0_8(psrc_U,ptmp_U,pdst_U,src_pitch_U,tmp_pitch_U,dst_pitch_U,dst_row_size_U,dst_height_U,depthC,depthVC);
+	else warp0_u16_c(psrc_U,ptmp_U,pdst_U,src_pitch_U,tmp_pitch_U,dst_pitch_U,dst_row_size_U >> 1,dst_height_U,
+		depthC,depthVC,bits_per_pixel);
+
+	if (pixelsize==1) Sobel_8(psrc_V,dptmp_V,src_pitch_V,tmp_pitch_V,src_height_V,tmp_row_size_V,threshC);
+	else sobel_u16_sse2(psrc_V,dptmp_V,src_pitch_V,tmp_pitch_V,tmp_row_size_V >> 1,src_height_V,threshC,bits_per_pixel);
+	for (int i=0; i<cblurL; i++)
+	{
+		if (pixelsize==1)
+		{
+			if (blur_type==1) BlurR2_8(wptmp_V,wpdst_V,tmp_pitch_V,dst_pitch_V,tmp_height_V,tmp_row_size_V,true,true);
+			else BlurR6_8(wptmp_V,wpdst_V,tmp_pitch_V,dst_pitch_V,tmp_height_V,tmp_row_size_V,true,true);
+		}
+		else
+		{
+			if (blur_type==1) blur_r2_u16_sse2(wptmp_V,wpdst_V,tmp_pitch_V,dst_pitch_V,tmp_row_size_V >> 1,tmp_height_V,true,true);
+			else blur_r6_u16_sse2(wptmp_V,wpdst_V,tmp_pitch_V,dst_pitch_V,tmp_row_size_V >> 1,tmp_height_V,true,true);
+		}
+	}
+	for (int i=0; i<cblurLr; i++)
+	{
+		if (pixelsize==1)
+		{
+			if (blur_type==1) BlurR2_8(wptmp_V,wpdst_V,tmp_pitch_V,dst_pitch_V,tmp_height_V,tmp_row_size_V,cprocessH,cprocessV);
+			else BlurR6_8(wptmp_V,wpdst_V,tmp_pitch_V,dst_pitch_V,tmp_height_V,tmp_row_size_V,cprocessH,cprocessV);
+		}
+		else
+		{
+			if (blur_type==1) blur_r2_u16_sse2(wptmp_V,wpdst_V,tmp_pitch_V,dst_pitch_V,tmp_row_size_V >> 1,tmp_height_V,cprocessH,cprocessV);
+			else blur_r6_u16_sse2(wptmp_V,wpdst_V,tmp_pitch_V,dst_pitch_V,tmp_row_size_V >> 1,tmp_height_V,cprocessH,cprocessV);
+		}
+
+	}
+	if (pixelsize==1) Warp0_8(psrc_V,ptmp_V,pdst_V,src_pitch_V,tmp_pitch_V,dst_pitch_V,dst_row_size_V,dst_height_V,depthC,depthVC);
+	else warp0_u16_c(psrc_V,ptmp_V,pdst_V,src_pitch_V,tmp_pitch_V,dst_pitch_V,dst_row_size_V >> 1,dst_height_V,
+		depthC,depthVC,bits_per_pixel);
+	  }
+	  else
+	  {
+		   CopyPlane(src,dst,PLANAR_U,vi);
+		   CopyPlane(src,dst,PLANAR_V,vi);
+	  }
+    break;
+  case 4 :
+  case 6 :
+	  if ((depthC!=0) || (depthVC!=0))
+	  {
+    if (!vi.Is444())
     {
-	  if (!GuideChroma_8(ptmp_Y,dptmp_U,tmp_pitch_Y,tmp_pitch_U,tmp_height_U,tmp_row_size_U,SubW_U,
-		  SubH_U,cplace_mpeg2_flag))
+		const bool testC=(pixelsize==1) ? GuideChroma_8(ptmp_Y,dptmp_U,tmp_pitch_Y,tmp_pitch_U,tmp_height_U,tmp_row_size_U,SubW_U,
+			SubH_U,cplace_mpeg2_flag):GuideChroma_16(ptmp_Y,dptmp_U,tmp_pitch_Y,tmp_pitch_U,tmp_height_U,tmp_row_size_U >> 1,SubW_U,
+			SubH_U,cplace_mpeg2_flag);
+	  if (!testC)
 	  {
 		  ReleaseMutex(ghMutex);
 		  env->ThrowError("aWarpSharp: Unsuported colorspace");
 	  }
-	  Warp0_8(psrc_U,ptmp_U,pdst_U,src_pitch_U,tmp_pitch_U,dst_pitch_U,dst_row_size_U,dst_height_U,depthC,depthVC);
-	  Warp0_8(psrc_V,ptmp_U,pdst_V,src_pitch_V,tmp_pitch_U,dst_pitch_V,dst_row_size_V,dst_height_V,depthC,depthVC);
+	  if (pixelsize==1)
+	  {
+		  Warp0_8(psrc_U,ptmp_U,pdst_U,src_pitch_U,tmp_pitch_U,dst_pitch_U,dst_row_size_U,dst_height_U,depthC,depthVC);
+		  Warp0_8(psrc_V,ptmp_U,pdst_V,src_pitch_V,tmp_pitch_U,dst_pitch_V,dst_row_size_V,dst_height_V,depthC,depthVC);
+	  }
+	  else
+	  {
+		  warp0_u16_c(psrc_U,ptmp_U,pdst_U,src_pitch_U,tmp_pitch_U,dst_pitch_U,dst_row_size_U >> 1,dst_height_U,
+			  depthC,depthVC,bits_per_pixel);
+		  warp0_u16_c(psrc_V,ptmp_U,pdst_V,src_pitch_V,tmp_pitch_U,dst_pitch_V,dst_row_size_V >> 1,dst_height_V,
+			  depthC,depthVC,bits_per_pixel);
+	  }
     }
     else
     {
-	  Warp0_8(psrc_U,ptmp_Y,pdst_U,src_pitch_U,tmp_pitch_Y,dst_pitch_U,dst_row_size_U,dst_height_U,depthC,depthVC);
-	  Warp0_8(psrc_V,ptmp_Y,pdst_V,src_pitch_V,tmp_pitch_Y,dst_pitch_V,dst_row_size_V,dst_height_V,depthC,depthVC);
+		if (pixelsize==1)
+		{
+			Warp0_8(psrc_U,ptmp_Y,pdst_U,src_pitch_U,tmp_pitch_Y,dst_pitch_U,dst_row_size_U,dst_height_U,depthC,depthVC);
+			Warp0_8(psrc_V,ptmp_Y,pdst_V,src_pitch_V,tmp_pitch_Y,dst_pitch_V,dst_row_size_V,dst_height_V,depthC,depthVC);
+		}
+		else
+		{
+			warp0_u16_c(psrc_U,ptmp_Y,pdst_U,src_pitch_U,tmp_pitch_Y,dst_pitch_U,dst_row_size_U >> 1,dst_height_U,
+				depthC,depthVC,bits_per_pixel);
+			warp0_u16_c(psrc_V,ptmp_Y,pdst_V,src_pitch_V,tmp_pitch_Y,dst_pitch_V,dst_row_size_V >> 1,dst_height_V,
+				depthC,depthVC,bits_per_pixel);
+		}
     }
 	  }
 	  else
 	  {
-		   CopyPlane(src, dst, PLANAR_U, vi);
-		   CopyPlane(src, dst, PLANAR_V, vi);
+		   CopyPlane(src,dst,PLANAR_U,vi);
+		   CopyPlane(src,dst,PLANAR_V,vi);
 	  }
   }
 
@@ -1788,8 +3817,12 @@ aSobel::aSobel(PClip _child, int _thresh, int _chroma, int _threshC,uint8_t _thr
 	isRGBPfamily = vi.IsPlanarRGB() || vi.IsPlanarRGBA();
 	isAlphaChannel = vi.IsYUVA() || vi.IsPlanarRGBA();
 
-    if (vi.IsY8()) chroma = 1;
+	pixelsize = (uint8_t)vi.ComponentSize(); // AVS16
+	bits_per_pixel = (uint8_t)vi.BitsPerComponent();
 
+    if (grey) chroma = 1;
+
+	if (pixelsize>2) env->ThrowError("aSobel: Only 8 -> 16 bits supported");
 	if (!(vi.IsYUV() && vi.IsPlanar())) env->ThrowError("aSobel: Planar YUV input is required");
 	if ((thresh<0) || (thresh>255)) env->ThrowError("aSobel: 'thresh' must be 0..255");
 	if ((threshC<0) || (threshC>255)) env->ThrowError("aSobel: 'threshC' must be 0..255");
@@ -1885,6 +3918,22 @@ void aSobel::StaticThreadpool(void *ptr)
 				mt_data_inf.src_pitch_V1,mt_data_inf.dst_pitch_V1,mt_data_inf.src_V_h,
 				mt_data_inf.row_size_V1,ptrClass->threshC,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
 			break;
+			// 16 bits
+		case 4 :
+			sobel_u16_sse2_MT((const unsigned char *)mt_data_inf.src_Y1,(unsigned char *)mt_data_inf.dst_Y1,
+				mt_data_inf.src_pitch_Y1,mt_data_inf.dst_pitch_Y1,mt_data_inf.row_size_Y1 >> 1,mt_data_inf.src_Y_h,
+				ptrClass->thresh,ptrClass->bits_per_pixel,mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
+			break;
+		case 5 :
+			sobel_u16_sse2_MT((const unsigned char *)mt_data_inf.src_U1,(unsigned char *)mt_data_inf.dst_U1,
+				mt_data_inf.src_pitch_U1,mt_data_inf.dst_pitch_U1,mt_data_inf.row_size_U1 >> 1,mt_data_inf.src_U_h,
+				ptrClass->threshC,ptrClass->bits_per_pixel,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			break;
+		case 6 :
+			sobel_u16_sse2_MT((const unsigned char *)mt_data_inf.src_V1,(unsigned char *)mt_data_inf.dst_V1,
+				mt_data_inf.src_pitch_V1,mt_data_inf.dst_pitch_V1,mt_data_inf.row_size_V1 >> 1,mt_data_inf.src_V_h,
+				ptrClass->threshC,ptrClass->bits_per_pixel,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			break;
 		default : ;
 	}
 }
@@ -1965,10 +4014,11 @@ PVideoFrame __stdcall aSobel::GetFrame(int n, IScriptEnvironment *env)
 	}
 
 	uint8_t f_proc;
+	const uint8_t offs_16b=(pixelsize==1) ? 0:3;
 
   if (chroma < 5)
   {
-	  f_proc=1;
+	  f_proc=1+offs_16b;
 
 	  for(uint8_t i=0; i<threads_number; i++)
 		  MT_Thread[i].f_process=f_proc;
@@ -1976,29 +4026,37 @@ PVideoFrame __stdcall aSobel::GetFrame(int n, IScriptEnvironment *env)
 	  if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
   }
   else
-    CopyPlane(src, dst, PLANAR_Y, vi);
+    CopyPlane(src,dst,PLANAR_Y,vi);
 
   switch (chroma)
   {
-  case 0:
-    SetPlane(dst, PLANAR_U, 0x80, vi);
-    SetPlane(dst, PLANAR_V, 0x80, vi);
+  case 0 :
+	  if (pixelsize==1)
+	  {
+		  SetPlane(dst,PLANAR_U,0x80,vi);
+		  SetPlane(dst,PLANAR_V,0x80,vi);
+	  }
+	  else
+	  {
+		  SetPlane_16(dst,PLANAR_U,0x80 << (bits_per_pixel-8),vi);
+		  SetPlane_16(dst,PLANAR_V,0x80 << (bits_per_pixel-8),vi);
+	  }
     break;
-  case 1:
+  case 1 :
     break;
-  case 2:
-    CopyPlane(src, dst, PLANAR_U, vi);
-    CopyPlane(src, dst, PLANAR_V, vi);
+  case 2 :
+    CopyPlane(src,dst,PLANAR_U,vi);
+    CopyPlane(src,dst,PLANAR_V,vi);
     break;
-  default:
-	  f_proc=2;
+  default :
+	  f_proc=2+offs_16b;
 
 	  for(uint8_t i=0; i<threads_number; i++)
 		  MT_Thread[i].f_process=f_proc;
 
 	  if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
 
-	  f_proc=3;
+	  f_proc=3+offs_16b;
 
 	  for(uint8_t i=0; i<threads_number; i++)
 		  MT_Thread[i].f_process=f_proc;
@@ -2019,25 +4077,44 @@ PVideoFrame __stdcall aSobel::GetFrame(int n, IScriptEnvironment *env)
   {
 
   if (chroma < 5)
-	Sobel_8(psrc_Y,pdst_Y,src_pitch_Y,dst_pitch_Y,src_height_Y,dst_row_size_Y,thresh);
+  {
+	if (pixelsize==1) Sobel_8(psrc_Y,pdst_Y,src_pitch_Y,dst_pitch_Y,src_height_Y,dst_row_size_Y,thresh);
+	else sobel_u16_sse2(psrc_Y,pdst_Y,src_pitch_Y,dst_pitch_Y,dst_row_size_Y >> 1,src_height_Y,thresh,bits_per_pixel);
+  }
   else
-    CopyPlane(src, dst, PLANAR_Y, vi);
+    CopyPlane(src,dst,PLANAR_Y,vi);
 
   switch (chroma)
   {
-  case 0:
-    SetPlane(dst, PLANAR_U, 0x80, vi);
-    SetPlane(dst, PLANAR_V, 0x80, vi);
+  case 0 :
+	  if (pixelsize==1)
+	  {
+		  SetPlane(dst,PLANAR_U,0x80,vi);
+		  SetPlane(dst,PLANAR_V,0x80,vi);
+	  }
+	  else
+	  {
+		  SetPlane_16(dst,PLANAR_U,0x80 << (bits_per_pixel-8),vi);
+		  SetPlane_16(dst,PLANAR_V,0x80 << (bits_per_pixel-8),vi);
+	  }
     break;
-  case 1:
+  case 1 :
     break;
-  case 2:
-    CopyPlane(src, dst, PLANAR_U, vi);
-    CopyPlane(src, dst, PLANAR_V, vi);
+  case 2 :
+    CopyPlane(src,dst,PLANAR_U,vi);
+    CopyPlane(src,dst,PLANAR_V,vi);
     break;
-  default:
-	Sobel_8(psrc_U,pdst_U,src_pitch_U,dst_pitch_U,src_height_U,dst_row_size_U,threshC);
-	Sobel_8(psrc_V,pdst_V,src_pitch_V,dst_pitch_V,src_height_V,dst_row_size_V,threshC);
+  default :
+	  if (pixelsize==1)
+	  {
+		  Sobel_8(psrc_U,pdst_U,src_pitch_U,dst_pitch_U,src_height_U,dst_row_size_U,threshC);
+		  Sobel_8(psrc_V,pdst_V,src_pitch_V,dst_pitch_V,src_height_V,dst_row_size_V,threshC);
+	  }
+	  else
+	  {
+		  sobel_u16_sse2(psrc_U,pdst_U,src_pitch_U,dst_pitch_U,dst_row_size_U >> 1,src_height_U,threshC,bits_per_pixel);
+		  sobel_u16_sse2(psrc_V,pdst_V,src_pitch_V,dst_pitch_V,dst_row_size_V >> 1,src_height_V,threshC,bits_per_pixel);
+	  }
     break;
   }
 
@@ -2056,8 +4133,12 @@ aBlur::aBlur(PClip _child, int _blur_level, int _blur_type, int _chroma, int _bl
 	isRGBPfamily = vi.IsPlanarRGB() || vi.IsPlanarRGBA();
 	isAlphaChannel = vi.IsYUVA() || vi.IsPlanarRGBA();
 
-	if (vi.IsY8()) chroma = 1;
+	pixelsize = (uint8_t)vi.ComponentSize(); // AVS16
+	bits_per_pixel = (uint8_t)vi.BitsPerComponent();
 
+	if (grey) chroma = 1;
+
+	if (pixelsize>2) env->ThrowError("aBlur: Only 8 -> 16 bits supported");
 	if (!(vi.IsYUV() && vi.IsPlanar())) env->ThrowError("aBlur: Planar YUV input is required");
 	if (blur_level<0) env->ThrowError("aBlur: 'blur' must be >=0");
 	if (blur_levelV<0) env->ThrowError("aBlur: 'blurV' must be >=0");
@@ -2142,64 +4223,245 @@ void aBlur::StaticThreadpool(void *ptr)
 	switch(data->f_process)
 	{
 		case 1 :
-			BlurR2_8_MT((unsigned char *const)mt_data_inf.src_Y1,(unsigned char *const)mt_data_inf.dst_Y1,
-				mt_data_inf.src_pitch_Y1,mt_data_inf.dst_pitch_Y1,mt_data_inf.src_Y_h,mt_data_inf.row_size_Y1,true,true,
+			BlurR2_8_MT_H((unsigned char *const)mt_data_inf.src_Y1,(unsigned char *const)mt_data_inf.dst_Y1,
+				mt_data_inf.src_pitch_Y1,mt_data_inf.dst_pitch_Y1,mt_data_inf.src_Y_h,mt_data_inf.row_size_Y1,true,
 				mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
 			break;
 		case 2 :
-			BlurR6_8_MT((unsigned char *const)mt_data_inf.src_Y1,(unsigned char *const)mt_data_inf.dst_Y1,
-				mt_data_inf.src_pitch_Y1,mt_data_inf.dst_pitch_Y1,mt_data_inf.src_Y_h,mt_data_inf.row_size_Y1,true,true,
+			BlurR2_8_MT_V((unsigned char *const)mt_data_inf.src_Y1,(unsigned char *const)mt_data_inf.dst_Y1,
+				mt_data_inf.src_pitch_Y1,mt_data_inf.dst_pitch_Y1,mt_data_inf.src_Y_h,mt_data_inf.row_size_Y1,true,
 				mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
 			break;
 		case 3 :
-			BlurR2_8_MT((unsigned char *const)mt_data_inf.src_Y1,(unsigned char *const)mt_data_inf.dst_Y1,
-				mt_data_inf.src_pitch_Y1,mt_data_inf.dst_pitch_Y1,mt_data_inf.src_Y_h,mt_data_inf.row_size_Y1,
-				mt_data_inf.processH,mt_data_inf.processV,mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
+			BlurR6_8_MT_H((unsigned char *const)mt_data_inf.src_Y1,(unsigned char *const)mt_data_inf.dst_Y1,
+				mt_data_inf.src_pitch_Y1,mt_data_inf.dst_pitch_Y1,mt_data_inf.src_Y_h,mt_data_inf.row_size_Y1,true,
+				mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
 			break;
 		case 4 :
-			BlurR6_8_MT((unsigned char *const)mt_data_inf.src_Y1,(unsigned char *const)mt_data_inf.dst_Y1,
-				mt_data_inf.src_pitch_Y1,mt_data_inf.dst_pitch_Y1,mt_data_inf.src_Y_h,mt_data_inf.row_size_Y1,
-				mt_data_inf.processH,mt_data_inf.processV,mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
+			BlurR6_8_MT_V((unsigned char *const)mt_data_inf.src_Y1,(unsigned char *const)mt_data_inf.dst_Y1,
+				mt_data_inf.src_pitch_Y1,mt_data_inf.dst_pitch_Y1,mt_data_inf.src_Y_h,mt_data_inf.row_size_Y1,true,
+				mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
 			break;
 		case 5 :
-			BlurR2_8_MT((unsigned char *const)mt_data_inf.src_U1,(unsigned char *const)mt_data_inf.dst_U1,
-				mt_data_inf.src_pitch_U1,mt_data_inf.dst_pitch_U1,mt_data_inf.src_U_h,mt_data_inf.row_size_U1,true,true,
-				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			BlurR2_8_MT_H((unsigned char *const)mt_data_inf.src_Y1,(unsigned char *const)mt_data_inf.dst_Y1,
+				mt_data_inf.src_pitch_Y1,mt_data_inf.dst_pitch_Y1,mt_data_inf.src_Y_h,mt_data_inf.row_size_Y1,
+				mt_data_inf.processH,mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
 			break;
 		case 6 :
-			BlurR6_8_MT((unsigned char *const)mt_data_inf.src_U1,(unsigned char *const)mt_data_inf.dst_U1,
-				mt_data_inf.src_pitch_U1,mt_data_inf.dst_pitch_U1,mt_data_inf.src_U_h,mt_data_inf.row_size_U1,true,true,
-				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			BlurR2_8_MT_V((unsigned char *const)mt_data_inf.src_Y1,(unsigned char *const)mt_data_inf.dst_Y1,
+				mt_data_inf.src_pitch_Y1,mt_data_inf.dst_pitch_Y1,mt_data_inf.src_Y_h,mt_data_inf.row_size_Y1,
+				mt_data_inf.processV,mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
 			break;
 		case 7 :
-			BlurR2_8_MT((unsigned char *const)mt_data_inf.src_U1,(unsigned char *const)mt_data_inf.dst_U1,
-				mt_data_inf.src_pitch_U1,mt_data_inf.dst_pitch_U1,mt_data_inf.src_U_h,mt_data_inf.row_size_U1,
-				mt_data_inf.cprocessH,mt_data_inf.cprocessV,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			BlurR6_8_MT_H((unsigned char *const)mt_data_inf.src_Y1,(unsigned char *const)mt_data_inf.dst_Y1,
+				mt_data_inf.src_pitch_Y1,mt_data_inf.dst_pitch_Y1,mt_data_inf.src_Y_h,mt_data_inf.row_size_Y1,
+				mt_data_inf.processH,mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
 			break;
 		case 8 :
-			BlurR6_8_MT((unsigned char *const)mt_data_inf.src_U1,(unsigned char *const)mt_data_inf.dst_U1,
-				mt_data_inf.src_pitch_U1,mt_data_inf.dst_pitch_U1,mt_data_inf.src_U_h,mt_data_inf.row_size_U1,
-				mt_data_inf.cprocessH,mt_data_inf.cprocessV,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			BlurR6_8_MT_V((unsigned char *const)mt_data_inf.src_Y1,(unsigned char *const)mt_data_inf.dst_Y1,
+				mt_data_inf.src_pitch_Y1,mt_data_inf.dst_pitch_Y1,mt_data_inf.src_Y_h,mt_data_inf.row_size_Y1,
+				mt_data_inf.processV,mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
 			break;
 		case 9 :
-			BlurR2_8_MT((unsigned char *const)mt_data_inf.src_V1,(unsigned char *const)mt_data_inf.dst_V1,
-				mt_data_inf.src_pitch_V1,mt_data_inf.dst_pitch_V1,mt_data_inf.src_V_h,mt_data_inf.row_size_V1,true,true,
+			BlurR2_8_MT_H((unsigned char *const)mt_data_inf.src_U1,(unsigned char *const)mt_data_inf.dst_U1,
+				mt_data_inf.src_pitch_U1,mt_data_inf.dst_pitch_U1,mt_data_inf.src_U_h,mt_data_inf.row_size_U1,true,
 				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
 			break;
 		case 10 :
-			BlurR6_8_MT((unsigned char *const)mt_data_inf.src_V1,(unsigned char *const)mt_data_inf.dst_V1,
-				mt_data_inf.src_pitch_V1,mt_data_inf.dst_pitch_V1,mt_data_inf.src_V_h,mt_data_inf.row_size_V1,true,true,
+			BlurR2_8_MT_V((unsigned char *const)mt_data_inf.src_U1,(unsigned char *const)mt_data_inf.dst_U1,
+				mt_data_inf.src_pitch_U1,mt_data_inf.dst_pitch_U1,mt_data_inf.src_U_h,mt_data_inf.row_size_U1,true,
 				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
 			break;
 		case 11 :
-			BlurR2_8_MT((unsigned char *const)mt_data_inf.src_V1,(unsigned char *const)mt_data_inf.dst_V1,
-				mt_data_inf.src_pitch_V1,mt_data_inf.dst_pitch_V1,mt_data_inf.src_V_h,mt_data_inf.row_size_V1,
-				mt_data_inf.cprocessH,mt_data_inf.cprocessV,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			BlurR6_8_MT_H((unsigned char *const)mt_data_inf.src_U1,(unsigned char *const)mt_data_inf.dst_U1,
+				mt_data_inf.src_pitch_U1,mt_data_inf.dst_pitch_U1,mt_data_inf.src_U_h,mt_data_inf.row_size_U1,true,
+				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
 			break;
 		case 12 :
-			BlurR6_8_MT((unsigned char *const)mt_data_inf.src_V1,(unsigned char *const)mt_data_inf.dst_V1,
+			BlurR6_8_MT_V((unsigned char *const)mt_data_inf.src_U1,(unsigned char *const)mt_data_inf.dst_U1,
+				mt_data_inf.src_pitch_U1,mt_data_inf.dst_pitch_U1,mt_data_inf.src_U_h,mt_data_inf.row_size_U1,true,
+				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			break;
+		case 13 :
+			BlurR2_8_MT_H((unsigned char *const)mt_data_inf.src_U1,(unsigned char *const)mt_data_inf.dst_U1,
+				mt_data_inf.src_pitch_U1,mt_data_inf.dst_pitch_U1,mt_data_inf.src_U_h,mt_data_inf.row_size_U1,
+				mt_data_inf.cprocessH,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			break;
+		case 14 :
+			BlurR2_8_MT_V((unsigned char *const)mt_data_inf.src_U1,(unsigned char *const)mt_data_inf.dst_U1,
+				mt_data_inf.src_pitch_U1,mt_data_inf.dst_pitch_U1,mt_data_inf.src_U_h,mt_data_inf.row_size_U1,
+				mt_data_inf.cprocessV,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			break;
+		case 15 :
+			BlurR6_8_MT_H((unsigned char *const)mt_data_inf.src_U1,(unsigned char *const)mt_data_inf.dst_U1,
+				mt_data_inf.src_pitch_U1,mt_data_inf.dst_pitch_U1,mt_data_inf.src_U_h,mt_data_inf.row_size_U1,
+				mt_data_inf.cprocessH,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			break;
+		case 16 :
+			BlurR6_8_MT_V((unsigned char *const)mt_data_inf.src_U1,(unsigned char *const)mt_data_inf.dst_U1,
+				mt_data_inf.src_pitch_U1,mt_data_inf.dst_pitch_U1,mt_data_inf.src_U_h,mt_data_inf.row_size_U1,
+				mt_data_inf.cprocessV,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			break;
+		case 17 :
+			BlurR2_8_MT_H((unsigned char *const)mt_data_inf.src_V1,(unsigned char *const)mt_data_inf.dst_V1,
+				mt_data_inf.src_pitch_V1,mt_data_inf.dst_pitch_V1,mt_data_inf.src_V_h,mt_data_inf.row_size_V1,true,
+				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			break;
+		case 18 :
+			BlurR2_8_MT_V((unsigned char *const)mt_data_inf.src_V1,(unsigned char *const)mt_data_inf.dst_V1,
+				mt_data_inf.src_pitch_V1,mt_data_inf.dst_pitch_V1,mt_data_inf.src_V_h,mt_data_inf.row_size_V1,true,
+				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			break;
+		case 19 :
+			BlurR6_8_MT_H((unsigned char *const)mt_data_inf.src_V1,(unsigned char *const)mt_data_inf.dst_V1,
+				mt_data_inf.src_pitch_V1,mt_data_inf.dst_pitch_V1,mt_data_inf.src_V_h,mt_data_inf.row_size_V1,true,
+				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			break;
+		case 20 :
+			BlurR6_8_MT_V((unsigned char *const)mt_data_inf.src_V1,(unsigned char *const)mt_data_inf.dst_V1,
+				mt_data_inf.src_pitch_V1,mt_data_inf.dst_pitch_V1,mt_data_inf.src_V_h,mt_data_inf.row_size_V1,true,
+				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			break;
+		case 21 :
+			BlurR2_8_MT_H((unsigned char *const)mt_data_inf.src_V1,(unsigned char *const)mt_data_inf.dst_V1,
 				mt_data_inf.src_pitch_V1,mt_data_inf.dst_pitch_V1,mt_data_inf.src_V_h,mt_data_inf.row_size_V1,
-				mt_data_inf.cprocessH,mt_data_inf.cprocessV,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+				mt_data_inf.cprocessH,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			break;
+		case 22 :
+			BlurR2_8_MT_V((unsigned char *const)mt_data_inf.src_V1,(unsigned char *const)mt_data_inf.dst_V1,
+				mt_data_inf.src_pitch_V1,mt_data_inf.dst_pitch_V1,mt_data_inf.src_V_h,mt_data_inf.row_size_V1,
+				mt_data_inf.cprocessV,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			break;
+		case 23 :
+			BlurR6_8_MT_H((unsigned char *const)mt_data_inf.src_V1,(unsigned char *const)mt_data_inf.dst_V1,
+				mt_data_inf.src_pitch_V1,mt_data_inf.dst_pitch_V1,mt_data_inf.src_V_h,mt_data_inf.row_size_V1,
+				mt_data_inf.cprocessH,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			break;
+		case 24 :
+			BlurR6_8_MT_V((unsigned char *const)mt_data_inf.src_V1,(unsigned char *const)mt_data_inf.dst_V1,
+				mt_data_inf.src_pitch_V1,mt_data_inf.dst_pitch_V1,mt_data_inf.src_V_h,mt_data_inf.row_size_V1,
+				mt_data_inf.cprocessV,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			break;
+			// 16 bits
+		case 25 :
+			blur_r2_u16_sse2_MT_H((unsigned char *)mt_data_inf.src_Y1,(unsigned char *)mt_data_inf.dst_Y1,
+				mt_data_inf.src_pitch_Y1,mt_data_inf.dst_pitch_Y1,mt_data_inf.row_size_Y1 >> 1,mt_data_inf.src_Y_h,
+				true,mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
+			break;
+		case 26 :
+			blur_r2_u16_sse2_MT_V((unsigned char *)mt_data_inf.src_Y1,(unsigned char *)mt_data_inf.dst_Y1,
+				mt_data_inf.src_pitch_Y1,mt_data_inf.dst_pitch_Y1,mt_data_inf.row_size_Y1 >> 1,mt_data_inf.src_Y_h,
+				true,mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
+			break;
+		case 27 :
+			blur_r6_u16_sse2_MT_H((unsigned char *)mt_data_inf.src_Y1,(unsigned char *)mt_data_inf.dst_Y1,
+				mt_data_inf.src_pitch_Y1,mt_data_inf.dst_pitch_Y1,mt_data_inf.row_size_Y1 >> 1,mt_data_inf.src_Y_h,
+				true,mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
+			break;
+		case 28 :
+			blur_r6_u16_sse2_MT_V((unsigned char *)mt_data_inf.src_Y1,(unsigned char *)mt_data_inf.dst_Y1,
+				mt_data_inf.src_pitch_Y1,mt_data_inf.dst_pitch_Y1,mt_data_inf.row_size_Y1 >> 1,mt_data_inf.src_Y_h,
+				true,mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
+			break;
+		case 29 :
+			blur_r2_u16_sse2_MT_H((unsigned char *)mt_data_inf.src_Y1,(unsigned char *)mt_data_inf.dst_Y1,
+				mt_data_inf.src_pitch_Y1,mt_data_inf.dst_pitch_Y1,mt_data_inf.row_size_Y1 >> 1,mt_data_inf.src_Y_h,
+				mt_data_inf.processH,mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
+			break;
+		case 30 :
+			blur_r2_u16_sse2_MT_V((unsigned char *)mt_data_inf.src_Y1,(unsigned char *)mt_data_inf.dst_Y1,
+				mt_data_inf.src_pitch_Y1,mt_data_inf.dst_pitch_Y1,mt_data_inf.row_size_Y1 >> 1,mt_data_inf.src_Y_h,
+				mt_data_inf.processV,mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
+			break;
+		case 31 :
+			blur_r6_u16_sse2_MT_H((unsigned char *)mt_data_inf.src_Y1,(unsigned char *)mt_data_inf.dst_Y1,
+				mt_data_inf.src_pitch_Y1,mt_data_inf.dst_pitch_Y1,mt_data_inf.row_size_Y1 >> 1,mt_data_inf.src_Y_h,
+				mt_data_inf.processH,mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
+			break;
+		case 32 :
+			blur_r6_u16_sse2_MT_V((unsigned char *)mt_data_inf.src_Y1,(unsigned char *)mt_data_inf.dst_Y1,
+				mt_data_inf.src_pitch_Y1,mt_data_inf.dst_pitch_Y1,mt_data_inf.row_size_Y1 >> 1,mt_data_inf.src_Y_h,
+				mt_data_inf.processV,mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
+			break;
+		case 33 :
+			blur_r2_u16_sse2_MT_H((unsigned char *)mt_data_inf.src_U1,(unsigned char *)mt_data_inf.dst_U1,
+				mt_data_inf.src_pitch_U1,mt_data_inf.dst_pitch_U1,mt_data_inf.row_size_U1 >> 1,mt_data_inf.src_U_h,
+				true,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			break;
+		case 34 :
+			blur_r2_u16_sse2_MT_V((unsigned char *)mt_data_inf.src_U1,(unsigned char *)mt_data_inf.dst_U1,
+				mt_data_inf.src_pitch_U1,mt_data_inf.dst_pitch_U1,mt_data_inf.row_size_U1 >> 1,mt_data_inf.src_U_h,
+				true,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			break;
+		case 35 :
+			blur_r6_u16_sse2_MT_H((unsigned char *)mt_data_inf.src_U1,(unsigned char *)mt_data_inf.dst_U1,
+				mt_data_inf.src_pitch_U1,mt_data_inf.dst_pitch_U1,mt_data_inf.row_size_U1 >> 1,mt_data_inf.src_U_h,
+				true,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			break;
+		case 36 :
+			blur_r6_u16_sse2_MT_V((unsigned char *)mt_data_inf.src_U1,(unsigned char *)mt_data_inf.dst_U1,
+				mt_data_inf.src_pitch_U1,mt_data_inf.dst_pitch_U1,mt_data_inf.row_size_U1 >> 1,mt_data_inf.src_U_h,
+				true,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			break;
+		case 37 :
+			blur_r2_u16_sse2_MT_H((unsigned char *)mt_data_inf.src_U1,(unsigned char *)mt_data_inf.dst_U1,
+				mt_data_inf.src_pitch_U1,mt_data_inf.dst_pitch_U1,mt_data_inf.row_size_U1 >> 1,mt_data_inf.src_U_h,
+				mt_data_inf.cprocessH,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			break;
+		case 38 :
+			blur_r2_u16_sse2_MT_V((unsigned char *)mt_data_inf.src_U1,(unsigned char *)mt_data_inf.dst_U1,
+				mt_data_inf.src_pitch_U1,mt_data_inf.dst_pitch_U1,mt_data_inf.row_size_U1 >> 1,mt_data_inf.src_U_h,
+				mt_data_inf.cprocessV,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			break;
+		case 39 :
+			blur_r6_u16_sse2_MT_H((unsigned char *)mt_data_inf.src_U1,(unsigned char *)mt_data_inf.dst_U1,
+				mt_data_inf.src_pitch_U1,mt_data_inf.dst_pitch_U1,mt_data_inf.row_size_U1 >> 1,mt_data_inf.src_U_h,
+				mt_data_inf.cprocessH,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			break;
+		case 40 :
+			blur_r6_u16_sse2_MT_V((unsigned char *)mt_data_inf.src_U1,(unsigned char *)mt_data_inf.dst_U1,
+				mt_data_inf.src_pitch_U1,mt_data_inf.dst_pitch_U1,mt_data_inf.row_size_U1 >> 1,mt_data_inf.src_U_h,
+				mt_data_inf.cprocessV,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			break;
+		case 41 :
+			blur_r2_u16_sse2_MT_H((unsigned char *)mt_data_inf.src_V1,(unsigned char *)mt_data_inf.dst_V1,
+				mt_data_inf.src_pitch_V1,mt_data_inf.dst_pitch_V1,mt_data_inf.row_size_V1 >> 1,mt_data_inf.src_V_h,
+				true,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			break;
+		case 42 :
+			blur_r2_u16_sse2_MT_V((unsigned char *)mt_data_inf.src_V1,(unsigned char *)mt_data_inf.dst_V1,
+				mt_data_inf.src_pitch_V1,mt_data_inf.dst_pitch_V1,mt_data_inf.row_size_V1 >> 1,mt_data_inf.src_V_h,
+				true,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			break;
+		case 43 :
+			blur_r6_u16_sse2_MT_H((unsigned char *)mt_data_inf.src_V1,(unsigned char *)mt_data_inf.dst_V1,
+				mt_data_inf.src_pitch_V1,mt_data_inf.dst_pitch_V1,mt_data_inf.row_size_V1,mt_data_inf.src_V_h,
+				true,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			break;
+		case 44 :
+			blur_r6_u16_sse2_MT_V((unsigned char *)mt_data_inf.src_V1,(unsigned char *)mt_data_inf.dst_V1,
+				mt_data_inf.src_pitch_V1,mt_data_inf.dst_pitch_V1,mt_data_inf.row_size_V1,mt_data_inf.src_V_h,
+				true,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			break;
+		case 45 :
+			blur_r2_u16_sse2_MT_H((unsigned char *)mt_data_inf.src_V1,(unsigned char *)mt_data_inf.dst_V1,
+				mt_data_inf.src_pitch_V1,mt_data_inf.dst_pitch_V1,mt_data_inf.row_size_V1 >> 1,mt_data_inf.src_V_h,
+				mt_data_inf.cprocessH,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			break;
+		case 46 :
+			blur_r2_u16_sse2_MT_V((unsigned char *)mt_data_inf.src_V1,(unsigned char *)mt_data_inf.dst_V1,
+				mt_data_inf.src_pitch_V1,mt_data_inf.dst_pitch_V1,mt_data_inf.row_size_V1 >> 1,mt_data_inf.src_V_h,
+				mt_data_inf.cprocessV,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			break;
+		case 47 :
+			blur_r6_u16_sse2_MT_H((unsigned char *)mt_data_inf.src_V1,(unsigned char *)mt_data_inf.dst_V1,
+				mt_data_inf.src_pitch_V1,mt_data_inf.dst_pitch_V1,mt_data_inf.row_size_V1 >> 1,mt_data_inf.src_V_h,
+				mt_data_inf.cprocessH,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			break;
+		case 48 :
+			blur_r6_u16_sse2_MT_V((unsigned char *)mt_data_inf.src_V1,(unsigned char *)mt_data_inf.dst_V1,
+				mt_data_inf.src_pitch_V1,mt_data_inf.dst_pitch_V1,mt_data_inf.row_size_V1 >> 1,mt_data_inf.src_V_h,
+				mt_data_inf.cprocessV,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
 			break;
 		default : ;
 	}
@@ -2295,66 +4557,108 @@ PVideoFrame __stdcall aBlur::GetFrame(int n, IScriptEnvironment *env)
 	}
 
 	  uint8_t f_proc;
+	  const uint8_t offs_16b=(pixelsize==1) ? 0:24;
 
-  if (chroma < 5)
+  if (chroma<5)
   {
-	  f_proc=blur_type ? 1:2;
-
-	  for(uint8_t i=0; i<threads_number; i++)
-		  MT_Thread[i].f_process=f_proc;
+	  f_proc=(blur_type==1) ? (1+offs_16b):(3+offs_16b);
 
 	for (int i=0; i<blurL; i++)
+	{
+		for(uint8_t i=0; i<threads_number; i++)
+			MT_Thread[i].f_process=f_proc;
 		if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
 
-	  f_proc=blur_type ? 3:4;
+		for(uint8_t i=0; i<threads_number; i++)
+			MT_Thread[i].f_process++;
+		if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
+	}
 
-	  for(uint8_t i=0; i<threads_number; i++)
-		  MT_Thread[i].f_process=f_proc;
+	  f_proc=(blur_type==1) ? (5+offs_16b):(7+offs_16b);
 
 	for (int i=0; i<blurLr; i++)
+	{
+		for(uint8_t i=0; i<threads_number; i++)
+			MT_Thread[i].f_process=f_proc;
 		if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
+
+		for(uint8_t i=0; i<threads_number; i++)
+			MT_Thread[i].f_process++;
+		if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
+	}
   }
   switch (chroma)
   {
-  case 0:
-    SetPlane(src, PLANAR_U, 0x80, vi);
-    SetPlane(src, PLANAR_V, 0x80, vi);
+  case 0 :
+	  if (pixelsize==1)
+	  {
+		  SetPlane(src,PLANAR_U,0x80,vi);
+		  SetPlane(src,PLANAR_V,0x80,vi);
+	  }
+	  else
+	  {
+		  SetPlane_16(src,PLANAR_U,0x80 << (bits_per_pixel-8),vi);
+		  SetPlane_16(src,PLANAR_V,0x80 << (bits_per_pixel-8),vi);
+	  }
     break;
-  case 1:
-  case 2:
+  case 1 :
+  case 2 :
     break;
-  default:
-	  f_proc=blur_type ? 5:6;
+  default :
+	  f_proc=(blur_type==1) ? (9+offs_16b):(11+offs_16b);
+
+	for (int i=0; i<cblurL; i++)
+	{
+		for(uint8_t i=0; i<threads_number; i++)
+			MT_Thread[i].f_process=f_proc;
+		if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
+
+		for(uint8_t i=0; i<threads_number; i++)
+			MT_Thread[i].f_process++;
+		if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
+	}
+
+	  f_proc=(blur_type==1) ? (13+offs_16b):(15+offs_16b);
+
+	for (int i=0; i<cblurLr; i++)
+	{
+		for(uint8_t i=0; i<threads_number; i++)
+			MT_Thread[i].f_process=f_proc;
+		if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
+
+		for(uint8_t i=0; i<threads_number; i++)
+			MT_Thread[i].f_process++;
+		if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
+	}
+
+	  f_proc=(blur_type==1) ? (17+offs_16b):(19+offs_16b);
 
 	  for(uint8_t i=0; i<threads_number; i++)
 		  MT_Thread[i].f_process=f_proc;
 
 	for (int i=0; i<cblurL; i++)
+	{
+		for(uint8_t i=0; i<threads_number; i++)
+			MT_Thread[i].f_process=f_proc;
 		if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
 
-	  f_proc=blur_type ? 7:8;
+		for(uint8_t i=0; i<threads_number; i++)
+			MT_Thread[i].f_process++;
+		if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
+	}
 
-	  for(uint8_t i=0; i<threads_number; i++)
-		  MT_Thread[i].f_process=f_proc;
+	  f_proc=(blur_type==1) ? (21+offs_16b):(23+offs_16b); // 21 22  23 24
 
 	for (int i=0; i<cblurLr; i++)
+	{
+		for(uint8_t i=0; i<threads_number; i++)
+			MT_Thread[i].f_process=f_proc;
 		if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
 
-	  f_proc=blur_type ? 9:10;
-
-	  for(uint8_t i=0; i<threads_number; i++)
-		  MT_Thread[i].f_process=f_proc;
-
-	for (int i=0; i<cblurL; i++)
+		for(uint8_t i=0; i<threads_number; i++)
+			MT_Thread[i].f_process++;
 		if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
-
-	  f_proc=blur_type ? 11:12;
-
-	  for(uint8_t i=0; i<threads_number; i++)
-		  MT_Thread[i].f_process=f_proc;
-
-	for (int i=0; i<cblurLr; i++)
-		if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
+	}
     break;
   }
 
@@ -2373,44 +4677,100 @@ PVideoFrame __stdcall aBlur::GetFrame(int n, IScriptEnvironment *env)
   {
 	for (int i=0; i<blurL; i++)
 	{
-		if (blur_type) BlurR2_8(wpsrc_Y,wptmp_Y,src_pitch_Y,tmp_pitch_Y,src_height_Y,src_row_size_Y,true,true);
-		else BlurR6_8(wpsrc_Y,wptmp_Y,src_pitch_Y,tmp_pitch_Y,src_height_Y,src_row_size_Y,true,true);
+		if (pixelsize==1)
+		{
+			if (blur_type==1) BlurR2_8(wpsrc_Y,wptmp_Y,src_pitch_Y,tmp_pitch_Y,src_height_Y,src_row_size_Y,true,true);
+			else BlurR6_8(wpsrc_Y,wptmp_Y,src_pitch_Y,tmp_pitch_Y,src_height_Y,src_row_size_Y,true,true);
+		}
+		else
+		{
+			if (blur_type==1) blur_r2_u16_sse2(wpsrc_Y,wptmp_Y,src_pitch_Y,tmp_pitch_Y,src_row_size_Y >> 1,src_height_Y,true,true);
+			else blur_r6_u16_sse2(wpsrc_Y,wptmp_Y,src_pitch_Y,tmp_pitch_Y,src_row_size_Y >> 1,src_height_Y,true,true);
+		}
 	}
 	for (int i=0; i<blurLr; i++)
 	{
-		if (blur_type) BlurR2_8(wpsrc_Y,wptmp_Y,src_pitch_Y,tmp_pitch_Y,src_height_Y,src_row_size_Y,processH,processV);
-		else BlurR6_8(wpsrc_Y,wptmp_Y,src_pitch_Y,tmp_pitch_Y,src_height_Y,src_row_size_Y,processH,processV);
+		if (pixelsize==1)
+		{
+			if (blur_type==1) BlurR2_8(wpsrc_Y,wptmp_Y,src_pitch_Y,tmp_pitch_Y,src_height_Y,src_row_size_Y,processH,processV);
+			else BlurR6_8(wpsrc_Y,wptmp_Y,src_pitch_Y,tmp_pitch_Y,src_height_Y,src_row_size_Y,processH,processV);
+		}
+		else
+		{
+			if (blur_type==1) blur_r2_u16_sse2(wpsrc_Y,wptmp_Y,src_pitch_Y,tmp_pitch_Y,src_row_size_Y >> 1,src_height_Y,processH,processV);
+			else blur_r6_u16_sse2(wpsrc_Y,wptmp_Y,src_pitch_Y,tmp_pitch_Y,src_row_size_Y >> 1,src_height_Y,processH,processV);
+		}
 	}
   }
   switch (chroma)
   {
-  case 0:
-    SetPlane(src, PLANAR_U, 0x80, vi);
-    SetPlane(src, PLANAR_V, 0x80, vi);
+  case 0 :
+	  if (pixelsize==1)
+	  {
+		  SetPlane(src,PLANAR_U,0x80,vi);
+		  SetPlane(src,PLANAR_V,0x80,vi);
+	  }
+	  else
+	  {
+		  SetPlane(src,PLANAR_U,0x80 << (bits_per_pixel-8),vi);
+		  SetPlane(src,PLANAR_V,0x80 << (bits_per_pixel-8),vi);
+	  }
     break;
-  case 1:
-  case 2:
+  case 1 :
+  case 2 :
     break;
-  default:
+  default :
 	for (int i=0; i<cblurL; i++)
 	{
-		if (blur_type) BlurR2_8(wpsrc_U,wptmp_U,src_pitch_U,tmp_pitch_U,src_height_U,src_row_size_U,true,true);
-		else BlurR6_8(wpsrc_U,wptmp_U,src_pitch_U,tmp_pitch_U,src_height_U,src_row_size_U,true,true);
+		if (pixelsize==1)
+		{
+			if (blur_type==1) BlurR2_8(wpsrc_U,wptmp_U,src_pitch_U,tmp_pitch_U,src_height_U,src_row_size_U,true,true);
+			else BlurR6_8(wpsrc_U,wptmp_U,src_pitch_U,tmp_pitch_U,src_height_U,src_row_size_U,true,true);
+		}
+		else
+		{
+			if (blur_type==1) blur_r2_u16_sse2(wpsrc_U,wptmp_U,src_pitch_U,tmp_pitch_U,src_row_size_U >> 1,src_height_U,true,true);
+			else blur_r6_u16_sse2(wpsrc_U,wptmp_U,src_pitch_U,tmp_pitch_U,src_row_size_U >> 1,src_height_U,true,true);
+		}
 	}
 	for (int i=0; i<cblurLr; i++)
 	{
-		if (blur_type) BlurR2_8(wpsrc_U,wptmp_U,src_pitch_U,tmp_pitch_U,src_height_U,src_row_size_U,cprocessH,cprocessV);
-		else BlurR6_8(wpsrc_U,wptmp_U,src_pitch_U,tmp_pitch_U,src_height_U,src_row_size_U,cprocessH,cprocessV);
+		if (pixelsize==1)
+		{
+			if (blur_type==1) BlurR2_8(wpsrc_U,wptmp_U,src_pitch_U,tmp_pitch_U,src_height_U,src_row_size_U,cprocessH,cprocessV);
+			else BlurR6_8(wpsrc_U,wptmp_U,src_pitch_U,tmp_pitch_U,src_height_U,src_row_size_U,cprocessH,cprocessV);
+		}
+		else
+		{
+			if (blur_type==1) blur_r2_u16_sse2(wpsrc_U,wptmp_U,src_pitch_U,tmp_pitch_U,src_row_size_U >> 1,src_height_U,cprocessH,cprocessV);
+			else blur_r6_u16_sse2(wpsrc_U,wptmp_U,src_pitch_U,tmp_pitch_U,src_row_size_U >> 1,src_height_U,cprocessH,cprocessV);
+		}
 	}
 	for (int i=0; i<cblurL; i++)
 	{
-		if (blur_type) BlurR2_8(wpsrc_V,wptmp_V,src_pitch_V,tmp_pitch_V,src_height_V,src_row_size_V,true,true);
-		else BlurR6_8(wpsrc_V,wptmp_V,src_pitch_V,tmp_pitch_V,src_height_V,src_row_size_V,true,true);
+		if (pixelsize==1)
+		{
+			if (blur_type==1) BlurR2_8(wpsrc_V,wptmp_V,src_pitch_V,tmp_pitch_V,src_height_V,src_row_size_V,true,true);
+			else BlurR6_8(wpsrc_V,wptmp_V,src_pitch_V,tmp_pitch_V,src_height_V,src_row_size_V,true,true);
+		}
+		else
+		{
+			if (blur_type==1) blur_r2_u16_sse2(wpsrc_V,wptmp_V,src_pitch_V,tmp_pitch_V,src_row_size_V >> 1,src_height_V,true,true);
+			else blur_r6_u16_sse2(wpsrc_V,wptmp_V,src_pitch_V,tmp_pitch_V,src_row_size_V >> 1,src_height_V,true,true);
+		}
 	}
 	for (int i=0; i<cblurLr; i++)
 	{
-		if (blur_type) BlurR2_8(wpsrc_V,wptmp_V,src_pitch_V,tmp_pitch_V,src_height_V,src_row_size_V,cprocessH,cprocessV);
-		else BlurR6_8(wpsrc_V,wptmp_V,src_pitch_V,tmp_pitch_V,src_height_V,src_row_size_V,cprocessH,cprocessV);
+		if (pixelsize==1)
+		{
+			if (blur_type==1) BlurR2_8(wpsrc_V,wptmp_V,src_pitch_V,tmp_pitch_V,src_height_V,src_row_size_V,cprocessH,cprocessV);
+			else BlurR6_8(wpsrc_V,wptmp_V,src_pitch_V,tmp_pitch_V,src_height_V,src_row_size_V,cprocessH,cprocessV);
+		}
+		else
+		{
+			if (blur_type==1) blur_r2_u16_sse2(wpsrc_V,wptmp_V,src_pitch_V,tmp_pitch_V,src_row_size_V >> 1,src_height_V,cprocessH,cprocessV);
+			else blur_r6_u16_sse2(wpsrc_V,wptmp_V,src_pitch_V,tmp_pitch_V,src_row_size_V >> 1,src_height_V,cprocessH,cprocessV);
+		}
 	}
     break;
   }
@@ -2433,8 +4793,12 @@ aWarp::aWarp(PClip _child, PClip _edges, int _depth, int _chroma, int _depthC, b
 	isRGBPfamily = vi.IsPlanarRGB() || vi.IsPlanarRGBA();
 	isAlphaChannel = vi.IsYUVA() || vi.IsPlanarRGBA();
 
-    if (vi.IsY8()) chroma = 1;
+	pixelsize = (uint8_t)vi.ComponentSize(); // AVS16
+	bits_per_pixel = (uint8_t)vi.BitsPerComponent();
 
+    if (grey) chroma = 1;
+
+	if (pixelsize>2) env->ThrowError("aWarp: Only 8 -> 16 bits supported");
 	if (!(vi.IsYUV() && vi.IsPlanar() && vi2.IsYUV() && vi2.IsPlanar())) env->ThrowError("aWarp: Planar YUV input is required");
 	if ((depth<-128) || (depth>127)) env->ThrowError("aWarp: 'depth' must be -128..127");
 	if ((depthC<-128) || (depthC>127)) env->ThrowError("aWarp: 'depthC' must be -128..127");
@@ -2444,7 +4808,7 @@ aWarp::aWarp(PClip _child, PClip _edges, int _depth, int _chroma, int _depthC, b
 
     if ((vi.width!=vi2.width) || (vi.height!=vi2.height))
 		env->ThrowError("aWarp: both sources must have the same width and height");
-    if (vi.pixel_type!=vi2.pixel_type) env->ThrowError("aWarp: both sources must have the colorspace");
+    if (vi.pixel_type!=vi2.pixel_type) env->ThrowError("aWarp: both sources must have the same colorspace");
 
 	StaticThreadpoolF=StaticThreadpool;
 
@@ -2569,6 +4933,55 @@ void aWarp::StaticThreadpool(void *ptr)
 				mt_data_inf.src_pitch_V1,mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_V1,mt_data_inf.row_size_V1,
 				mt_data_inf.dst_V_h,ptrClass->depthC,ptrClass->depthVC,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
 			break;
+			// 16 bits
+		case 9 :
+			warp0_u16_c_MT((const unsigned char*)mt_data_inf.src_Y1,(const unsigned char*)mt_data_inf.src_Y2,
+				(unsigned char*)mt_data_inf.dst_Y1,mt_data_inf.src_pitch_Y1,mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_Y1,
+				mt_data_inf.row_size_Y1 >> 1,mt_data_inf.dst_Y_h,ptrClass->depth,ptrClass->depthV,ptrClass->bits_per_pixel,
+				mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
+			break;
+		case 10 :
+			warp0_u16_c_MT((const unsigned char*)mt_data_inf.src_U1,(const unsigned char*)mt_data_inf.src_U2,
+				(unsigned char*)mt_data_inf.dst_U2,mt_data_inf.src_pitch_U1,mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U1,
+				mt_data_inf.row_size_U1 >> 1,mt_data_inf.dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
+				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			break;
+		case 11 :
+			warp0_u16_c_MT((const unsigned char*)mt_data_inf.src_V1,(const unsigned char*)mt_data_inf.src_V2,
+				(unsigned char*)mt_data_inf.dst_V1,mt_data_inf.src_pitch_V1,mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V1,
+				mt_data_inf.row_size_V1 >> 1,mt_data_inf.dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
+				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			break;
+		case 12 :
+			GuideChroma_16_MT((const unsigned char*)mt_data_inf.src_Y2,(unsigned char*)mt_data_inf.dst_U1,
+				mt_data_inf.src_pitch_Y2,mt_data_inf.src_pitch_U2,mt_data_inf.src_U_h,mt_data_inf.row_size_U2 >> 1,
+				mt_data_inf.SubW_U,mt_data_inf.SubH_U,ptrClass->cplace_mpeg2_flag,
+				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			break;
+		case 13 :
+			warp0_u16_c_MT((const unsigned char*)mt_data_inf.src_U1,(const unsigned char*)mt_data_inf.src_U2,
+				(unsigned char*)mt_data_inf.dst_U2,mt_data_inf.src_pitch_U1,mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U1,
+				mt_data_inf.row_size_U1 >> 1,mt_data_inf.dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
+				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			break;
+		case 14 :
+			warp0_u16_c_MT((const unsigned char*)mt_data_inf.src_V1,(const unsigned char*)mt_data_inf.src_U2,
+				(unsigned char*)mt_data_inf.dst_V1,mt_data_inf.src_pitch_V1,mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_V1,
+				mt_data_inf.row_size_V1 >> 1,mt_data_inf.dst_V_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
+				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			break;
+		case 15 :
+			warp0_u16_c_MT((const unsigned char*)mt_data_inf.src_U1,(const unsigned char*)mt_data_inf.src_Y2,
+				(unsigned char*)mt_data_inf.dst_U2,mt_data_inf.src_pitch_U1,mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_U1,
+				mt_data_inf.row_size_U1 >> 1,mt_data_inf.dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
+				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			break;
+		case 16 :
+			warp0_u16_c_MT((const unsigned char*)mt_data_inf.src_V1,(const unsigned char*)mt_data_inf.src_Y2,
+				(unsigned char*)mt_data_inf.dst_V1,mt_data_inf.src_pitch_V1,mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_V1,
+				mt_data_inf.row_size_V1 >> 1,mt_data_inf.dst_V_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
+				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			break;
 		default : ;
 	}
 }
@@ -2673,10 +5086,11 @@ PVideoFrame __stdcall aWarp::GetFrame(int n, IScriptEnvironment *env)
 	}
 
 	uint8_t f_proc;
+	const uint8_t offs_16b=(pixelsize==1) ? 0:8;
 
   if ((chroma<5) && ((depth!=0) || (depthV!=0)))
   {
-	  f_proc=1;
+	  f_proc=1+offs_16b;
 
 	  for(uint8_t i=0; i<threads_number; i++)
 		  MT_Thread[i].f_process=f_proc;
@@ -2684,30 +5098,38 @@ PVideoFrame __stdcall aWarp::GetFrame(int n, IScriptEnvironment *env)
 	  if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
   }
   else
-    CopyPlane(src, dst, PLANAR_Y, vi);
+    CopyPlane(src,dst,PLANAR_Y,vi);
 
   switch (chroma)
   {
-  case 0:
-    SetPlane(dst, PLANAR_U, 0x80, vi);
-    SetPlane(dst, PLANAR_V, 0x80, vi);
+  case 0 :
+	  if (pixelsize==1)
+	  {
+		  SetPlane(dst,PLANAR_U,0x80,vi);
+		  SetPlane(dst,PLANAR_V,0x80,vi);
+	  }
+	  else
+	  {
+		  SetPlane_16(dst,PLANAR_U,0x80 << (bits_per_pixel-8),vi);
+		  SetPlane_16(dst,PLANAR_V,0x80 << (bits_per_pixel-8),vi);
+	  }
     break;
-  case 2:
-    CopyPlane(src, dst, PLANAR_U, vi);
-    CopyPlane(src, dst, PLANAR_V, vi);
+  case 2 :
+    CopyPlane(src,dst,PLANAR_U,vi);
+    CopyPlane(src,dst,PLANAR_V,vi);
     break;
-  case 3:
-  case 5:
+  case 3 :
+  case 5 :
 	  if ((depthC!=0) || (depthVC!=0))
 	  {
-		  f_proc=2;
+		  f_proc=2+offs_16b;
 
 		  for(uint8_t i=0; i<threads_number; i++)
 			  MT_Thread[i].f_process=f_proc;
 
 		  if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
 
-		  f_proc=3;
+		  f_proc=3+offs_16b;
 
 		  for(uint8_t i=0; i<threads_number; i++)
 			  MT_Thread[i].f_process=f_proc;
@@ -2716,17 +5138,17 @@ PVideoFrame __stdcall aWarp::GetFrame(int n, IScriptEnvironment *env)
 	  }
 	  else
 	  {
-			CopyPlane(src, dst, PLANAR_U, vi);
-			CopyPlane(src, dst, PLANAR_V, vi);
+			CopyPlane(src,dst,PLANAR_U,vi);
+			CopyPlane(src,dst,PLANAR_V,vi);
 	  }
     break;
-  case 4:
-  case 6:
+  case 4 :
+  case 6 :
 	   if ((depthC!=0) || (depthVC!=0))
 	   {
-    if (!vi.IsYV24())
+    if (!vi.Is444())
     {
-	  if (!GuideChroma_8_Test(SubW_U,SubH_U))
+	  if (!GuideChroma_Test(SubW_U,SubH_U))
 	  {
 		  ReleaseMutex(ghMutex);
 		  env->ThrowError("aWarp: Unsuported colorspace");
@@ -2734,7 +5156,7 @@ PVideoFrame __stdcall aWarp::GetFrame(int n, IScriptEnvironment *env)
 
       if (edg->IsWritable())
 	  {
-		  f_proc=4;
+		  f_proc=4+offs_16b;
 
 		  for(uint8_t i=0; i<threads_number; i++)
 			  MT_Thread[i].f_process=f_proc;
@@ -2750,7 +5172,7 @@ PVideoFrame __stdcall aWarp::GetFrame(int n, IScriptEnvironment *env)
 		edg_pitch_U = tmp->GetPitch(PLANAR_U);
 		pedg_U = tmp->GetReadPtr(PLANAR_U);
 		
-		f_proc=4;
+		f_proc=4+offs_16b;
 
 		for(uint8_t i=0; i<threads_number; i++)
 		{
@@ -2764,14 +5186,14 @@ PVideoFrame __stdcall aWarp::GetFrame(int n, IScriptEnvironment *env)
 		if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
       }
 
-	  f_proc=5;
+	  f_proc=5+offs_16b;
 
 	  for(uint8_t i=0; i<threads_number; i++)
 		  MT_Thread[i].f_process=f_proc;
 
 	  if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
 
-	  f_proc=6;
+	  f_proc=6+offs_16b;
 
 	  for(uint8_t i=0; i<threads_number; i++)
 		  MT_Thread[i].f_process=f_proc;
@@ -2780,14 +5202,14 @@ PVideoFrame __stdcall aWarp::GetFrame(int n, IScriptEnvironment *env)
     }
     else
     {
-	  f_proc=7;
+	  f_proc=7+offs_16b;
 
 	  for(uint8_t i=0; i<threads_number; i++)
 		  MT_Thread[i].f_process=f_proc;
 
 	  if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
 
-	  f_proc=8;
+	  f_proc=8+offs_16b;
 
 	  for(uint8_t i=0; i<threads_number; i++)
 		  MT_Thread[i].f_process=f_proc;
@@ -2815,43 +5237,69 @@ PVideoFrame __stdcall aWarp::GetFrame(int n, IScriptEnvironment *env)
   {
 
   if ((chroma<5) && ((depth!=0) || (depthV!=0)))
-	Warp0_8(psrc_Y,pedg_Y,pdst_Y,src_pitch_Y,edg_pitch_Y,dst_pitch_Y,dst_row_size_Y,dst_height_Y,depth,depthV);
+  {
+	  if (pixelsize==1)
+		  Warp0_8(psrc_Y,pedg_Y,pdst_Y,src_pitch_Y,edg_pitch_Y,dst_pitch_Y,dst_row_size_Y,dst_height_Y,depth,depthV);
+	  else
+		  warp0_u16_c(psrc_Y,pedg_Y,pdst_Y,src_pitch_Y,edg_pitch_Y,dst_pitch_Y,dst_row_size_Y >> 1,dst_height_Y,depth,depthV,bits_per_pixel);
+  }
   else
-    CopyPlane(src, dst, PLANAR_Y, vi);
+    CopyPlane(src,dst,PLANAR_Y,vi);
 
   switch (chroma)
   {
-  case 0:
-    SetPlane(dst, PLANAR_U, 0x80, vi);
-    SetPlane(dst, PLANAR_V, 0x80, vi);
-    break;
-  case 2:
-    CopyPlane(src, dst, PLANAR_U, vi);
-    CopyPlane(src, dst, PLANAR_V, vi);
-    break;
-  case 3:
-  case 5:
-	  if ((depthC!=0) || (depthVC!=0))
+  case 0 :
+	  if (pixelsize==1)
 	  {
-			Warp0_8(psrc_U,pedg_U,pdst_U,src_pitch_U,edg_pitch_U,dst_pitch_U,dst_row_size_U,dst_height_U,depthC,depthVC);
-			Warp0_8(psrc_V,pedg_V,pdst_V,src_pitch_V,edg_pitch_V,dst_pitch_V,dst_row_size_V,dst_height_V,depthC,depthVC);
+		  SetPlane(dst,PLANAR_U,0x80,vi);
+		  SetPlane(dst,PLANAR_V,0x80,vi);
 	  }
 	  else
 	  {
-			CopyPlane(src, dst, PLANAR_U, vi);
-			CopyPlane(src, dst, PLANAR_V, vi);
+		  SetPlane_16(dst,PLANAR_U,0x80 << (bits_per_pixel-8),vi);
+		  SetPlane_16(dst,PLANAR_V,0x80 << (bits_per_pixel-8),vi);
 	  }
     break;
-  case 4:
-  case 6:
+  case 2 :
+    CopyPlane(src,dst,PLANAR_U,vi);
+    CopyPlane(src,dst,PLANAR_V,vi);
+    break;
+  case 3 :
+  case 5 :
+	  if ((depthC!=0) || (depthVC!=0))
+	  {
+		  if (pixelsize==1)
+		  {
+			  Warp0_8(psrc_U,pedg_U,pdst_U,src_pitch_U,edg_pitch_U,dst_pitch_U,dst_row_size_U,dst_height_U,depthC,depthVC);
+			  Warp0_8(psrc_V,pedg_V,pdst_V,src_pitch_V,edg_pitch_V,dst_pitch_V,dst_row_size_V,dst_height_V,depthC,depthVC);
+		  }
+		  else
+		  {
+			  warp0_u16_c(psrc_U,pedg_U,pdst_U,src_pitch_U,edg_pitch_U,dst_pitch_U,dst_row_size_U >> 1,dst_height_U,
+				  depthC,depthVC,bits_per_pixel);
+			  warp0_u16_c(psrc_V,pedg_V,pdst_V,src_pitch_V,edg_pitch_V,dst_pitch_V,dst_row_size_V >> 1,dst_height_V,
+				  depthC,depthVC,bits_per_pixel);
+		  }
+	  }
+	  else
+	  {
+			CopyPlane(src,dst,PLANAR_U,vi);
+			CopyPlane(src,dst,PLANAR_V,vi);
+	  }
+    break;
+  case 4 :
+  case 6 :
 	   if ((depthC!=0) || (depthVC!=0))
 	   {
-    if (!vi.IsYV24())
+    if (!vi.Is444())
     {
       if (edg->IsWritable())
 	  {
-		  if (!GuideChroma_8(pedg_Y,dpedg_U,edg_pitch_Y,edg_pitch_U,edg_height_UV,edg_width_UV,SubW_U,
-			  SubH_U,cplace_mpeg2_flag)) env->ThrowError("aWarp: Unsuported colorspace");
+		  const bool TestC = (pixelsize==1) ? GuideChroma_8(pedg_Y,dpedg_U,edg_pitch_Y,edg_pitch_U,edg_height_UV,edg_width_UV,SubW_U,
+			  SubH_U,cplace_mpeg2_flag):GuideChroma_16(pedg_Y,dpedg_U,edg_pitch_Y,edg_pitch_U,edg_height_UV,edg_width_UV >> 1,SubW_U,
+			  SubH_U,cplace_mpeg2_flag);
+
+		  if (!TestC) env->ThrowError("aWarp: Unsuported colorspace");
 	  }
       else
       {
@@ -2862,19 +5310,42 @@ PVideoFrame __stdcall aWarp::GetFrame(int n, IScriptEnvironment *env)
 		const int32_t tmp_height_UV = tmp->GetHeight() >> SubH_U;
 		const int32_t tmp_width_UV = tmp->GetRowSize() >> SubW_U;
 
-		if (!GuideChroma_8(pedg_Y,dptmp_U,edg_pitch_Y,tmp_pitch_U,tmp_height_UV,tmp_width_UV,SubW_U,
-			  SubH_U,cplace_mpeg2_flag)) env->ThrowError("aWarp: Unsuported colorspace");
+		const bool TestC = (pixelsize==1) ? GuideChroma_8(pedg_Y,dptmp_U,edg_pitch_Y,tmp_pitch_U,tmp_height_UV,tmp_width_UV,SubW_U,
+			SubH_U,cplace_mpeg2_flag):GuideChroma_16(pedg_Y,dptmp_U,edg_pitch_Y,tmp_pitch_U,tmp_height_UV,tmp_width_UV >> 1,SubW_U,
+			SubH_U,cplace_mpeg2_flag);
+
+		if (!TestC) env->ThrowError("aWarp: Unsuported colorspace");
 
 		pedg_U = tmp->GetReadPtr(PLANAR_U);
 		edg_pitch_U = tmp_pitch_U;
       }
-	  Warp0_8(psrc_U,pedg_U,pdst_U,src_pitch_U,edg_pitch_U,dst_pitch_U,dst_row_size_U,dst_height_U,depthC,depthVC);
-	  Warp0_8(psrc_V,pedg_U,pdst_V,src_pitch_V,edg_pitch_U,dst_pitch_V,dst_row_size_V,dst_height_V,depthC,depthVC);
+	  if (pixelsize==1)
+	  {
+		  Warp0_8(psrc_U,pedg_U,pdst_U,src_pitch_U,edg_pitch_U,dst_pitch_U,dst_row_size_U,dst_height_U,depthC,depthVC);
+		  Warp0_8(psrc_V,pedg_U,pdst_V,src_pitch_V,edg_pitch_U,dst_pitch_V,dst_row_size_V,dst_height_V,depthC,depthVC);
+	  }
+	  else
+	  {
+		  warp0_u16_c(psrc_U,pedg_U,pdst_U,src_pitch_U,edg_pitch_U,dst_pitch_U,dst_row_size_U >> 1,dst_height_U,
+			  depthC,depthVC,bits_per_pixel);
+		  warp0_u16_c(psrc_V,pedg_U,pdst_V,src_pitch_V,edg_pitch_U,dst_pitch_V,dst_row_size_V >> 1,dst_height_V,
+			  depthC,depthVC,bits_per_pixel);
+	  }
     }
     else
     {
-		Warp0_8(psrc_U,pedg_Y,pdst_U,src_pitch_U,edg_pitch_Y,dst_pitch_U,dst_row_size_U,dst_height_U,depthC,depthVC);
-		Warp0_8(psrc_V,pedg_Y,pdst_V,src_pitch_V,edg_pitch_Y,dst_pitch_V,dst_row_size_V,dst_height_V,depthC,depthVC);
+		if (pixelsize==1)
+		{
+			Warp0_8(psrc_U,pedg_Y,pdst_U,src_pitch_U,edg_pitch_Y,dst_pitch_U,dst_row_size_U,dst_height_U,depthC,depthVC);
+			Warp0_8(psrc_V,pedg_Y,pdst_V,src_pitch_V,edg_pitch_Y,dst_pitch_V,dst_row_size_V,dst_height_V,depthC,depthVC);
+		}
+		else
+		{
+			warp0_u16_c(psrc_U,pedg_Y,pdst_U,src_pitch_U,edg_pitch_Y,dst_pitch_U,dst_row_size_U >> 1,dst_height_U,
+				depthC,depthVC,bits_per_pixel);
+			warp0_u16_c(psrc_V,pedg_Y,pdst_V,src_pitch_V,edg_pitch_Y,dst_pitch_V,dst_row_size_V >> 1,dst_height_V,
+				depthC,depthVC,bits_per_pixel);
+		}
     }
 	   }
 	   else
@@ -2903,8 +5374,12 @@ aWarp4::aWarp4(PClip _child, PClip _edges, int _depth, int _chroma, int _depthC,
 	isRGBPfamily = vi.IsPlanarRGB() || vi.IsPlanarRGBA();
 	isAlphaChannel = vi.IsYUVA() || vi.IsPlanarRGBA();
 
-    if (vi.IsY8()) chroma = 1;
+	pixelsize = (uint8_t)vi.ComponentSize(); // AVS16
+	bits_per_pixel = (uint8_t)vi.BitsPerComponent();
 
+    if (grey) chroma = 1;
+
+	if (pixelsize>2) env->ThrowError("aWarp4: Only 8 -> 16 bits supported");
 	if (!(vi.IsYUV() && vi.IsPlanar() && vi2.IsYUV() && vi2.IsPlanar())) env->ThrowError("aWarp4: Planar YUV input is required");
 	if ((depth<-128) || (depth>127)) env->ThrowError("aWarp4: 'depth' must be -128..127");
 	if ((depthC<-128) || (depthC>127)) env->ThrowError("aWarp4: 'depthC' must be -128..127");
@@ -3041,6 +5516,55 @@ void aWarp4::StaticThreadpool(void *ptr)
 				mt_data_inf.src_pitch_V1,mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_V1,mt_data_inf.row_size_V1,
 				mt_data_inf.dst_V_h,ptrClass->depthC,ptrClass->depthVC,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
 			break;
+			// 16 bits
+		case 9 :
+			warp2_u16_c_MT((const unsigned char*)mt_data_inf.src_Y1,(const unsigned char*)mt_data_inf.src_Y2,
+				(unsigned char*)mt_data_inf.dst_Y1,mt_data_inf.src_pitch_Y1,mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_Y1,
+				mt_data_inf.row_size_Y1 >> 1,mt_data_inf.dst_Y_h,ptrClass->depth,ptrClass->depthV,ptrClass->bits_per_pixel,
+				mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
+			break;
+		case 10 :
+			warp2_u16_c_MT((const unsigned char*)mt_data_inf.src_U1,(const unsigned char*)mt_data_inf.src_U2,
+				(unsigned char*)mt_data_inf.dst_U2,mt_data_inf.src_pitch_U1,mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U1,
+				mt_data_inf.row_size_U1 >> 1,mt_data_inf.dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
+				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			break;
+		case 11 :
+			warp2_u16_c_MT((const unsigned char*)mt_data_inf.src_V1,(const unsigned char*)mt_data_inf.src_V2,
+				(unsigned char*)mt_data_inf.dst_V1,mt_data_inf.src_pitch_V1,mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V1,
+				mt_data_inf.row_size_V1 >> 1,mt_data_inf.dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
+				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			break;
+		case 12 :
+			GuideChroma_16_MT((const unsigned char*)mt_data_inf.src_Y2,(unsigned char*)mt_data_inf.dst_U1,
+				mt_data_inf.src_pitch_Y2,mt_data_inf.src_pitch_U2,mt_data_inf.src_U_h,mt_data_inf.row_size_U2 >> 1,
+				mt_data_inf.SubW_U,mt_data_inf.SubH_U,ptrClass->cplace_mpeg2_flag,
+				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			break;
+		case 13 :
+			warp2_u16_c_MT((const unsigned char*)mt_data_inf.src_U1,(const unsigned char*)mt_data_inf.src_U2,
+				(unsigned char*)mt_data_inf.dst_U2,mt_data_inf.src_pitch_U1,mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U1,
+				mt_data_inf.row_size_U1 >> 1,mt_data_inf.dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
+				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			break;
+		case 14 :
+			warp2_u16_c_MT((const unsigned char*)mt_data_inf.src_V1,(const unsigned char*)mt_data_inf.src_U2,
+				(unsigned char*)mt_data_inf.dst_V1,mt_data_inf.src_pitch_V1,mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_V1,
+				mt_data_inf.row_size_V1 >> 1,mt_data_inf.dst_V_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
+				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			break;
+		case 15 :
+			warp2_u16_c_MT((const unsigned char*)mt_data_inf.src_U1,(const unsigned char*)mt_data_inf.src_Y2,
+				(unsigned char*)mt_data_inf.dst_U2,mt_data_inf.src_pitch_U1,mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_U1,
+				mt_data_inf.row_size_U1 >> 1,mt_data_inf.dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
+				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			break;
+		case 16 :
+			warp2_u16_c_MT((const unsigned char*)mt_data_inf.src_V1,(const unsigned char*)mt_data_inf.src_Y2,
+				(unsigned char*)mt_data_inf.dst_V1,mt_data_inf.src_pitch_V1,mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_V1,
+				mt_data_inf.row_size_V1 >> 1,mt_data_inf.dst_V_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
+				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			break;
 		default : ;
 	}
 }
@@ -3145,10 +5669,11 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
 	}
 
 	uint8_t f_proc;
+	const uint8_t offs_16b=(pixelsize==1) ? 0:8;
 
   if (chroma<5)
   {
-	  f_proc=1;
+	  f_proc=1+offs_16b;
 
 	  for(uint8_t i=0; i<threads_number; i++)
 		  MT_Thread[i].f_process=f_proc;
@@ -3158,33 +5683,41 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
 
   switch (chroma)
   {
-  case 0:
-    SetPlane(dst, PLANAR_U, 0x80, vi);
-    SetPlane(dst, PLANAR_V, 0x80, vi);
+  case 0 :
+	  if (pixelsize==1)
+	  {
+		  SetPlane(dst,PLANAR_U,0x80,vi);
+		  SetPlane(dst,PLANAR_V,0x80,vi);
+	  }
+	  else
+	  {
+		  SetPlane_16(dst,PLANAR_U,0x80 << (bits_per_pixel-8),vi);
+		  SetPlane_16(dst,PLANAR_V,0x80 << (bits_per_pixel-8),vi);
+	  }
     break;
-  case 2:
+  case 2 :
     break;
-  case 3:
-  case 5:
-		  f_proc=2;
+  case 3 :
+  case 5 :
+		  f_proc=2+offs_16b;
 
 		  for(uint8_t i=0; i<threads_number; i++)
 			  MT_Thread[i].f_process=f_proc;
 
 		  if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
 
-		  f_proc=3;
+		  f_proc=3+offs_16b;
 
 		  for(uint8_t i=0; i<threads_number; i++)
 			  MT_Thread[i].f_process=f_proc;
 
 		  if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
     break;
-  case 4:
-  case 6:
-    if (!vi.IsYV24())
+  case 4 :
+  case 6 :
+    if (!vi.Is444())
     {
-	  if (!GuideChroma_8_Test(SubW_U,SubH_U))
+	  if (!GuideChroma_Test(SubW_U,SubH_U))
 	  {
 		  ReleaseMutex(ghMutex);
 		  env->ThrowError("aWarp4: Unsuported colorspace");
@@ -3192,7 +5725,7 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
 
       if (edg->IsWritable())
 	  {
-		  f_proc=4;
+		  f_proc=4+offs_16b;
 
 		  for(uint8_t i=0; i<threads_number; i++)
 			  MT_Thread[i].f_process=f_proc;
@@ -3208,7 +5741,7 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
 		edg_pitch_U = tmp->GetPitch(PLANAR_U);
 		pedg_U = tmp->GetReadPtr(PLANAR_U);
 		
-		f_proc=4;
+		f_proc=4+offs_16b;
 
 		for(uint8_t i=0; i<threads_number; i++)
 		{
@@ -3222,14 +5755,14 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
 		if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
       }
 
-	  f_proc=5;
+	  f_proc=5+offs_16b;
 
 	  for(uint8_t i=0; i<threads_number; i++)
 		  MT_Thread[i].f_process=f_proc;
 
 	  if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
 
-	  f_proc=6;
+	  f_proc=6+offs_16b;
 
 	  for(uint8_t i=0; i<threads_number; i++)
 		  MT_Thread[i].f_process=f_proc;
@@ -3238,14 +5771,14 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
     }
     else
     {
-	  f_proc=7;
+	  f_proc=7+offs_16b;
 
 	  for(uint8_t i=0; i<threads_number; i++)
 		  MT_Thread[i].f_process=f_proc;
 
 	  if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
 
-	  f_proc=8;
+	  f_proc=8+offs_16b;
 
 	  for(uint8_t i=0; i<threads_number; i++)
 		  MT_Thread[i].f_process=f_proc;
@@ -3267,29 +5800,56 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
   {
 
   if (chroma<5)
-	Warp2_8(psrc_Y,pedg_Y,pdst_Y,src_pitch_Y,edg_pitch_Y,dst_pitch_Y,dst_row_size_Y,dst_height_Y,depth,depthV);
+  {
+	  if (pixelsize==1)
+		  Warp2_8(psrc_Y,pedg_Y,pdst_Y,src_pitch_Y,edg_pitch_Y,dst_pitch_Y,dst_row_size_Y,dst_height_Y,depth,depthV);
+	  else
+		  warp2_u16_c(psrc_Y,pedg_Y,pdst_Y,src_pitch_Y,edg_pitch_Y,dst_pitch_Y,dst_row_size_Y >> 1,dst_height_Y,
+			depth,depthV,bits_per_pixel);
+  }
 
   switch (chroma)
   {
-  case 0:
-    SetPlane(dst, PLANAR_U, 0x80, vi);
-    SetPlane(dst, PLANAR_V, 0x80, vi);
+  case 0 :
+	  if (pixelsize==1)
+	  {
+		  SetPlane(dst,PLANAR_U,0x80,vi);
+		  SetPlane(dst,PLANAR_V,0x80,vi);
+	  }
+	  else
+	  {
+		  SetPlane_16(dst,PLANAR_U,0x80 << (bits_per_pixel-8),vi);
+		  SetPlane_16(dst,PLANAR_V,0x80 << (bits_per_pixel-8),vi);
+	  }
     break;
-  case 2:
+  case 2 :
     break;
-  case 3:
-  case 5:
-		Warp2_8(psrc_V,pedg_V,pdst_V,src_pitch_V,edg_pitch_V,dst_pitch_V,dst_row_size_V,dst_height_V,depthC,depthVC);
-		Warp2_8(psrc_U,pedg_U,pdst_U,src_pitch_U,edg_pitch_U,dst_pitch_U,dst_row_size_U,dst_height_U,depthC,depthVC);
+  case 3 :
+  case 5 :
+	  if (pixelsize==1)
+	  {
+		  Warp2_8(psrc_U,pedg_U,pdst_U,src_pitch_U,edg_pitch_U,dst_pitch_U,dst_row_size_U,dst_height_U,depthC,depthVC);
+		  Warp2_8(psrc_V,pedg_V,pdst_V,src_pitch_V,edg_pitch_V,dst_pitch_V,dst_row_size_V,dst_height_V,depthC,depthVC);
+	  }
+	  else
+	  {
+		  warp2_u16_c(psrc_U,pedg_U,pdst_U,src_pitch_U,edg_pitch_U,dst_pitch_U,dst_row_size_U >> 1,dst_height_U,
+			  depthC,depthVC,bits_per_pixel);
+		  warp2_u16_c(psrc_V,pedg_V,pdst_V,src_pitch_V,edg_pitch_V,dst_pitch_V,dst_row_size_V >> 1,dst_height_V,
+			  depthC,depthVC,bits_per_pixel);
+	  }
     break;
-  case 4:
-  case 6:
-    if (!vi.IsYV24())
+  case 4 :
+  case 6 :
+    if (!vi.Is444())
     {
       if (edg->IsWritable())
 	  {
-		  if (!GuideChroma_8(pedg_Y,dpedg_U,edg_pitch_Y,edg_pitch_U,edg_height_UV,edg_width_UV,SubW_U,
-			  SubH_U,cplace_mpeg2_flag)) env->ThrowError("aWarp4: Unsuported colorspace");
+		  const bool TestC = (pixelsize==1) ? GuideChroma_8(pedg_Y,dpedg_U,edg_pitch_Y,edg_pitch_U,edg_height_UV,edg_width_UV,SubW_U,
+			  SubH_U,cplace_mpeg2_flag):GuideChroma_16(pedg_Y,dpedg_U,edg_pitch_Y,edg_pitch_U,edg_height_UV,edg_width_UV >> 1,SubW_U,
+			  SubH_U,cplace_mpeg2_flag);
+
+		  if (!TestC) env->ThrowError("aWarp4: Unsuported colorspace");
 	  }
       else
       {
@@ -3300,19 +5860,42 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
 		const int32_t tmp_height_UV = tmp->GetHeight() >> SubH_U;
 		const int32_t tmp_width_UV = tmp->GetRowSize() >> SubW_U;
 
-		if (!GuideChroma_8(pedg_Y,dptmp_U,edg_pitch_Y,tmp_pitch_U,tmp_height_UV,tmp_width_UV,SubW_U,
-			  SubH_U,cplace_mpeg2_flag)) env->ThrowError("aWarp4: Unsuported colorspace");
+		const bool TestC = (pixelsize==1) ? GuideChroma_8(pedg_Y,dptmp_U,edg_pitch_Y,tmp_pitch_U,tmp_height_UV,tmp_width_UV,SubW_U,
+			SubH_U,cplace_mpeg2_flag):GuideChroma_16(pedg_Y,dptmp_U,edg_pitch_Y,tmp_pitch_U,tmp_height_UV,tmp_width_UV >> 1,SubW_U,
+			SubH_U,cplace_mpeg2_flag);
+
+		if (!TestC) env->ThrowError("aWarp4: Unsuported colorspace");
 
 		pedg_U = tmp->GetReadPtr(PLANAR_U);
 		edg_pitch_U = tmp_pitch_U;
       }
-	  Warp2_8(psrc_U,pedg_U,pdst_U,src_pitch_U,edg_pitch_U,dst_pitch_U,dst_row_size_U,dst_height_U,depthC,depthVC);
-	  Warp2_8(psrc_V,pedg_U,pdst_V,src_pitch_V,edg_pitch_U,dst_pitch_V,dst_row_size_V,dst_height_V,depthC,depthVC);
+	  if (pixelsize==1)
+	  {
+		  Warp2_8(psrc_U,pedg_U,pdst_U,src_pitch_U,edg_pitch_U,dst_pitch_U,dst_row_size_U,dst_height_U,depthC,depthVC);
+		  Warp2_8(psrc_V,pedg_U,pdst_V,src_pitch_V,edg_pitch_U,dst_pitch_V,dst_row_size_V,dst_height_V,depthC,depthVC);
+	  }
+	  else
+	  {
+		  warp2_u16_c(psrc_U,pedg_U,pdst_U,src_pitch_U,edg_pitch_U,dst_pitch_U,dst_row_size_U >> 1,dst_height_U,
+			  depthC,depthVC,bits_per_pixel);
+		  warp2_u16_c(psrc_V,pedg_U,pdst_V,src_pitch_V,edg_pitch_U,dst_pitch_V,dst_row_size_V >> 1,dst_height_V,
+			  depthC,depthVC,bits_per_pixel);
+	  }
     }
     else
     {
-		Warp2_8(psrc_U,pedg_Y,pdst_U,src_pitch_U,edg_pitch_Y,dst_pitch_U,dst_row_size_U,dst_height_U,depthC,depthVC);
-		Warp2_8(psrc_V,pedg_Y,pdst_V,src_pitch_V,edg_pitch_Y,dst_pitch_V,dst_row_size_V,dst_height_V,depthC,depthVC);
+		 if (pixelsize==1)
+		 {
+			 Warp2_8(psrc_U,pedg_Y,pdst_U,src_pitch_U,edg_pitch_Y,dst_pitch_U,dst_row_size_U,dst_height_U,depthC,depthVC);
+			 Warp2_8(psrc_V,pedg_Y,pdst_V,src_pitch_V,edg_pitch_Y,dst_pitch_V,dst_row_size_V,dst_height_V,depthC,depthVC);
+		 }
+		 else
+		 {
+			 warp2_u16_c(psrc_U,pedg_Y,pdst_U,src_pitch_U,edg_pitch_Y,dst_pitch_U,dst_row_size_U >> 1,dst_height_U,
+				 depthC,depthVC,bits_per_pixel);
+			 warp2_u16_c(psrc_V,pedg_Y,pdst_V,src_pitch_V,edg_pitch_Y,dst_pitch_V,dst_row_size_V >> 1,dst_height_V,
+				 depthC,depthVC,bits_per_pixel);
+		 }
     }
     break;
   }
@@ -3347,7 +5930,7 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 
   switch ((int)(size_t)user_data)
   {
-  case 0:
+  case 0 :
 	  {
 	  if ((aWarpSharp_g_cpuid & CPUF_SSE2)==0) env->ThrowError("aWarpSharp2: SSE2 capable CPU is required");
 
@@ -3392,10 +5975,10 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 	  args[13].Defined() ? threshC=args[13].AsInt(-1) : threshC=thresh;
 
     return new aWarpSharp(args[0].AsClip(),thresh,blur,blurt,depth,args[5].AsInt(4),depthC,is_cplace_mpeg2(args,7),
-		blurV,depthV,depthVC,blurC,blurVC,threshC,threads,sleep,avsp,env);
+		blurV,depthV,depthVC,blurC,blurVC,threshC,threads_number,sleep,avsp,env);
 	break;
 	  }
-  case 1:
+  case 1 :
 	  {
 	  if ((aWarpSharp_g_cpuid & CPUF_SSE2)==0) env->ThrowError("aWarpSharp: SSE2 capable CPU is required");
 
@@ -3444,10 +6027,10 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 	  threshC=thresh;
 
     return new aWarpSharp(args[0].AsClip(),thresh,blur,blurt,depth,(cm<4)?map[cm]:-1,depthC,false,
-		blurV,depthV,depthVC,blurC,blurVC,threshC,threads,sleep,avsp,env);
+		blurV,depthV,depthVC,blurC,blurVC,threshC,threads_number,sleep,avsp,env);
 	break;
 	  }
-  case 2:
+  case 2 :
 	  {
 
 	  threads=args[4].AsInt(0);
@@ -3483,10 +6066,10 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 	  thresh=args[1].AsInt(0x80);
 	  args[3].Defined() ? threshC=args[3].AsInt(-1) : threshC=thresh;
 
-	return new aSobel(args[0].AsClip(),thresh,args[2].AsInt(1),threshC,threads,sleep,avsp,env);
+	return new aSobel(args[0].AsClip(),thresh,args[2].AsInt(1),threshC,threads_number,sleep,avsp,env);
 	break;
 	  }
-  case 3:
+  case 3 :
 	  {
 
 	  threads=args[7].AsInt(0);
@@ -3527,10 +6110,10 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 	  args[5].Defined() ? blurC=args[5].AsInt(-1) : blurC=(blur+1)>>1;
 	  args[6].Defined() ? blurVC=args[6].AsInt(-1) : blurVC=blurC;
 
-    return new aBlur(args[0].AsClip(),blur,blurt,args[3].AsInt(1),blurV,blurC,blurVC,threads,sleep,avsp,env);
+    return new aBlur(args[0].AsClip(),blur,blurt,args[3].AsInt(1),blurV,blurC,blurVC,threads_number,sleep,avsp,env);
 	break;
 	  }
-  case 4:
+  case 4 :
 	  {
 
 	  threads=args[8].AsInt(0);
@@ -3571,10 +6154,10 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 	  args[7].Defined() ? depthVC=args[7].AsInt(128) : depthVC=depthC;
 
     return new aWarp(args[0].AsClip(),args[1].AsClip(),depth,args[3].AsInt(4),depthC,is_cplace_mpeg2(args,5),
-		depthV,depthVC,threads,sleep,avsp,env);
+		depthV,depthVC,threads_number,sleep,avsp,env);
 	break;
 	  }
-  case 5:
+  case 5 :
 	  {
 	  threads=args[8].AsInt(0);
 	  LogicalCores=args[9].AsBool(true);
@@ -3612,7 +6195,7 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 	  args[7].Defined() ? depthVC=args[7].AsInt(128) : depthVC=depthC;
 
     return new aWarp4(args[0].AsClip(),args[1].AsClip(),depth,args[3].AsInt(4),depthC,is_cplace_mpeg2(args,5),
-		depthV,depthVC,threads,sleep,avsp,env);
+		depthV,depthVC,threads_number,sleep,avsp,env);
 	break;
 	  }
   default : break;
