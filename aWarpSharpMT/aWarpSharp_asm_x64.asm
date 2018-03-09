@@ -4366,7 +4366,7 @@ JPSDR_GuideChroma1_16_AVX_1:
 	vpand xmm2,xmm2,xmm6
 	vpackusdw xmm0,xmm0,xmm2
 	vpackusdw xmm1,xmm1,xmm3
-	vpavgb xmm0,xmm0,xmm1
+	vpavgw xmm0,xmm0,xmm1
 	vmovdqa xmm1,XMMWORD ptr[rax+2*rcx]
 	vmovdqa xmm3,XMMWORD ptr[rax+2*rcx+16]
 	vpsrld xmm2,xmm1,16
