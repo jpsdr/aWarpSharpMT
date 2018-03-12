@@ -21,8 +21,6 @@
 
 #define myfree(ptr) if (ptr!=NULL) { free(ptr); ptr=NULL;}
 #define myAlignedFree(ptr) if (ptr!=NULL) { _aligned_free(ptr); ptr=NULL;}
-#define myCloseHandle(ptr) if (ptr!=NULL) { CloseHandle(ptr); ptr=NULL;}
-
 
 typedef struct _MT_Data_Info_WarpSharp
 {
@@ -87,13 +85,10 @@ private:
 	uint8_t threads,threads_number;
 	bool sleep;
 	uint16_t UserId;
-	HANDLE ghMutex;
 	
 	ThreadPoolFunction StaticThreadpoolF;
 
 	static void StaticThreadpool(void *ptr);
-
-	void FreeData(void);
 };
 
 
@@ -119,13 +114,10 @@ private:
 	uint8_t threads,threads_number;
 	bool sleep;
 	uint16_t UserId;
-	HANDLE ghMutex;
 	
 	ThreadPoolFunction StaticThreadpoolF;
 
 	static void StaticThreadpool(void *ptr);
-
-	void FreeData(void);
 };
 
 
@@ -154,13 +146,10 @@ private:
 	uint8_t threads,threads_number;
 	bool sleep;
 	uint16_t UserId;
-	HANDLE ghMutex;
 	
 	ThreadPoolFunction StaticThreadpoolF;
 
 	static void StaticThreadpool(void *ptr);
-
-	void FreeData(void);
 };
 
 
@@ -190,13 +179,10 @@ private:
 	uint8_t threads,threads_number;
 	bool sleep;
 	uint16_t UserId;
-	HANDLE ghMutex;
 	
 	ThreadPoolFunction StaticThreadpoolF;
 
 	static void StaticThreadpool(void *ptr);
-
-	void FreeData(void);
 };
 
 
@@ -226,11 +212,8 @@ private:
 	uint8_t threads,threads_number;
 	bool sleep;
 	uint16_t UserId;
-	HANDLE ghMutex;
 	
 	ThreadPoolFunction StaticThreadpoolF;
 
 	static void StaticThreadpool(void *ptr);
-
-	void FreeData(void);
 };

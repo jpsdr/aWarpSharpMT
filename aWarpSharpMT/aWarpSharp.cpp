@@ -3423,7 +3423,6 @@ aWarpSharp::aWarpSharp(PClip _child, int _thresh, int _blur_level, int _blur_typ
 	bits_per_pixel = (uint8_t)vi.BitsPerComponent();
 
 	UserId=0;
-	ghMutex=NULL;
 
 	if (grey) chroma = 1;
 
@@ -3508,13 +3507,6 @@ aWarpSharp::aWarpSharp(PClip _child, int _thresh, int _blur_level, int _blur_typ
 		MT_Thread[i].pFunc=StaticThreadpoolF;
 	}
 
-	ghMutex=CreateMutex(NULL,FALSE,NULL);
-	if (ghMutex==NULL)
-	{
-		if (threads>1) poolInterface->DeAllocateAllThreads(true);
-		env->ThrowError("aWarpSharp: Unable to create Mutex!");
-	}
-
 	const int shift_w = (!grey && vi.IsPlanar() && !isRGBPfamily) ? vi.GetPlaneWidthSubsampling(PLANAR_U) : 0;
 	const int shift_h = (!grey && vi.IsPlanar() && !isRGBPfamily) ? vi.GetPlaneHeightSubsampling(PLANAR_U) : 0;
 
@@ -3528,24 +3520,17 @@ aWarpSharp::aWarpSharp(PClip _child, int _thresh, int _blur_level, int _blur_typ
 		if (!poolInterface->GetUserId(UserId))
 		{
 			poolInterface->DeAllocateAllThreads(true);
-			FreeData();
 			env->ThrowError("aWarpSharp: Error with the TheadPool while getting UserId!");
 		}
 	}
 }
 
 
-void aWarpSharp::FreeData(void) 
-{
-	myCloseHandle(ghMutex);
-}
-
 
 aWarpSharp::~aWarpSharp()
 {
 	if (threads_number>1) poolInterface->RemoveUserId(UserId);
 	if (threads>1) poolInterface->DeAllocateAllThreads(true);
-	FreeData();
 }
 
 
@@ -3554,7 +3539,7 @@ int __stdcall aWarpSharp::SetCacheHints(int cachehints,int frame_range)
   switch (cachehints)
   {
   case CACHE_GET_MTMODE :
-    return MT_MULTI_INSTANCE;
+    return MT_NICE_FILTER;
   default :
     return 0;
   }
@@ -4041,15 +4026,10 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
   const int cblurLr=std::max(blur_levelC,blur_levelVC)-cblurL;
   const bool cprocessH=blur_levelC>cblurL,cprocessV=blur_levelVC>cblurL;
 
-  WaitForSingleObject(ghMutex,INFINITE);
-
   if (threads_number>1)
   {
 	  if (!poolInterface->RequestThreadPool(UserId,threads_number,MT_Thread,-1,false))
-	  {
-		  ReleaseMutex(ghMutex);
 		  env->ThrowError("aWarpSharp: Error with the TheadPool while requesting threadpool!");
-	  }
   }
 
 	if (threads_number>1)
@@ -4276,11 +4256,7 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 	  {
     if (!vi.Is444())
     {
-	  if (!GuideChroma_Test(SubW_U,SubH_U))
-	  {
-		  ReleaseMutex(ghMutex);
-		  env->ThrowError("aWarpSharp: Unsuported colorspace");
-	  }
+	  if (!GuideChroma_Test(SubW_U,SubH_U)) env->ThrowError("aWarpSharp: Unsuported colorspace");
 	  f_proc=31+offs_16b;
 
 	  for(uint8_t i=0; i<threads_number; i++)
@@ -4482,11 +4458,8 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 		const bool testC=(pixelsize==1) ? GuideChroma_8(ptmp_Y,dptmp_U,tmp_pitch_Y,tmp_pitch_U,tmp_height_U,tmp_row_size_U,SubW_U,
 			SubH_U,cplace_mpeg2_flag):GuideChroma_16(ptmp_Y,dptmp_U,tmp_pitch_Y,tmp_pitch_U,tmp_height_U,tmp_row_size_U >> 1,SubW_U,
 			SubH_U,cplace_mpeg2_flag);
-	  if (!testC)
-	  {
-		  ReleaseMutex(ghMutex);
-		  env->ThrowError("aWarpSharp: Unsuported colorspace");
-	  }
+
+	  if (!testC) env->ThrowError("aWarpSharp: Unsuported colorspace");
 	  if (pixelsize==1)
 	  {
 		  Warp0_8(psrc_U,ptmp_U,pdst_U,src_pitch_U,tmp_pitch_U,dst_pitch_U,dst_row_size_U,dst_height_U,depthC,depthVC);
@@ -4527,8 +4500,6 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 
 	}
 
-	ReleaseMutex(ghMutex);
-
   return dst;
 }
 
@@ -4546,7 +4517,6 @@ aSobel::aSobel(PClip _child, int _thresh, int _chroma, int _threshC,uint8_t _thr
 	bits_per_pixel = (uint8_t)vi.BitsPerComponent();
 
 	UserId=0;
-	ghMutex=NULL;
 
     if (grey) chroma = 1;
 
@@ -4589,13 +4559,6 @@ aSobel::aSobel(PClip _child, int _thresh, int _chroma, int _threshC,uint8_t _thr
 	const int shift_w = (!grey && vi.IsPlanar() && !isRGBPfamily) ? vi.GetPlaneWidthSubsampling(PLANAR_U) : 0;
 	const int shift_h = (!grey && vi.IsPlanar() && !isRGBPfamily) ? vi.GetPlaneHeightSubsampling(PLANAR_U) : 0;
 
-	ghMutex=CreateMutex(NULL,FALSE,NULL);
-	if (ghMutex==NULL)
-	{
-		if (threads>1) poolInterface->DeAllocateAllThreads(true);
-		env->ThrowError("aSobel: Unable to create Mutex!");
-	}
-
 	if (vi.height<32) threads_number=1;
 	else threads_number=threads;
 	
@@ -4606,24 +4569,17 @@ aSobel::aSobel(PClip _child, int _thresh, int _chroma, int _threshC,uint8_t _thr
 		if (!poolInterface->GetUserId(UserId))
 		{
 			poolInterface->DeAllocateAllThreads(true);
-			FreeData();
 			env->ThrowError("aSobel: Error with the TheadPool while getting UserId!");
 		}
 	}
 }
 
 
-void aSobel::FreeData(void)
-{
-	myCloseHandle(ghMutex);
-}
-
 
 aSobel::~aSobel()
 {
 	if (threads_number>1) poolInterface->RemoveUserId(UserId);
 	if (threads>1) poolInterface->DeAllocateAllThreads(true);
-	FreeData();
 }
 
 
@@ -4632,7 +4588,7 @@ int __stdcall aSobel::SetCacheHints(int cachehints,int frame_range)
   switch (cachehints)
   {
   case CACHE_GET_MTMODE :
-    return MT_MULTI_INSTANCE;
+    return MT_NICE_FILTER;
   default :
     return 0;
   }
@@ -4719,15 +4675,10 @@ PVideoFrame __stdcall aSobel::GetFrame(int n, IScriptEnvironment *env)
   const int32_t dst_row_size_U = dst->GetRowSize() >> SubW_U;
   const int32_t dst_row_size_V = dst->GetRowSize() >> SubW_V;
 
-  WaitForSingleObject(ghMutex,INFINITE);
-
   if (threads_number>1)
   {
 	  if (!poolInterface->RequestThreadPool(UserId,threads_number,MT_Thread,-1,false))
-	  {
-		  ReleaseMutex(ghMutex);
 		  env->ThrowError("aSobel: Error with the TheadPool while requesting threadpool!");
-	  }
   }
 
   if (threads_number>1)
@@ -4860,8 +4811,6 @@ PVideoFrame __stdcall aSobel::GetFrame(int n, IScriptEnvironment *env)
 
   }
 
-  ReleaseMutex(ghMutex);
-
   return dst;
 }
 
@@ -4880,7 +4829,6 @@ aBlur::aBlur(PClip _child, int _blur_level, int _blur_type, int _chroma, int _bl
 	bits_per_pixel = (uint8_t)vi.BitsPerComponent();
 
 	UserId=0;
-	ghMutex=NULL;
 
 	if (grey) chroma = 1;
 
@@ -4938,13 +4886,6 @@ aBlur::aBlur(PClip _child, int _blur_level, int _blur_type, int _chroma, int _bl
 	const int shift_w = (!grey && vi.IsPlanar() && !isRGBPfamily) ? vi.GetPlaneWidthSubsampling(PLANAR_U) : 0;
 	const int shift_h = (!grey && vi.IsPlanar() && !isRGBPfamily) ? vi.GetPlaneHeightSubsampling(PLANAR_U) : 0;
 
-	ghMutex=CreateMutex(NULL,FALSE,NULL);
-	if (ghMutex==NULL)
-	{
-		if (threads>1) poolInterface->DeAllocateAllThreads(true);
-		env->ThrowError("aBlur: Unable to create Mutex!");
-	}
-
 	if (vi.height<32) threads_number=1;
 	else threads_number=threads;
 
@@ -4955,24 +4896,17 @@ aBlur::aBlur(PClip _child, int _blur_level, int _blur_type, int _chroma, int _bl
 		if (!poolInterface->GetUserId(UserId))
 		{
 			poolInterface->DeAllocateAllThreads(true);
-			FreeData();
 			env->ThrowError("aBlur: Error with the TheadPool while getting UserId!");
 		}
 	}
 }
 
 
-void aBlur::FreeData(void)
-{
-	myCloseHandle(ghMutex);
-}
-
 
 aBlur::~aBlur()
 {
 	if (threads_number>1) poolInterface->RemoveUserId(UserId);
 	if (threads>1) poolInterface->DeAllocateAllThreads(true);
-	FreeData();
 }
 
 
@@ -4981,7 +4915,7 @@ int __stdcall aBlur::SetCacheHints(int cachehints,int frame_range)
   switch (cachehints)
   {
   case CACHE_GET_MTMODE :
-    return MT_MULTI_INSTANCE;
+    return MT_NICE_FILTER;
   default :
     return 0;
   }
@@ -5288,15 +5222,10 @@ PVideoFrame __stdcall aBlur::GetFrame(int n, IScriptEnvironment *env)
   const int cblurLr=std::max(blur_levelC,blur_levelVC)-cblurL;
   const bool cprocessH=blur_levelC>cblurL,cprocessV=blur_levelVC>cblurL;
 
-  WaitForSingleObject(ghMutex,INFINITE);
-
   if (threads_number>1)
   {
 	  if (!poolInterface->RequestThreadPool(UserId,threads_number,MT_Thread,-1,false))
-	  {
-		  ReleaseMutex(ghMutex);
 		  env->ThrowError("aBlur: Error with the TheadPool while requesting threadpool!");
-	  }
   }
 
   if (threads_number>1)
@@ -5550,8 +5479,6 @@ PVideoFrame __stdcall aBlur::GetFrame(int n, IScriptEnvironment *env)
 
   }
 
-  ReleaseMutex(ghMutex);
-
   return src;
 }
 
@@ -5572,7 +5499,6 @@ aWarp::aWarp(PClip _child, PClip _edges, int _depth, int _chroma, int _depthC, b
 	bits_per_pixel = (uint8_t)vi.BitsPerComponent();
 
 	UserId=0;
-	ghMutex=NULL;
 
     if (grey) chroma = 1;
 
@@ -5636,13 +5562,6 @@ aWarp::aWarp(PClip _child, PClip _edges, int _depth, int _chroma, int _depthC, b
 	const int shift_w = (!grey && vi.IsPlanar() && !isRGBPfamily) ? vi.GetPlaneWidthSubsampling(PLANAR_U) : 0;
 	const int shift_h = (!grey && vi.IsPlanar() && !isRGBPfamily) ? vi.GetPlaneHeightSubsampling(PLANAR_U) : 0;
 
-	ghMutex=CreateMutex(NULL,FALSE,NULL);
-	if (ghMutex==NULL)
-	{
-		if (threads>1) poolInterface->DeAllocateAllThreads(true);
-		env->ThrowError("aWarp: Unable to create Mutex!");
-	}
-
 	if (vi.height<32) threads_number=1;
 	else threads_number=threads;
 
@@ -5653,24 +5572,17 @@ aWarp::aWarp(PClip _child, PClip _edges, int _depth, int _chroma, int _depthC, b
 		if (!poolInterface->GetUserId(UserId))
 		{
 			poolInterface->DeAllocateAllThreads(true);
-			FreeData();
 			env->ThrowError("aWarp: Error with the TheadPool while getting UserId!");
 		}
 	}
 }
 
 
-void aWarp::FreeData(void)
-{
-	myCloseHandle(ghMutex);
-}
-
 
 aWarp::~aWarp()
 {
 	if (threads_number>1) poolInterface->RemoveUserId(UserId);
 	if (threads>1) poolInterface->DeAllocateAllThreads(true);
-	FreeData();
 }
 
 
@@ -5679,7 +5591,7 @@ int __stdcall aWarp::SetCacheHints(int cachehints,int frame_range)
   switch (cachehints)
   {
   case CACHE_GET_MTMODE :
-    return MT_MULTI_INSTANCE;
+    return MT_NICE_FILTER;
   default :
     return 0;
   }
@@ -5844,15 +5756,10 @@ PVideoFrame __stdcall aWarp::GetFrame(int n, IScriptEnvironment *env)
   const int32_t edg_height_UV = edg->GetHeight() >> SubH_U;
   const int32_t edg_width_UV = edg->GetRowSize() >> SubW_U;
 
-  WaitForSingleObject(ghMutex,INFINITE);
-
   if (threads_number>1)
   {
 	  if (!poolInterface->RequestThreadPool(UserId,threads_number,MT_Thread,-1,false))
-	  {
-		  ReleaseMutex(ghMutex);
 		  env->ThrowError("aWarp: Error with the TheadPool while requesting threadpool!");
-	  }
   }
 
 
@@ -5960,11 +5867,7 @@ PVideoFrame __stdcall aWarp::GetFrame(int n, IScriptEnvironment *env)
 	   {
     if (!vi.Is444())
     {
-	  if (!GuideChroma_Test(SubW_U,SubH_U))
-	  {
-		  ReleaseMutex(ghMutex);
-		  env->ThrowError("aWarp: Unsuported colorspace");
-	  }
+	  if (!GuideChroma_Test(SubW_U,SubH_U)) env->ThrowError("aWarp: Unsuported colorspace");
 
       if (edg->IsWritable())
 	  {
@@ -6110,11 +6013,7 @@ PVideoFrame __stdcall aWarp::GetFrame(int n, IScriptEnvironment *env)
 			  SubH_U,cplace_mpeg2_flag):GuideChroma_16(pedg_Y,dpedg_U,edg_pitch_Y,edg_pitch_U,edg_height_UV,edg_width_UV >> 1,SubW_U,
 			  SubH_U,cplace_mpeg2_flag);
 
-		  if (!TestC)
-		  {
-			  ReleaseMutex(ghMutex);
-			  env->ThrowError("aWarp: Unsuported colorspace");
-		  }
+		  if (!TestC) env->ThrowError("aWarp: Unsuported colorspace");
 	  }
       else
       {
@@ -6129,11 +6028,7 @@ PVideoFrame __stdcall aWarp::GetFrame(int n, IScriptEnvironment *env)
 			SubH_U,cplace_mpeg2_flag):GuideChroma_16(pedg_Y,dptmp_U,edg_pitch_Y,tmp_pitch_U,tmp_height_UV,tmp_width_UV >> 1,SubW_U,
 			SubH_U,cplace_mpeg2_flag);
 
-		if (!TestC)
-		{
-			ReleaseMutex(ghMutex);
-			env->ThrowError("aWarp: Unsuported colorspace");
-		}
+		if (!TestC) env->ThrowError("aWarp: Unsuported colorspace");
 
 		pedg_U = tmp->GetReadPtr(PLANAR_U);
 		edg_pitch_U = tmp_pitch_U;
@@ -6178,8 +6073,6 @@ PVideoFrame __stdcall aWarp::GetFrame(int n, IScriptEnvironment *env)
 
   }
 
-  ReleaseMutex(ghMutex);
-
   return dst;
 }
 
@@ -6200,7 +6093,6 @@ aWarp4::aWarp4(PClip _child, PClip _edges, int _depth, int _chroma, int _depthC,
 	bits_per_pixel = (uint8_t)vi.BitsPerComponent();
 
 	UserId=0;
-	ghMutex=NULL;
 
     if (grey) chroma = 1;
 
@@ -6266,13 +6158,6 @@ aWarp4::aWarp4(PClip _child, PClip _edges, int _depth, int _chroma, int _depthC,
 	const int shift_w = (!grey && vi.IsPlanar() && !isRGBPfamily) ? vi.GetPlaneWidthSubsampling(PLANAR_U) : 0;
 	const int shift_h = (!grey && vi.IsPlanar() && !isRGBPfamily) ? vi.GetPlaneHeightSubsampling(PLANAR_U) : 0;
 
-	ghMutex=CreateMutex(NULL,FALSE,NULL);
-	if (ghMutex==NULL)
-	{
-		if (threads>1) poolInterface->DeAllocateAllThreads(true);
-		env->ThrowError("aWarp4: Unable to create Mutex!");
-	}
-
 	if (vi.height<32) threads_number=1;
 	else threads_number=threads;
 
@@ -6283,24 +6168,17 @@ aWarp4::aWarp4(PClip _child, PClip _edges, int _depth, int _chroma, int _depthC,
 		if (!poolInterface->GetUserId(UserId))
 		{
 			poolInterface->DeAllocateAllThreads(true);
-			FreeData();
 			env->ThrowError("aWarp4: Error with the TheadPool while getting UserId!");
 		}
 	}
 }
 
 
-void aWarp4::FreeData(void)
-{
-	myCloseHandle(ghMutex);
-}
-
 
 aWarp4::~aWarp4()
 {
 	if (threads_number>1) poolInterface->RemoveUserId(UserId);
 	if (threads>1) poolInterface->DeAllocateAllThreads(true);
-	FreeData();
 }
 
 
@@ -6309,7 +6187,7 @@ int __stdcall aWarp4::SetCacheHints(int cachehints,int frame_range)
   switch (cachehints)
   {
   case CACHE_GET_MTMODE :
-    return MT_MULTI_INSTANCE;
+    return MT_NICE_FILTER;
   default :
     return 0;
   }
@@ -6475,15 +6353,10 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
   const int32_t edg_height_UV = edg->GetHeight() >> SubH_U;
   const int32_t edg_width_UV = edg->GetRowSize() >> SubW_U;
 
-  WaitForSingleObject(ghMutex,INFINITE);
-
   if (threads_number>1)
   {
 	  if (!poolInterface->RequestThreadPool(UserId,threads_number,MT_Thread,-1,false))
-	  {
-		  ReleaseMutex(ghMutex);
 		  env->ThrowError("aWarp4: Error with the TheadPool while requesting threadpool!");
-	  }
   }
 
   if (threads_number>1)
@@ -6576,11 +6449,7 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
   case 6 :
     if (!vi.Is444())
     {
-	  if (!GuideChroma_Test(SubW_U,SubH_U))
-	  {
-		  ReleaseMutex(ghMutex);
-		  env->ThrowError("aWarp4: Unsuported colorspace");
-	  }
+	  if (!GuideChroma_Test(SubW_U,SubH_U)) env->ThrowError("aWarp4: Unsuported colorspace");
 
       if (edg->IsWritable())
 	  {
@@ -6707,11 +6576,7 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
 			  SubH_U,cplace_mpeg2_flag):GuideChroma_16(pedg_Y,dpedg_U,edg_pitch_Y,edg_pitch_U,edg_height_UV,edg_width_UV >> 1,SubW_U,
 			  SubH_U,cplace_mpeg2_flag);
 
-		  if (!TestC)
-		  {
-			  ReleaseMutex(ghMutex);
-			  env->ThrowError("aWarp4: Unsuported colorspace");
-		  }
+		  if (!TestC) env->ThrowError("aWarp4: Unsuported colorspace");
 	  }
       else
       {
@@ -6726,11 +6591,7 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
 			SubH_U,cplace_mpeg2_flag):GuideChroma_16(pedg_Y,dptmp_U,edg_pitch_Y,tmp_pitch_U,tmp_height_UV,tmp_width_UV >> 1,SubW_U,
 			SubH_U,cplace_mpeg2_flag);
 
-		if (!TestC)
-		{
-			ReleaseMutex(ghMutex);
-			env->ThrowError("aWarp4: Unsuported colorspace");
-		}
+		if (!TestC) env->ThrowError("aWarp4: Unsuported colorspace");
 
 		pedg_U = tmp->GetReadPtr(PLANAR_U);
 		edg_pitch_U = tmp_pitch_U;
@@ -6768,8 +6629,6 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
   }
 
   }
-
-  ReleaseMutex(ghMutex);
 
   return dst;
 }
