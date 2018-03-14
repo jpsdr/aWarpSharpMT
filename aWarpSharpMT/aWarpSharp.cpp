@@ -16,7 +16,15 @@
 
 #define NOMINMAX
 #include <algorithm>
+#include <emmintrin.h>
+#include <smmintrin.h>
+#include <immintrin.h> // _mm_undefined
 #include "aWarpSharp.h"
+
+// For VS2010
+#ifndef _mm_undefined_si128
+#define _mm_undefined_si128 _mm_setzero_si128
+#endif
 
 static int aWarpSharp_g_cpuid;
 
@@ -25,18 +33,12 @@ static ThreadPoolInterface *poolInterface;
 extern "C" void JPSDR_Warp2_8_SSE2(const unsigned char *psrc,const unsigned char *pedg,unsigned char *pdst,int32_t src_pitch,
 	int32_t edg_pitchp,int32_t edg_pitchn,int32_t y_limit_min,int32_t y_limit_max,const short *x_limit_min,const short *x_limit_max,
 	int32_t i_,int32_t depthH,int32_t depthV);
-extern "C" void JPSDR_Warp2_8_SSE3(const unsigned char *psrc,const unsigned char *pedg,unsigned char *pdst,int32_t src_pitch,
-	int32_t edg_pitchp,int32_t edg_pitchn,int32_t y_limit_min,int32_t y_limit_max,const short *x_limit_min,const short *x_limit_max,
-	int32_t i_,int32_t depthH,int32_t depthV);
 extern "C" void JPSDR_Warp2_8_AVX(const unsigned char *psrc,const unsigned char *pedg,unsigned char *pdst,int32_t src_pitch,
 	int32_t edg_pitchp,int32_t edg_pitchn,int32_t y_limit_min,int32_t y_limit_max,const short *x_limit_min,const short *x_limit_max,
 	int32_t i_,int32_t depthH,int32_t depthV);
 extern "C" void JPSDR_Warp0_8_SSE2(const unsigned char *psrc,const unsigned char *pedg,unsigned char *pdst,int32_t src_pitch,
 	int32_t edg_pitchp,int32_t edg_pitchn,int32_t y_limit_min,int32_t y_limit_max,const short *x_limit_min,const short *x_limit_max,
 	int32_t i_,uint32_t depthH,int32_t depthV);
-extern "C" void JPSDR_Warp0_8_SSE3(const unsigned char *psrc,const unsigned char *pedg,unsigned char *pdst,int32_t src_pitch,
-	int32_t edg_pitchp,int32_t edg_pitchn,int32_t y_limit_min,int32_t y_limit_max,const short *x_limit_min,const short *x_limit_max,
-	int32_t i_,int32_t depthH,int32_t depthV);
 extern "C" void JPSDR_Warp0_8_AVX(const unsigned char *psrc,const unsigned char *pedg,unsigned char *pdst,int32_t src_pitch,
 	int32_t edg_pitchp,int32_t edg_pitchn,int32_t y_limit_min,int32_t y_limit_max,const short *x_limit_min,const short *x_limit_max,
 	int32_t i_,int32_t depthH,int32_t depthV);
@@ -51,7 +53,6 @@ extern "C" void JPSDR_Sobel_16_AVX(const unsigned char *psrc,unsigned char *pdst
 	int32_t i_,int32_t thresh);
 
 extern "C" void JPSDR_H_BlurR6_8_SSE2(unsigned char *psrc2,unsigned char *ptmp2,int32_t src_row_size_16);
-extern "C" void JPSDR_H_BlurR6_8_SSE3(unsigned char *psrc2,unsigned char *ptmp2,int32_t src_row_size,const unsigned char *dq0toF);
 extern "C" void JPSDR_H_BlurR6_8_AVX(unsigned char *psrc2,unsigned char *ptmp2,int32_t src_row_size,const unsigned char *dq0toF);
 
 extern "C" void JPSDR_H_BlurR6a_8_SSE2(unsigned char *psrc2,unsigned char *ptmp2);
@@ -85,7 +86,6 @@ extern "C" void JPSDR_V_BlurR6b_16_AVX(unsigned char *psrc2,unsigned char *ptmp2
 extern "C" void JPSDR_V_BlurR6c_16_AVX(unsigned char *psrc2,unsigned char *ptmp2,int32_t tmp_pitch, int32_t src_row_size_16);
 
 extern "C" void JPSDR_H_BlurR2_8_SSE2(unsigned char *psrc2,unsigned char *ptmp2,int32_t src_row_size_16);
-extern "C" void JPSDR_H_BlurR2_8_SSE3(unsigned char *psrc2,unsigned char *ptmp2,int32_t src_row_size,const unsigned char *dq0toF);
 extern "C" void JPSDR_H_BlurR2_8_AVX(unsigned char *psrc2,unsigned char *ptmp2,int32_t src_row_size,const unsigned char *dq0toF);
 
 extern "C" void JPSDR_H_BlurR2a_8_SSE2(unsigned char *psrc2,unsigned char *ptmp2);
@@ -117,744 +117,1014 @@ extern "C" void JPSDR_GuideChroma2_16_AVX(const uint16_t *py,uint16_t *pu,int32_
 __declspec(align(16)) static const unsigned char dq0toF[0x10]={0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15};
 
 
-static void warp0_u16_c(const unsigned char *srcp8,const unsigned char *edgep8,unsigned char *dstp8,const int32_t src_pitch_,
-	const int32_t edge_pitch_,const int32_t dst_pitch_,const int32_t width,const int32_t height,int depth,int depthV,
-	const uint8_t bits_per_sample)
+// warp0: SMAGL is 0
+// warp2: SMAGL is 2 called from aWarp4
+// uint8_t or uint16_t
+template<int SMAGL,typename pixel_t>
+static void warp_c(const unsigned char *srcp8,const unsigned char *edgep8,unsigned char *dstp8,const int32_t src_pitch_,
+  const int32_t edge_pitch_,const int32_t dst_pitch_,const int32_t width,const int32_t height,int depth,int depthV,
+  const uint8_t bits_per_sample)
 {
-    const uint16_t *srcp = (const uint16_t *)srcp8;
-	const uint16_t *srcp2 = (const uint16_t *)(srcp8+src_pitch_);
-    const uint16_t *edgep = (const uint16_t *)edgep8;
-    uint16_t *dstp = (uint16_t *)dstp8;
+  const pixel_t *srcp = (const pixel_t *)srcp8;
+  const pixel_t *srcp2 = (const pixel_t *)(srcp8 + src_pitch_);
+  const pixel_t *edgeptr = (const pixel_t *)edgep8;
+  pixel_t *dstp = (pixel_t *)dstp8;
 
-	const int32_t src_pitch=src_pitch_ >> 1;
-	const int32_t edge_pitch=edge_pitch_ >> 1;
-	const int32_t dst_pitch=dst_pitch_ >> 1;
+  const int32_t src_pitch = src_pitch_/sizeof(pixel_t);
+  const int32_t edge_pitch = edge_pitch_/sizeof(pixel_t);
+  const int32_t dst_pitch = dst_pitch_/sizeof(pixel_t);
 
-	const int32_t i0 = -((width+3)&~3);
-	const int32_t c = width + i0 - 1;
+  const int SMAG = 1 << SMAGL; // 180313
 
-	srcp -= i0;
-	edgep -= i0;
-	dstp -= i0;
+  const int wmod8 = (width >> 3) << 3;
 
-	const int32_t x_limit_min[8] = {i0,i0-1,i0-2,i0-3,i0-4,i0-5,i0-6,i0-7};
-	const int32_t x_limit_max[8] = {c,c-1,c-2,c-3,c-4,c-5,c-6,c-7};
+  const int32_t c = width-1;
 
-    const uint8_t over_bits = bits_per_sample-8;
-    const int32_t pixel_max = (1 << bits_per_sample)-1;
+  const int32_t x_limit_min[8] = {0*SMAG,-1*SMAG,-2*SMAG,-3*SMAG,-4*SMAG,-5*SMAG,-6*SMAG,-7*SMAG};
+  const int32_t x_limit_max[8] = {c*SMAG,(c-1)*SMAG,(c-2)*SMAG,(c-3)*SMAG,(c-4)*SMAG,(c-5)*SMAG,(c-6)*SMAG,(c-7)*SMAG};
 
-    depth <<= 8-over_bits;
-	depthV <<= 8-over_bits;
+  const uint8_t over_bits = bits_per_sample-8;
+  const int32_t pixel_max = (1 << bits_per_sample)-1;
 
-    for (int32_t y=0; y<height; y++)
+  const int ARITH_BITS = 7;
+  const int ARITH_ONE = (1 << ARITH_BITS); // 128
+  const int ARITH_ROUNDER = (1 << (ARITH_BITS - 1)); // 64
+
+  // depth is 8 bits, scale up to always have 30 bit result
+  // bits_per_sample  diff of two uint_16   depth bitdepth   result bitdepth
+  //                                        mul'd depth bd   max safe result bd
+  //        16               17                    8            17+8=25
+  //                                               13           17+13=30
+  //        14               15                    8            15+8=23
+  //                                               15           15+15=30
+  //        12               13                    8            13+8=21
+  //                                               17           13+17=30
+  //        10               11                    8            11+8=19
+  //                                               19           11+19=30
+  //         8                9                    8             9+8=17  (like at 8 bit pixels, but there we shift the pixels by 7 instead of depthV )
+  //                    diff shl7: 16 bits         8            16+8=24
+
+  // good for 8 bit
+  depth <<= (21-bits_per_sample);
+  depthV <<= (21-bits_per_sample);
+
+  for (int32_t y=0; y<height; y++)
+  {
+    const int32_t y_limit_min = -y*ARITH_ONE;
+    const int32_t y_limit_max = (height-1-y)*ARITH_ONE -1;
+    const int32_t edg_pitchp = (y!=0) ? -edge_pitch:0;
+    const int32_t edg_pitchn = (y!=(height-1)) ? edge_pitch:0;
+
+    const pixel_t *edgprev_ptr=edgeptr,*edgnext_ptr=edgeptr;
+    pixel_t *dst=dstp;
+
+    edgprev_ptr += edg_pitchp;
+    edgnext_ptr += edg_pitchn;
+
+    int32_t edge_right[8],edge_left[8];
+
+    for (uint8_t i=1; i<8; i++)
     {
-		const int32_t y_limit_min = -y*128;
-		const int32_t y_limit_max = (height-y)*128-129;
-		const int32_t edg_pitchp = (y!=0) ? -edge_pitch:0;
-		const int32_t edg_pitchn = (y!=(height-1)) ? edge_pitch:0;
-		int32_t i1=i0;
+      edge_left[i]=edgeptr[i-1];
+      edge_right[i]=edgeptr[i+1];
+    }
+    edge_left[0]=edge_left[1];
+    edge_right[0]=edgeptr[1];
 
-		const uint16_t *edgp=edgep,*edgn=edgep;
-		uint16_t *dst=dstp;
+    for (int x=0; x<width; x+=8)
+    {
+      int32_t vert[8], horiz[8];
+      for (uint8_t i=0; i<8; i++)
+      {
+        // depth is -128..127, src is scaled up to give mul result of 30 bits
+        // we are shifting it back by 12 to get a 7-bit fractional integer arithmetic
+        horiz[i]=((edge_left[i]-edge_right[i])*depth) >> 14; // depth scaled left-right
+        vert[i]=((edgprev_ptr[x+i]-edgnext_ptr[x+i])*depthV) >> 14; // depthV scaled top-bottom
+      }
+      // guard vertical offsets
+      for (uint8_t i=0; i<8; i++)
+        vert[i]=std::max(std::min(vert[i],y_limit_max),y_limit_min);
 
-		edgp+=edg_pitchp;
-		edgn+=edg_pitchn;
-		dst-=8;
+      int32_t horiz_weight[8];
+      int32_t vert_weight[8];
+      for (uint8_t i=0; i<8; i++)
+      {
+        // remainder of the division by 128 (or 32 if it was shifted left by 2 above)
+        horiz_weight[i]=(horiz[i] << SMAGL) & 0x7F; // fractional part: for fine weighting
+        vert_weight[i]=(vert[i]  << SMAGL) & 0x7F;
+        horiz[i] >>= (7-SMAGL); // integer part: the offset itself
+        vert[i] >>= (7-SMAGL); // shift by 7 (or 5); division by 128 (or 32)
+      }
 
-		int32_t x1[8],x7[8];
+      // horizontal things
+      for (uint8_t i=0; i<8; i++)
+        horiz[i] += x << SMAGL;
 
-		for(uint8_t i=1; i<8; i++)
-		{
-			x7[i]=edgep[i1+i-1];
-			x1[i]=edgep[i1+i+1];
-		}
-		x7[0]=x7[1];
-		x1[0]=edgep[i1+1];
+      // guard horizontal offsets min/max
+      int32_t horiz_offset_x1[8];
+      for (uint8_t i=0; i<8; i++)
+        horiz_offset_x1[i]=std::max(std::min(x_limit_max[i],horiz[i]),x_limit_min[i]);
 
-		do
-		{
-			int32_t x0[8],x2[8],x3[8],x4[8];
-			bool b0[8],b3[8];
+      // mask out out-of-screen offset weights
+      bool b0[8],b3[8];
+      for (uint8_t i=0; i<8; i++)
+      {
+        b3[i] = x_limit_max[i]>(horiz[i]);
+        b0[i] = x_limit_min[i]>(horiz[i]);
+      }
+      for (uint8_t i=0; i<8; i++)
+        horiz_weight[i] = b3[i] ? horiz_weight[i]:0; // x7 = keep x7 where b3=true (over max)
+      for (uint8_t i=0; i<8; i++)
+        horiz_weight[i] = (!b0[i]) ? horiz_weight[i]:0; // x0 = x7 where b0=false (below min)
+      // keep horizontal weights where out of limit, otherwise zero
 
-			for(uint8_t i=0; i<8; i++)
-			{
-				x7[i]-=x1[i];
-				x4[i]=(int32_t)edgp[i1+i]-(int32_t)edgn[i1+i];
-			}
-			for(uint8_t i=0; i<8; i++)
-			{
-				x7[i]<<=7;
-				x4[i]<<=7;
-			}
-			for(uint8_t i=0; i<8; i++)
-			{
-				x7[i]*=depth;
-				x4[i]*=depthV;
-			}
-			for(uint8_t i=0; i<8; i++)
-			{
-				x7[i]>>=16;
-				x4[i]>>=16;
-			}
-			for(uint8_t i=0; i<8; i++)
-				x4[i]=std::max(std::min(x4[i],y_limit_max),y_limit_min);
-			memcpy(x1,x7,8*sizeof(int32_t));
-			memcpy(x2,x4,8*sizeof(int32_t));
-			for(uint8_t i=0; i<8; i++)
-			{
-				x7[i]&=0x7F;
-				x4[i]&=0x7F;
-				x1[i]>>=7;
-				x2[i]>>=7;
-			}
-			for(uint8_t i=0; i<8; i++)
-				x1[i]+=i1;
-			for(uint8_t i=0; i<8; i++)
-			{
-				b3[i]=x_limit_max[i]>x1[i];
-				b0[i]=x_limit_min[i]>x1[i];
-			}
-			for(uint8_t i=0; i<8; i++)
-				x1[i]=std::max(std::min(x_limit_max[i],x1[i]),x_limit_min[i]);
-			for(uint8_t i=0; i<8; i++)
-				x7[i]=b3[i]?x7[i]:0;
-			for(uint8_t i=0; i<8; i++)
-				x0[i]=(!b0[i])?x7[i]:0;
-			for(uint8_t i=0; i<8; i++)
-				x2[i]*=src_pitch;
-			for(uint8_t i=0; i<8; i++)
-				x2[i]+=x1[i];
-			for(uint8_t i=0; i<8; i++)
-			{
-				const int32_t offs=x2[i]+i;
+      int32_t curr_0[8],curr_1[8];
+      int32_t bottom_0[8],bottom_1[8];
+      for (uint8_t i=0; i<8; i++)
+      {
+        // combine vertical and horizontal offset things
+        const int32_t offs=vert[i]*src_pitch+horiz_offset_x1[i]+i;
+        // for 8 bit: _mm_insert_epi16 is split to 00FF (offs) and FF00 (offs)
+        // for 16 bit: _mm_insert_epi32 is split to 0000FFFF (offs) and FFFF0000 (offs+1)
+        curr_0[i] = (int32_t)srcp[offs];       // lo FFFF from 
+        curr_1[i] = (int32_t)srcp[offs+1];
+        bottom_0[i] = (int32_t)srcp2[offs];    // next line
+        bottom_1[i] = (int32_t)srcp2[offs+1];// next line
+      }
 
-				x3[i]=(int32_t)srcp[offs];
-				x2[i]=(int32_t)srcp[offs+1];
-				x1[i]=(int32_t)srcp2[offs];
-				x7[i]=(int32_t)srcp2[offs+1];
-			}
-			for(uint8_t i=0; i<8; i++)
-			{
-				const int32_t a=x0[i],b=128-a;
+      int32_t curr[8],bottom[8];
+      // curr = curr_0 * (1 - x0/128) + curr_1 * (x0/128)
+      // bottom = bottom_0 * (1 - x0/128) + bottom_1 * (x0/128)
+      for (int i=0; i<8; i++)
+      {
+        const int32_t a=horiz_weight[i],b=ARITH_ONE-a;
 
-				x3[i]*=b;
-				x1[i]*=b;
-				x2[i]*=a;
-				x7[i]*=a;
-			}
-			for(uint8_t i=0; i<8; i++)
-			{
-				x3[i]+=x2[i];
-				x1[i]+=x7[i];
-			}
-			for(uint8_t i=0; i<8; i++)
-			{
-				x3[i]+=64;
-				x1[i]+=64;
-			}
-			for(uint8_t i=0; i<8; i++)
-			{
-				x3[i]>>=7;
-				x1[i]>>=7;
-			}
-			for(uint8_t i=0; i<8; i++)
-			{
-				x1[i]*=x4[i];
-				x3[i]*=128-x4[i];
-			}
-			for(uint8_t i=0; i<8; i++)
-				x3[i]+=x1[i];
-			for(uint8_t i=0; i<8; i++)
-				x3[i]+=64;
-			for(uint8_t i=0; i<8; i++)
-				x3[i]>>=7;
-			for(uint8_t i=0; i<8; i++)
-				x3[i]=std::min(std::max(x3[i],0),pixel_max);
-			for(uint8_t i=0; i<8; i++)
-			{
-				x7[i]=edgep[i1+i+7];
-				x1[i]=edgep[i1+i+9];
-			}
-			i1+=8;
-			if (i1<=0)
-			{
-				for(uint8_t i=0; i<8; i++)
-					dst[i1+i]=x3[i];
-			}
-			else
-			{
-				for(uint8_t i=0; i<4; i++)
-					dst[i1+i]=x3[i];
-			}
-		}
-		while(i1<0);
+        curr[i] = ((curr_0[i]*b+curr_1[i]*a)+ARITH_ROUNDER) >> ARITH_BITS;
+        bottom[i] = ((bottom_0[i]*b+bottom_1[i]*a)+ARITH_ROUNDER) >> ARITH_BITS;
+      }
 
-		srcp += src_pitch;
-		srcp2 += src_pitch;
-		edgep += edge_pitch;
-		dstp += dst_pitch;
-	}
+      // result = result * (1 - vert_weight_x4/128) + x1 * (vert_weight_x4/128)
+      int32_t result[8];
+      for (int i=0; i<8; i++)
+      {
+        const int32_t a=vert_weight[i],b=ARITH_ONE-a;
+        result[i] = ((curr[i]*b+bottom[i]*a)+ARITH_ROUNDER) >> ARITH_BITS;
+      }
+
+      // clamp pixel min max
+      for (int i=0; i<8; i++)
+        result[i] = std::min(std::max(result[i],0),pixel_max);
+
+      if (x>=wmod8)
+      {
+        for (int i=0; i<(width-wmod8); i++)
+          dst[x+i]=result[i];
+        break; // finito, no more preload
+      }
+      for (int i=0; i<8; i++)
+        dst[x+i]=result[i];
+
+      // preload for next loop
+      for (int i=0; i<8; i++)
+      {
+        edge_left[i]=edgeptr[x+i+8-1];
+        edge_right[i]=edgeptr[x+i+8+1];
+      }
+    }
+
+    srcp += src_pitch*SMAG; // 180313
+    srcp2 += src_pitch*SMAG;// 180313
+    edgeptr += edge_pitch;
+    dstp += dst_pitch;
+  }
+}
+
+// warp0: SMAGL is 0
+// warp2: SMAGL is 2 called from aWarp4
+// uint8_t or uint16_t
+template<int SMAGL,typename pixel_t>
+static void warp_c_MT(const unsigned char *srcp8,const unsigned char *edgep8,unsigned char *dstp8,const int32_t src_pitch_,
+  const int32_t edge_pitch_,const int32_t dst_pitch_,const int32_t width,const int32_t height,int depth,int depthV,
+  const uint8_t bits_per_sample,const int32_t ymin,const int32_t ymax)
+{
+  const pixel_t *srcp = (const pixel_t *)(srcp8+(ymin*src_pitch_));
+  const pixel_t *srcp2 = (const pixel_t *)(srcp8+((ymin+1)*src_pitch_));
+  const pixel_t *edgeptr = (const pixel_t *)(edgep8+(ymin*edge_pitch_));
+  pixel_t *dstp = (pixel_t *)(dstp8+(ymin*dst_pitch_));
+
+  const int32_t src_pitch = src_pitch_/sizeof(pixel_t);
+  const int32_t edge_pitch = edge_pitch_/sizeof(pixel_t);
+  const int32_t dst_pitch = dst_pitch_/sizeof(pixel_t);
+
+  const int SMAG = 1 << SMAGL; // 180313
+
+  const int wmod8 = (width >> 3) << 3;
+
+  const int32_t c = width-1;
+
+  const int32_t x_limit_min[8] = {0*SMAG,-1*SMAG,-2*SMAG,-3*SMAG,-4*SMAG,-5*SMAG,-6*SMAG,-7*SMAG};
+  const int32_t x_limit_max[8] = {c*SMAG,(c-1)*SMAG,(c-2)*SMAG,(c-3)*SMAG,(c-4)*SMAG,(c-5)*SMAG,(c-6)*SMAG,(c-7)*SMAG};
+
+  const uint8_t over_bits = bits_per_sample-8;
+  const int32_t pixel_max = (1 << bits_per_sample)-1;
+
+  const int ARITH_BITS = 7;
+  const int ARITH_ONE = (1 << ARITH_BITS); // 128
+  const int ARITH_ROUNDER = (1 << (ARITH_BITS - 1)); // 64
+
+  // depth is 8 bits, scale up to always have 30 bit result
+  // bits_per_sample  diff of two uint_16   depth bitdepth   result bitdepth
+  //                                        mul'd depth bd   max safe result bd
+  //        16               17                    8            17+8=25
+  //                                               13           17+13=30
+  //        14               15                    8            15+8=23
+  //                                               15           15+15=30
+  //        12               13                    8            13+8=21
+  //                                               17           13+17=30
+  //        10               11                    8            11+8=19
+  //                                               19           11+19=30
+  //         8                9                    8             9+8=17  (like at 8 bit pixels, but there we shift the pixels by 7 instead of depthV )
+  //                    diff shl7: 16 bits         8            16+8=24
+
+  // good for 8 bit
+  depth <<= (21-bits_per_sample);
+  depthV <<= (21-bits_per_sample);
+
+  for (int32_t y=ymin; y<ymax; y++)
+  {
+    const int32_t y_limit_min = -y*ARITH_ONE;
+    const int32_t y_limit_max = (height-1-y)*ARITH_ONE -1;
+    const int32_t edg_pitchp = (y!=0) ? -edge_pitch:0;
+    const int32_t edg_pitchn = (y!=(height-1)) ? edge_pitch:0;
+
+    const pixel_t *edgprev_ptr=edgeptr,*edgnext_ptr=edgeptr;
+    pixel_t *dst=dstp;
+
+    edgprev_ptr += edg_pitchp;
+    edgnext_ptr += edg_pitchn;
+
+    int32_t edge_right[8],edge_left[8];
+
+    for (uint8_t i=1; i<8; i++)
+    {
+      edge_left[i]=edgeptr[i-1];
+      edge_right[i]=edgeptr[i+1];
+    }
+    edge_left[0]=edge_left[1];
+    edge_right[0]=edgeptr[1];
+
+    for (int x=0; x<width; x+=8)
+    {
+      int32_t vert[8], horiz[8];
+      for (uint8_t i=0; i<8; i++)
+      {
+        // depth is -128..127, src is scaled up to give mul result of 30 bits
+        // we are shifting it back by 12 to get a 7-bit fractional integer arithmetic
+        horiz[i]=((edge_left[i]-edge_right[i])*depth) >> 14; // depth scaled left-right
+        vert[i]=((edgprev_ptr[x+i]-edgnext_ptr[x+i])*depthV) >> 14; // depthV scaled top-bottom
+      }
+      // guard vertical offsets
+      for (uint8_t i=0; i<8; i++)
+        vert[i]=std::max(std::min(vert[i],y_limit_max),y_limit_min);
+
+      int32_t horiz_weight[8];
+      int32_t vert_weight[8];
+      for (uint8_t i=0; i<8; i++)
+      {
+        // remainder of the division by 128 (or 32 if it was shifted left by 2 above)
+        horiz_weight[i]=(horiz[i] << SMAGL) & 0x7F; // fractional part: for fine weighting
+        vert_weight[i]=(vert[i]  << SMAGL) & 0x7F;
+        horiz[i] >>= (7-SMAGL); // integer part: the offset itself
+        vert[i] >>= (7-SMAGL); // shift by 7 (or 5); division by 128 (or 32)
+      }
+
+      // horizontal things
+      for (uint8_t i=0; i<8; i++)
+        horiz[i] += x << SMAGL;
+
+      // guard horizontal offsets min/max
+      int32_t horiz_offset_x1[8];
+      for (uint8_t i=0; i<8; i++)
+        horiz_offset_x1[i]=std::max(std::min(x_limit_max[i],horiz[i]),x_limit_min[i]);
+
+      // mask out out-of-screen offset weights
+      bool b0[8],b3[8];
+      for (uint8_t i=0; i<8; i++)
+      {
+        b3[i] = x_limit_max[i]>(horiz[i]);
+        b0[i] = x_limit_min[i]>(horiz[i]);
+      }
+      for (uint8_t i=0; i<8; i++)
+        horiz_weight[i] = b3[i] ? horiz_weight[i]:0; // x7 = keep x7 where b3=true (over max)
+      for (uint8_t i=0; i<8; i++)
+        horiz_weight[i] = (!b0[i]) ? horiz_weight[i]:0; // x0 = x7 where b0=false (below min)
+      // keep horizontal weights where out of limit, otherwise zero
+
+      int32_t curr_0[8],curr_1[8];
+      int32_t bottom_0[8],bottom_1[8];
+      for (uint8_t i=0; i<8; i++)
+      {
+        // combine vertical and horizontal offset things
+        const int32_t offs=vert[i]*src_pitch+horiz_offset_x1[i]+i;
+        // for 8 bit: _mm_insert_epi16 is split to 00FF (offs) and FF00 (offs)
+        // for 16 bit: _mm_insert_epi32 is split to 0000FFFF (offs) and FFFF0000 (offs+1)
+        curr_0[i] = (int32_t)srcp[offs];       // lo FFFF from 
+        curr_1[i] = (int32_t)srcp[offs+1];
+        bottom_0[i] = (int32_t)srcp2[offs];    // next line
+        bottom_1[i] = (int32_t)srcp2[offs+1];// next line
+      }
+
+      int32_t curr[8],bottom[8];
+      // curr = curr_0 * (1 - x0/128) + curr_1 * (x0/128)
+      // bottom = bottom_0 * (1 - x0/128) + bottom_1 * (x0/128)
+      for (int i=0; i<8; i++)
+      {
+        const int32_t a=horiz_weight[i],b=ARITH_ONE-a;
+
+        curr[i] = ((curr_0[i]*b+curr_1[i]*a)+ARITH_ROUNDER) >> ARITH_BITS;
+        bottom[i] = ((bottom_0[i]*b+bottom_1[i]*a)+ARITH_ROUNDER) >> ARITH_BITS;
+      }
+
+      // result = result * (1 - vert_weight_x4/128) + x1 * (vert_weight_x4/128)
+      int32_t result[8];
+      for (int i=0; i<8; i++)
+      {
+        const int32_t a=vert_weight[i],b=ARITH_ONE-a;
+        result[i] = ((curr[i]*b+bottom[i]*a)+ARITH_ROUNDER) >> ARITH_BITS;
+      }
+
+      // clamp pixel min max
+      for (int i=0; i<8; i++)
+        result[i] = std::min(std::max(result[i],0),pixel_max);
+
+      if (x>=wmod8)
+      {
+        for (int i=0; i<(width-wmod8); i++)
+          dst[x+i]=result[i];
+        break; // finito, no more preload
+      }
+      for (int i=0; i<8; i++)
+        dst[x+i]=result[i];
+
+      // preload for next loop
+      for (int i=0; i<8; i++)
+      {
+        edge_left[i]=edgeptr[x+i+8-1];
+        edge_right[i]=edgeptr[x+i+8+1];
+      }
+    }
+
+    srcp += src_pitch*SMAG; // 180313
+    srcp2 += src_pitch*SMAG;// 180313
+    edgeptr += edge_pitch;
+    dstp += dst_pitch;
+  }
 }
 
 
-static void warp0_u16_c_MT(const unsigned char *srcp8,const unsigned char *edgep8,unsigned char *dstp8,const int32_t src_pitch_,
-	const int32_t edge_pitch_,const int32_t dst_pitch_,const int32_t width,const int32_t height,int depth,int depthV,
-	const uint8_t bits_per_sample,const int32_t ymin,const int32_t ymax)
+// minimum sse4. _mm_mullo_epi32, _mm_insert_epi32, etc...
+// warp0: SMAGL is 0, call with warp<0,
+// warp2: SMAGL is 2, call with warp called from aWarp4
+// uint8_t or uint16_t
+template<int SMAGL, bool lessthan16bits>
+static void warp_u16_sse41_core(const unsigned char *srcp8,const unsigned char *edgep8,unsigned char *dstp8,const int32_t src_pitch_,
+  const int32_t edge_pitch_,const int32_t dst_pitch_,const int32_t width,const int32_t height,int depth,int depthV,
+  const uint8_t bits_per_sample)
 {
-    const uint16_t *srcp = (const uint16_t *)(srcp8+(ymin*src_pitch_));
-	const uint16_t *srcp2 = (const uint16_t *)(srcp8+((ymin+1)*src_pitch_));
-    const uint16_t *edgep = (const uint16_t *)(edgep8+(ymin*edge_pitch_));
-    uint16_t *dstp = (uint16_t *)(dstp8+(ymin*dst_pitch_));
+  const uint16_t *srcp = (const uint16_t *)srcp8;
+  const uint16_t *srcp2 = (const uint16_t *)(srcp8+src_pitch_);
+  const uint16_t *edgeptr = (const uint16_t *)edgep8;
+  uint16_t *dstp = (uint16_t *)dstp8;
 
-	const int32_t src_pitch=src_pitch_ >> 1;
-	const int32_t edge_pitch=edge_pitch_ >> 1;
-	const int32_t dst_pitch=dst_pitch_ >> 1;
+  const int32_t src_pitch = src_pitch_ >> 1;
+  const int32_t edge_pitch = edge_pitch_ >> 1;
+  const int32_t dst_pitch = dst_pitch_ >> 1;
 
-	const int32_t i0 = -((width+3)&~3);
-	const int32_t c = width + i0 - 1;
+  const int SMAG = 1 << SMAGL; // 180313
 
-	srcp -= i0;
-	edgep -= i0;
-	dstp -= i0;
+  const int wmod8 = (width >> 3) << 3;
 
-	const int32_t x_limit_min[8] = {i0,i0-1,i0-2,i0-3,i0-4,i0-5,i0-6,i0-7};
-	const int32_t x_limit_max[8] = {c,c-1,c-2,c-3,c-4,c-5,c-6,c-7};
+  const int32_t c=width-1;
 
-    const uint8_t over_bits = bits_per_sample-8;
-    const int32_t pixel_max = (1 << bits_per_sample)-1;
+  // xlimits: 16 bits
+  const __m128i x_limit_min = _mm_setr_epi16(0*SMAG,-1*SMAG,-2*SMAG,-3*SMAG,-4*SMAG,-5*SMAG,-6*SMAG,-7*SMAG);
+  const __m128i x_limit_max = _mm_setr_epi16(c*SMAG,(c-1)*SMAG,(c-2)*SMAG,(c-3)*SMAG,(c-4)*SMAG,(c-5)*SMAG,(c-6)*SMAG,(c-7)*SMAG);
 
-    depth <<= 8-over_bits;
-	depthV <<= 8-over_bits;
+  //const uint8_t over_bits = bits_per_sample - 8;
+  const __m128i pixel_max = _mm_set1_epi16((1 << bits_per_sample)-1);
 
-    for (int32_t y=ymin; y<ymax; y++)
+  const int ARITH_BITS = 7;
+  const int ARITH_ONE = (1 << ARITH_BITS); // 128
+  const int ARITH_ROUNDER = (1 << (ARITH_BITS - 1)); // 64
+
+  // depth is 8 bits, scale up to always have 30 bit result
+  // bits_per_sample  diff of two uint_16   depth bitdepth   result bitdepth
+  //                                        mul'd depth bd   max safe result bd
+  //        16               17                    8            17+8=25
+  //                                               13           17+13=30
+  //        14               15                    8            15+8=23
+  //                                               15           15+15=30
+  //        12               13                    8            13+8=21
+  //                                               17           13+17=30
+  //        10               11                    8            11+8=19
+  //                                               19           11+19=30
+  //         8                9                    8             9+8=17  (like at 8 bit pixels, but there we shift the pixels by 7 instead of depthV )
+  //                    diff shl7: 16 bits         8            16+8=24
+
+  depth <<= (21-bits_per_sample);
+  depthV <<= (21-bits_per_sample);
+
+  const __m128i depth128 = _mm_set1_epi32(depth);
+  const __m128i depthV128 = _mm_set1_epi32(depthV);
+  const __m128i zero = _mm_setzero_si128();
+
+  for (int32_t y=0; y<height; y++)
+  {
+    const __m128i y_limit_min = _mm_set1_epi32(-y*ARITH_ONE);
+    const __m128i y_limit_max = _mm_set1_epi32((height-1-y)*ARITH_ONE -1);
+    const int32_t edg_pitchp = (y!=0) ? -edge_pitch:0;
+    const int32_t edg_pitchn = (y!=(height-1)) ? edge_pitch:0;
+
+    const uint16_t *edgprev_ptr=edgeptr,*edgnext_ptr=edgeptr;
+    uint16_t *dst = dstp;
+
+    edgprev_ptr += edg_pitchp;
+    edgnext_ptr += edg_pitchn;
+
+    // fill leftmost (cannot do -1)
+    __m128i edge_left = _mm_load_si128(reinterpret_cast<const __m128i *>(edgeptr)); // edgeptr - 1
+    __m128i edge_leftmost = _mm_and_si128(edge_left,_mm_setr_epi16(-1,0,0,0,0,0,0,0)); // 0xFFFF
+    edge_left = _mm_or_si128(_mm_slli_si128(edge_left,2),edge_leftmost); // shift 1 words, keep lo word
+    
+    __m128i edge_right = _mm_load_si128(reinterpret_cast<const __m128i *>(edgeptr+1));
+
+    // 8 pixel at a time (16 bytes, full 128 bit lane)
+    // when 32 bit arithmetic needed we have to separate to low and high
+    for (int x=0; x<width; x+=8) 
     {
-		const int32_t y_limit_min = -y*128;
-		const int32_t y_limit_max = (height-y)*128-129;
-		const int32_t edg_pitchp = (y!=0) ? -edge_pitch:0;
-		const int32_t edg_pitchn = (y!=(height-1)) ? edge_pitch:0;
-		int32_t i1=i0;
+      // (left-right)*depthV  >> 14
+      __m128i edge_left_lo = _mm_unpacklo_epi16(edge_left,zero);
+      __m128i edge_left_hi = _mm_unpackhi_epi16(edge_left,zero);
+      __m128i edge_right_lo = _mm_unpacklo_epi16(edge_right,zero);
+      __m128i edge_right_hi = _mm_unpackhi_epi16(edge_right,zero);
 
-		const uint16_t *edgp=edgep,*edgn=edgep;
-		uint16_t *dst=dstp;
+      __m128i horiz_lo = _mm_srai_epi32(_mm_mullo_epi32(_mm_sub_epi32(edge_left_lo,edge_right_lo),depth128),14);
+      __m128i horiz_hi = _mm_srai_epi32(_mm_mullo_epi32(_mm_sub_epi32(edge_left_hi,edge_right_hi),depth128),14);
 
-		edgp+=edg_pitchp;
-		edgn+=edg_pitchn;
-		dst-=8;
+      // (bottom-top)*depthV  >> 14
+      __m128i edge_prev = _mm_load_si128(reinterpret_cast<const __m128i *>(edgprev_ptr+x));
+      __m128i edge_next = _mm_load_si128(reinterpret_cast<const __m128i *>(edgnext_ptr+x));
+      __m128i edge_prev_lo = _mm_unpacklo_epi16(edge_prev,zero);
+      __m128i edge_prev_hi = _mm_unpackhi_epi16(edge_prev,zero);
+      __m128i edge_next_lo = _mm_unpacklo_epi16(edge_next,zero);
+      __m128i edge_next_hi = _mm_unpackhi_epi16(edge_next,zero);
 
-		int32_t x1[8],x7[8];
+      __m128i vert_lo = _mm_srai_epi32(_mm_mullo_epi32(_mm_sub_epi32(edge_prev_lo,edge_next_lo),depthV128),14);
+      __m128i vert_hi = _mm_srai_epi32(_mm_mullo_epi32(_mm_sub_epi32(edge_prev_hi,edge_next_hi),depthV128),14);
 
-		for(uint8_t i=1; i<8; i++)
-		{
-			x7[i]=edgep[i1+i-1];
-			x1[i]=edgep[i1+i+1];
-		}
-		x7[0]=x7[1];
-		x1[0]=edgep[i1+1];
+      // guard vertical offsets
+      vert_lo = _mm_max_epi32(_mm_min_epi32(vert_lo,y_limit_max),y_limit_min);
+      vert_hi = _mm_max_epi32(_mm_min_epi32(vert_hi,y_limit_max),y_limit_min);
 
-		do
-		{
-			int32_t x0[8],x2[8],x3[8],x4[8];
-			bool b0[8],b3[8];
+      // 7-bit fractional part integer arithmetic
 
-			for(uint8_t i=0; i<8; i++)
-			{
-				x7[i]-=x1[i];
-				x4[i]=(int32_t)edgp[i1+i]-(int32_t)edgn[i1+i];
-			}
-			for(uint8_t i=0; i<8; i++)
-			{
-				x7[i]<<=7;
-				x4[i]<<=7;
-			}
-			for(uint8_t i=0; i<8; i++)
-			{
-				x7[i]*=depth;
-				x4[i]*=depthV;
-			}
-			for(uint8_t i=0; i<8; i++)
-			{
-				x7[i]>>=16;
-				x4[i]>>=16;
-			}
-			for(uint8_t i=0; i<8; i++)
-				x4[i]=std::max(std::min(x4[i],y_limit_max),y_limit_min);
-			memcpy(x1,x7,8*sizeof(int32_t));
-			memcpy(x2,x4,8*sizeof(int32_t));
-			for(uint8_t i=0; i<8; i++)
-			{
-				x7[i]&=0x7F;
-				x4[i]&=0x7F;
-				x1[i]>>=7;
-				x2[i]>>=7;
-			}
-			for(uint8_t i=0; i<8; i++)
-				x1[i]+=i1;
-			for(uint8_t i=0; i<8; i++)
-			{
-				b3[i]=x_limit_max[i]>x1[i];
-				b0[i]=x_limit_min[i]>x1[i];
-			}
-			for(uint8_t i=0; i<8; i++)
-				x1[i]=std::max(std::min(x_limit_max[i],x1[i]),x_limit_min[i]);
-			for(uint8_t i=0; i<8; i++)
-				x7[i]=b3[i]?x7[i]:0;
-			for(uint8_t i=0; i<8; i++)
-				x0[i]=(!b0[i])?x7[i]:0;
-			for(uint8_t i=0; i<8; i++)
-				x2[i]*=src_pitch;
-			for(uint8_t i=0; i<8; i++)
-				x2[i]+=x1[i];
-			for(uint8_t i=0; i<8; i++)
-			{
-				const int32_t offs=x2[i]+i;
+      // fractional part: for fine weighting
+      const __m128i mask7F_32bit = _mm_set1_epi32(0x7F);
+      __m128i horiz_lo_pre = horiz_lo;
+      __m128i horiz_hi_pre = horiz_hi;
+      __m128i vert_lo_pre = vert_lo;
+      __m128i vert_hi_pre = vert_hi;
+      if (SMAGL)
+	  {
+        // shift by 2; multiply by 4
+        horiz_lo_pre = _mm_srli_epi32(horiz_lo_pre,SMAGL);
+        horiz_hi_pre = _mm_srli_epi32(horiz_hi_pre,SMAGL);
+        vert_lo_pre = _mm_srli_epi32(vert_lo_pre,SMAGL);
+        vert_hi_pre = _mm_srli_epi32(vert_hi_pre,SMAGL);
+      }
+      __m128i horiz_weight = _mm_packs_epi32(_mm_and_si128(horiz_lo_pre, mask7F_32bit),_mm_and_si128(horiz_hi_pre, mask7F_32bit));
+      __m128i vert_weight = _mm_packs_epi32(_mm_and_si128(vert_lo_pre, mask7F_32bit),_mm_and_si128(vert_hi_pre, mask7F_32bit));
 
-				x3[i]=(int32_t)srcp[offs];
-				x2[i]=(int32_t)srcp[offs+1];
-				x1[i]=(int32_t)srcp2[offs];
-				x7[i]=(int32_t)srcp2[offs+1];
-			}
-			for(uint8_t i=0; i<8; i++)
-			{
-				const int32_t a=x0[i],b=128-a;
+      // integer part: the offset itself
+      const __m128i rounder64or16 = _mm_set1_epi32(1 << (6 - SMAGL));
+      horiz_lo = _mm_srai_epi32(_mm_add_epi32(horiz_lo, rounder64or16),(7-SMAGL)); // 16 bit: round needed. or C: why not?
+      horiz_hi = _mm_srai_epi32(_mm_add_epi32(horiz_hi, rounder64or16),(7-SMAGL));
+      __m128i horiz = _mm_packs_epi32(horiz_lo,horiz_hi); // signed 16 bits
+      vert_lo = _mm_srai_epi32(vert_lo,7-SMAGL);
+      vert_hi = _mm_srai_epi32(vert_hi,7-SMAGL);
+      __m128i vert = _mm_packs_epi32(vert_lo,vert_hi);
 
-				x3[i]*=b;
-				x1[i]*=b;
-				x2[i]*=a;
-				x7[i]*=a;
-			}
-			for(uint8_t i=0; i<8; i++)
-			{
-				x3[i]+=x2[i];
-				x1[i]+=x7[i];
-			}
-			for(uint8_t i=0; i<8; i++)
-			{
-				x3[i]+=64;
-				x1[i]+=64;
-			}
-			for(uint8_t i=0; i<8; i++)
-			{
-				x3[i]>>=7;
-				x1[i]>>=7;
-			}
-			for(uint8_t i=0; i<8; i++)
-			{
-				x1[i]*=x4[i];
-				x3[i]*=128-x4[i];
-			}
-			for(uint8_t i=0; i<8; i++)
-				x3[i]+=x1[i];
-			for(uint8_t i=0; i<8; i++)
-				x3[i]+=64;
-			for(uint8_t i=0; i<8; i++)
-				x3[i]>>=7;
-			for(uint8_t i=0; i<8; i++)
-				x3[i]=std::min(std::max(x3[i],0),pixel_max);
-			for(uint8_t i=0; i<8; i++)
-			{
-				x7[i]=edgep[i1+i+7];
-				x1[i]=edgep[i1+i+9];
-			}
-			i1+=8;
-			if (i1<=0)
-			{
-				for(uint8_t i=0; i<8; i++)
-					dst[i1+i]=x3[i];
-			}
-			else
-			{
-				for(uint8_t i=0; i<4; i++)
-					dst[i1+i]=x3[i];
-			}
-		}
-		while(i1<0);
+      // horizontal things
+      // add offset
+      horiz = _mm_add_epi16(horiz,_mm_set1_epi16(x << SMAGL)); // still 16 bits
+                                                         // guard horizontal offsets min/max
+      __m128i horiz_offset = _mm_max_epi16(_mm_min_epi16(x_limit_max,horiz),x_limit_min);
 
-		srcp += src_pitch;
-		srcp2 += src_pitch;
-		edgep += edge_pitch;
-		dstp += dst_pitch;
-	}
+      // mask out-of-screen offset weights
+      horiz_weight = _mm_and_si128(horiz_weight,_mm_cmpgt_epi16(x_limit_max,horiz)); // mask out over max
+      horiz_weight = _mm_andnot_si128(horiz_weight,_mm_cmpgt_epi16(x_limit_min,horiz)); // mask out below min
+
+      // combine vertical and horizontal offset
+      __m128i srcpitch_and_one = _mm_unpacklo_epi16(_mm_set1_epi16(src_pitch),_mm_set1_epi16(1));
+      // const int32_t offs = (vert[i] * src_pitch) + (horiz_offset[i] * 1)     ?? + i; <- i offset later directly
+      __m128i offs_lo = _mm_madd_epi16(_mm_unpacklo_epi16(vert,horiz_offset),srcpitch_and_one);
+      __m128i offs_hi = _mm_madd_epi16(_mm_unpackhi_epi16(vert,horiz_offset),srcpitch_and_one);
+
+      // read 2x8 pixels
+      __m128i curr_01_lo = _mm_undefined_si128();
+      __m128i curr_01_hi = _mm_undefined_si128();
+      __m128i bottom_01_lo = _mm_undefined_si128();
+      __m128i bottom_01_hi = _mm_undefined_si128();
+      int offs;
+      // lo
+      // #0
+      offs = _mm_cvtsi128_si32(offs_lo);
+      offs_lo = _mm_srli_si128(offs_lo,4);
+      // stuff even and odd pixel pair, see later curr_0 and curr_1, bottom_0 and bottom_1
+      curr_01_lo = _mm_insert_epi32(curr_01_lo,srcp[offs+0],0);
+      bottom_01_lo = _mm_insert_epi32(bottom_01_lo,srcp2[offs+0],0);
+      // #1
+      offs = _mm_cvtsi128_si32(offs_lo);
+      offs_lo = _mm_srli_si128(offs_lo,4);
+      curr_01_lo = _mm_insert_epi32(curr_01_lo,srcp[offs+1],1);
+      bottom_01_lo = _mm_insert_epi32(bottom_01_lo,srcp2[offs+1],1);
+      // #2
+      offs = _mm_cvtsi128_si32(offs_lo);
+      offs_lo = _mm_srli_si128(offs_lo,4);
+      curr_01_lo = _mm_insert_epi32(curr_01_lo,srcp[offs+2],2);
+      bottom_01_lo = _mm_insert_epi32(bottom_01_lo,srcp2[offs+2],2);
+      // #3
+      offs = _mm_cvtsi128_si32(offs_lo);
+      // not used anymore // offs_lo = _mm_srli_si128(offs_lo, 4);
+      curr_01_lo = _mm_insert_epi32(curr_01_lo, srcp[offs+ 3],3);
+      bottom_01_lo = _mm_insert_epi32(bottom_01_lo, srcp2[offs+3],3);
+      // high part, source offset is 4-7, target offset is 0-3 again
+      // #4
+      offs = _mm_cvtsi128_si32(offs_hi);
+      offs_hi = _mm_srli_si128(offs_hi,4);
+      curr_01_hi = _mm_insert_epi32(curr_01_hi,srcp[offs+4],0);
+      bottom_01_hi = _mm_insert_epi32(bottom_01_hi,srcp2[offs+4],0);
+      // #5
+      offs = _mm_cvtsi128_si32(offs_hi);
+      offs_hi = _mm_srli_si128(offs_hi,4);
+      curr_01_hi = _mm_insert_epi32(curr_01_hi,srcp[offs+5],1);
+      bottom_01_hi = _mm_insert_epi32(bottom_01_hi,srcp2[offs+5],1);
+      // #6
+      offs = _mm_cvtsi128_si32(offs_hi);
+      offs_hi = _mm_srli_si128(offs_hi,4);
+      curr_01_hi = _mm_insert_epi32(curr_01_hi,srcp[offs+6],2);
+      bottom_01_hi = _mm_insert_epi32(bottom_01_hi,srcp2[offs+6],2);
+      // #7
+      offs = _mm_cvtsi128_si32(offs_hi);
+      // not used anymore // offs_hi = _mm_srli_si128(offs_hi, 4);
+      curr_01_hi = _mm_insert_epi32(curr_01_hi,srcp[offs+7],3);
+      bottom_01_hi = _mm_insert_epi32(bottom_01_hi,srcp2[offs+7],3);
+
+      // combine even and odds together
+      __m128i mask0000FFFF = _mm_set1_epi32(0xFFFF);
+      __m128i curr_0 = _mm_packus_epi32(_mm_and_si128(curr_01_lo,mask0000FFFF),_mm_and_si128(curr_01_hi,mask0000FFFF)); // evens
+      __m128i curr_1 = _mm_packus_epi32(_mm_srli_epi32(curr_01_lo,16),_mm_srli_epi32(curr_01_hi,16)); // odds
+      __m128i bottom_0 = _mm_packus_epi32(_mm_and_si128(bottom_01_lo,mask0000FFFF),_mm_and_si128(bottom_01_hi,mask0000FFFF)); // evens
+      __m128i bottom_1 = _mm_packus_epi32(_mm_srli_epi32(bottom_01_lo,16),_mm_srli_epi32(bottom_01_hi,16)); // odds
+
+      // calculate weighted averages of the four pixel groups
+      // each pixel position has one vertical and one horizontal weight (0 to 127)
+      __m128i one = _mm_set1_epi16(ARITH_ONE);
+      __m128i rounder32bit = _mm_set1_epi32(ARITH_ROUNDER);
+      __m128i shifter_to_signed = _mm_set1_epi16(-32768); // to allow signed mul for unsigned 16 bit
+
+      // trick: convert to signed 16 bit (really this is not needed for 10-14 bits)
+      if (!lessthan16bits)
+	  {
+        curr_0 = _mm_sub_epi16(curr_0,shifter_to_signed);
+        curr_1 = _mm_sub_epi16(curr_1,shifter_to_signed);
+        bottom_0 = _mm_sub_epi16(bottom_0,shifter_to_signed);
+        bottom_1 = _mm_sub_epi16(bottom_1,shifter_to_signed);
+      }
+
+      // curr = curr_0 * (1 - x0/128) + curr_1 * (x0/128)
+      // bottom = bottom_0 * (1 - x0/128) + bottom_1 * (x0/128)
+      __m128i inv_horiz_weight = _mm_sub_epi16(one,horiz_weight);
+      
+      __m128i curr_lo = _mm_madd_epi16(_mm_unpacklo_epi16(curr_0,curr_1),_mm_unpacklo_epi16(inv_horiz_weight,horiz_weight));
+      __m128i curr_hi = _mm_madd_epi16(_mm_unpackhi_epi16(curr_0,curr_1),_mm_unpackhi_epi16(inv_horiz_weight,horiz_weight));
+      curr_lo = _mm_srai_epi32(_mm_add_epi32(curr_lo,rounder32bit),ARITH_BITS);
+      curr_hi = _mm_srai_epi32(_mm_add_epi32(curr_hi,rounder32bit),ARITH_BITS);
+      // back to signed 16 bits
+      __m128i curr = _mm_packs_epi32(curr_lo,curr_hi);
+
+      __m128i bottom_lo = _mm_madd_epi16(_mm_unpacklo_epi16(bottom_0,bottom_1),_mm_unpacklo_epi16(inv_horiz_weight,horiz_weight));
+      __m128i bottom_hi = _mm_madd_epi16(_mm_unpackhi_epi16(bottom_0,bottom_1),_mm_unpackhi_epi16(inv_horiz_weight,horiz_weight));
+      bottom_lo = _mm_srai_epi32(_mm_add_epi32(bottom_lo,rounder32bit),ARITH_BITS);
+      bottom_hi = _mm_srai_epi32(_mm_add_epi32(bottom_hi,rounder32bit),ARITH_BITS);
+      // back to signed 16 bits
+      __m128i bottom = _mm_packs_epi32(bottom_lo,bottom_hi);
+
+      // result = curr * (1 - vert_weight/128) + bottom * (vert_weight/128)
+      __m128i inv_vert_weight = _mm_sub_epi16(one,vert_weight);
+      __m128i result_lo = _mm_madd_epi16(_mm_unpacklo_epi16(curr,bottom),_mm_unpacklo_epi16(inv_vert_weight,vert_weight));
+      __m128i result_hi = _mm_madd_epi16(_mm_unpackhi_epi16(curr,bottom),_mm_unpackhi_epi16(inv_vert_weight,vert_weight));
+      result_lo = _mm_srai_epi32(_mm_add_epi32(result_lo,rounder32bit),ARITH_BITS);
+      result_hi = _mm_srai_epi32(_mm_add_epi32(result_hi,rounder32bit),ARITH_BITS);
+
+      // combine clamp pixel min max
+
+      // packs clamps -32768..32767 (0..65535 after going back to unsigned)
+      __m128i result = _mm_packs_epi32(result_lo, result_hi);
+      if (!lessthan16bits)
+	  {
+        // trick: convert to back to unsigned 16 bit (really this is not needed for 10-14 bits)
+        result = _mm_add_epi16(result,shifter_to_signed);
+      }
+      if (lessthan16bits)
+	  {
+        // clamp to valid pixel range, not needed for exact 16 bit, since packs has done that
+        result = _mm_min_epu16(result,pixel_max);
+      }
+      
+      // for avs+ and 10-16bits pixels we can safely ignore range check, avs+ is guaranteed to have at least 32 bit alignment
+      // we need here only align 16
+      _mm_store_si128(reinterpret_cast<__m128i *>(dst+x),result);
+      // if (x >= wmod8), store less bytes // not needed!
+
+      // preload next 8 pixels
+      if (x<wmod8)
+	  { // prevent overread
+        edge_left = _mm_load_si128(reinterpret_cast<const __m128i *>(edgeptr+x+8-1));
+        edge_right = _mm_load_si128(reinterpret_cast<const __m128i *>(edgeptr+x+8+1));
+      }
+    }
+
+    srcp += src_pitch*SMAG;
+    srcp2 += src_pitch*SMAG;
+    edgeptr += edge_pitch;
+    dstp += dst_pitch;
+  }
 }
 
 
-static void warp2_u16_c(const unsigned char *srcp8,const unsigned char *edgep8,unsigned char *dstp8,const int32_t src_pitch_,
-	const int32_t edge_pitch_,const int32_t dst_pitch_,const int32_t width,const int32_t height,int depth,int depthV,
-	const uint8_t bits_per_sample)
+// minimum sse4. _mm_mullo_epi32, _mm_insert_epi32, etc...
+// warp0: SMAGL is 0, call with warp<0,
+// warp2: SMAGL is 2, call with warp called from aWarp4
+// uint8_t or uint16_t
+template<int SMAGL,bool lessthan16bits>
+static void warp_u16_sse41_core_MT(const unsigned char *srcp8,const unsigned char *edgep8,unsigned char *dstp8,const int32_t src_pitch_,
+  const int32_t edge_pitch_,const int32_t dst_pitch_,const int32_t width,const int32_t height,int depth,int depthV,
+  const uint8_t bits_per_sample,const int32_t ymin,const int32_t ymax)
 {
-    const uint16_t *srcp = (const uint16_t *)srcp8;
-	const uint16_t *srcp2 = (const uint16_t *)(srcp8+src_pitch_);
-    const uint16_t *edgep = (const uint16_t *)edgep8;
-    uint16_t *dstp = (uint16_t *)dstp8;
+  const uint16_t *srcp = (const uint16_t *)(srcp8+(ymin*src_pitch_));
+  const uint16_t *srcp2 = (const uint16_t *)(srcp8+((ymin+1)*src_pitch_));
+  const uint16_t *edgeptr = (const uint16_t *)(edgep8+(ymin*edge_pitch_));
+  uint16_t *dstp = (uint16_t *)(dstp8+(ymin*dst_pitch_));
 
-	const int32_t src_pitch=src_pitch_ >> 1;
-	const int32_t edge_pitch=edge_pitch_ >> 1;
-	const int32_t dst_pitch=dst_pitch_ >> 1;
-	const int32_t src_pitch4=src_pitch<<2;
+  const int32_t src_pitch = src_pitch_ >> 1;
+  const int32_t edge_pitch = edge_pitch_ >> 1;
+  const int32_t dst_pitch = dst_pitch_ >> 1;
 
-	const int32_t i0 = -((width+3)&~3);
-	const int32_t c = width + i0 - 1;
+  const int SMAG = 1 << SMAGL; // 180313
 
-	srcp -= (i0<<2);
-	edgep -= i0;
-	dstp -= i0;
+  const int wmod8 = (width >> 3) << 3;
 
-	const int32_t x_limit_min[8] = {i0<<2,(i0-1)<<2,(i0-2)<<2,(i0-3)<<2,(i0-4)<<2,(i0-5)<<2,(i0-6)<<2,(i0-7)<<2};
-	const int32_t x_limit_max[8] = {c<<2,(c-1)<<2,(c-2)<<2,(c-3)<<2,(c-4)<<2,(c-5)<<2,(c-6)<<2,(c-7)<<2};
+  const int32_t c=width-1;
 
-    const uint8_t over_bits = bits_per_sample-8;
-    const int32_t pixel_max = (1 << bits_per_sample)-1;
+  // xlimits: 16 bits
+  const __m128i x_limit_min = _mm_setr_epi16(0*SMAG,-1*SMAG,-2*SMAG,-3*SMAG,-4*SMAG,-5*SMAG,-6*SMAG,-7*SMAG);
+  const __m128i x_limit_max = _mm_setr_epi16(c*SMAG,(c-1)*SMAG,(c-2)*SMAG,(c-3)*SMAG,(c-4)*SMAG,(c-5)*SMAG,(c-6)*SMAG,(c-7)*SMAG);
 
-    depth <<= 8-over_bits;
-	depthV <<= 8-over_bits;
+  //const uint8_t over_bits = bits_per_sample - 8;
+  const __m128i pixel_max = _mm_set1_epi16((1 << bits_per_sample)-1);
 
-    for (int32_t y=0; y<height; y++)
+  const int ARITH_BITS = 7;
+  const int ARITH_ONE = (1 << ARITH_BITS); // 128
+  const int ARITH_ROUNDER = (1 << (ARITH_BITS - 1)); // 64
+
+  // depth is 8 bits, scale up to always have 30 bit result
+  // bits_per_sample  diff of two uint_16   depth bitdepth   result bitdepth
+  //                                        mul'd depth bd   max safe result bd
+  //        16               17                    8            17+8=25
+  //                                               13           17+13=30
+  //        14               15                    8            15+8=23
+  //                                               15           15+15=30
+  //        12               13                    8            13+8=21
+  //                                               17           13+17=30
+  //        10               11                    8            11+8=19
+  //                                               19           11+19=30
+  //         8                9                    8             9+8=17  (like at 8 bit pixels, but there we shift the pixels by 7 instead of depthV )
+  //                    diff shl7: 16 bits         8            16+8=24
+
+  depth <<= (21-bits_per_sample);
+  depthV <<= (21-bits_per_sample);
+
+  const __m128i depth128 = _mm_set1_epi32(depth);
+  const __m128i depthV128 = _mm_set1_epi32(depthV);
+  const __m128i zero = _mm_setzero_si128();
+
+  for (int32_t y=ymin; y<ymax; y++)
+  {
+    const __m128i y_limit_min = _mm_set1_epi32(-y*ARITH_ONE);
+    const __m128i y_limit_max = _mm_set1_epi32((height-1-y)*ARITH_ONE -1);
+    const int32_t edg_pitchp = (y!=0) ? -edge_pitch:0;
+    const int32_t edg_pitchn = (y!=(height-1)) ? edge_pitch:0;
+
+    const uint16_t *edgprev_ptr=edgeptr,*edgnext_ptr=edgeptr;
+    uint16_t *dst = dstp;
+
+    edgprev_ptr += edg_pitchp;
+    edgnext_ptr += edg_pitchn;
+
+    // fill leftmost (cannot do -1)
+    __m128i edge_left = _mm_load_si128(reinterpret_cast<const __m128i *>(edgeptr)); // edgeptr - 1
+    __m128i edge_leftmost = _mm_and_si128(edge_left,_mm_setr_epi16(-1,0,0,0,0,0,0,0)); // 0xFFFF
+    edge_left = _mm_or_si128(_mm_slli_si128(edge_left,2),edge_leftmost); // shift 1 words, keep lo word
+    
+    __m128i edge_right = _mm_load_si128(reinterpret_cast<const __m128i *>(edgeptr+1));
+
+    // 8 pixel at a time (16 bytes, full 128 bit lane)
+    // when 32 bit arithmetic needed we have to separate to low and high
+    for (int x=0; x<width; x+=8) 
     {
-		const int32_t y_limit_min = -y*128;
-		const int32_t y_limit_max = (height-y)*128-129;
-		const int32_t edg_pitchp = (y!=0) ? -edge_pitch:0;
-		const int32_t edg_pitchn = (y!=(height-1)) ? edge_pitch:0;
-		int32_t i1=i0;
+      // (left-right)*depthV  >> 14
+      __m128i edge_left_lo = _mm_unpacklo_epi16(edge_left,zero);
+      __m128i edge_left_hi = _mm_unpackhi_epi16(edge_left,zero);
+      __m128i edge_right_lo = _mm_unpacklo_epi16(edge_right,zero);
+      __m128i edge_right_hi = _mm_unpackhi_epi16(edge_right,zero);
 
-		const uint16_t *edgp=edgep,*edgn=edgep;
-		uint16_t *dst=dstp;
+      __m128i horiz_lo = _mm_srai_epi32(_mm_mullo_epi32(_mm_sub_epi32(edge_left_lo,edge_right_lo),depth128),14);
+      __m128i horiz_hi = _mm_srai_epi32(_mm_mullo_epi32(_mm_sub_epi32(edge_left_hi,edge_right_hi),depth128),14);
 
-		edgp+=edg_pitchp;
-		edgn+=edg_pitchn;
-		dst-=8;
+      // (bottom-top)*depthV  >> 14
+      __m128i edge_prev = _mm_load_si128(reinterpret_cast<const __m128i *>(edgprev_ptr+x));
+      __m128i edge_next = _mm_load_si128(reinterpret_cast<const __m128i *>(edgnext_ptr+x));
+      __m128i edge_prev_lo = _mm_unpacklo_epi16(edge_prev,zero);
+      __m128i edge_prev_hi = _mm_unpackhi_epi16(edge_prev,zero);
+      __m128i edge_next_lo = _mm_unpacklo_epi16(edge_next,zero);
+      __m128i edge_next_hi = _mm_unpackhi_epi16(edge_next,zero);
 
-		int32_t x1[8],x7[8];
+      __m128i vert_lo = _mm_srai_epi32(_mm_mullo_epi32(_mm_sub_epi32(edge_prev_lo,edge_next_lo),depthV128),14);
+      __m128i vert_hi = _mm_srai_epi32(_mm_mullo_epi32(_mm_sub_epi32(edge_prev_hi,edge_next_hi),depthV128),14);
 
-		for(uint8_t i=1; i<8; i++)
-		{
-			x7[i]=edgep[i1+i-1];
-			x1[i]=edgep[i1+i+1];
-		}
-		x7[0]=x7[1];
-		x1[0]=edgep[i1+1];
+      // guard vertical offsets
+      vert_lo = _mm_max_epi32(_mm_min_epi32(vert_lo,y_limit_max),y_limit_min);
+      vert_hi = _mm_max_epi32(_mm_min_epi32(vert_hi,y_limit_max),y_limit_min);
 
-		do
-		{
-			int32_t x0[8],x2[8],x3[8],x4[8];
-			bool b0[8],b3[8];
+      // 7-bit fractional part integer arithmetic
 
-			for(uint8_t i=0; i<8; i++)
-			{
-				x7[i]-=x1[i];
-				x4[i]=(int32_t)edgp[i1+i]-(int32_t)edgn[i1+i];
-			}
-			for(uint8_t i=0; i<8; i++)
-			{
-				x7[i]<<=7;
-				x4[i]<<=7;
-			}
-			for(uint8_t i=0; i<8; i++)
-			{
-				x7[i]*=depth;
-				x4[i]*=depthV;
-			}
-			for(uint8_t i=0; i<8; i++)
-			{
-				x7[i]>>=16;
-				x4[i]>>=16;
-			}
-			for(uint8_t i=0; i<8; i++)
-				x4[i]=std::max(std::min(x4[i],y_limit_max),y_limit_min);
-			memcpy(x1,x7,8*sizeof(int32_t));
-			memcpy(x2,x4,8*sizeof(int32_t));
-			for(uint8_t i=0; i<8; i++)
-			{
-				x7[i]<<=2;
-				x4[i]<<=2;
-			}
-			for(uint8_t i=0; i<8; i++)
-			{
-				x7[i]&=0x7F;
-				x4[i]&=0x7F;
-				x1[i]>>=5;
-				x2[i]>>=5;
-			}
+      // fractional part: for fine weighting
+      const __m128i mask7F_32bit = _mm_set1_epi32(0x7F);
+      __m128i horiz_lo_pre = horiz_lo;
+      __m128i horiz_hi_pre = horiz_hi;
+      __m128i vert_lo_pre = vert_lo;
+      __m128i vert_hi_pre = vert_hi;
+      if (SMAGL)
+	  {
+        // shift by 2; multiply by 4
+        horiz_lo_pre = _mm_srli_epi32(horiz_lo_pre,SMAGL);
+        horiz_hi_pre = _mm_srli_epi32(horiz_hi_pre,SMAGL);
+        vert_lo_pre = _mm_srli_epi32(vert_lo_pre,SMAGL);
+        vert_hi_pre = _mm_srli_epi32(vert_hi_pre,SMAGL);
+      }
+      __m128i horiz_weight = _mm_packs_epi32(_mm_and_si128(horiz_lo_pre, mask7F_32bit),_mm_and_si128(horiz_hi_pre, mask7F_32bit));
+      __m128i vert_weight = _mm_packs_epi32(_mm_and_si128(vert_lo_pre, mask7F_32bit),_mm_and_si128(vert_hi_pre, mask7F_32bit));
 
-			const int32_t i2=i1<<2;
+      // integer part: the offset itself
+      const __m128i rounder64or16 = _mm_set1_epi32(1 << (6 - SMAGL));
+      horiz_lo = _mm_srai_epi32(_mm_add_epi32(horiz_lo, rounder64or16),(7-SMAGL)); // 16 bit: round needed. or C: why not?
+      horiz_hi = _mm_srai_epi32(_mm_add_epi32(horiz_hi, rounder64or16),(7-SMAGL));
+      __m128i horiz = _mm_packs_epi32(horiz_lo,horiz_hi); // signed 16 bits
+      vert_lo = _mm_srai_epi32(vert_lo,7-SMAGL);
+      vert_hi = _mm_srai_epi32(vert_hi,7-SMAGL);
+      __m128i vert = _mm_packs_epi32(vert_lo,vert_hi);
 
-			for(uint8_t i=0; i<8; i++)
-				x1[i]+=i2;
-			for(uint8_t i=0; i<8; i++)
-			{
-				b3[i]=x_limit_max[i]>x1[i];
-				b0[i]=x_limit_min[i]>x1[i];
-			}
-			for(uint8_t i=0; i<8; i++)
-				x1[i]=std::max(std::min(x_limit_max[i],x1[i]),x_limit_min[i]);
-			for(uint8_t i=0; i<8; i++)
-				x7[i]=b3[i]?x7[i]:0;
-			for(uint8_t i=0; i<8; i++)
-				x0[i]=(!b0[i])?x7[i]:0;
-			for(uint8_t i=0; i<8; i++)
-				x2[i]*=src_pitch;
-			for(uint8_t i=0; i<8; i++)
-				x2[i]+=x1[i];
-			for(uint8_t i=0; i<8; i++)
-			{
-				const int32_t offs=x2[i]+(i<<2);
+      // horizontal things
+      // add offset
+      horiz = _mm_add_epi16(horiz,_mm_set1_epi16(x << SMAGL)); // still 16 bits
+                                                         // guard horizontal offsets min/max
+      __m128i horiz_offset = _mm_max_epi16(_mm_min_epi16(x_limit_max,horiz),x_limit_min);
 
-				x3[i]=(int32_t)srcp[offs];
-				x2[i]=(int32_t)srcp[offs+1];
-				x1[i]=(int32_t)srcp2[offs];
-				x7[i]=(int32_t)srcp2[offs+1];
-			}
-			for(uint8_t i=0; i<8; i++)
-			{
-				const int32_t a=x0[i],b=128-a;
+      // mask out-of-screen offset weights
+      horiz_weight = _mm_and_si128(horiz_weight,_mm_cmpgt_epi16(x_limit_max,horiz)); // mask out over max
+      horiz_weight = _mm_andnot_si128(horiz_weight,_mm_cmpgt_epi16(x_limit_min,horiz)); // mask out below min
 
-				x3[i]*=b;
-				x1[i]*=b;
-				x2[i]*=a;
-				x7[i]*=a;
-			}
-			for(uint8_t i=0; i<8; i++)
-			{
-				x3[i]+=x2[i];
-				x1[i]+=x7[i];
-			}
-			for(uint8_t i=0; i<8; i++)
-			{
-				x3[i]+=64;
-				x1[i]+=64;
-			}
-			for(uint8_t i=0; i<8; i++)
-			{
-				x3[i]>>=7;
-				x1[i]>>=7;
-			}
-			for(uint8_t i=0; i<8; i++)
-			{
-				x1[i]*=x4[i];
-				x3[i]*=128-x4[i];
-			}
-			for(uint8_t i=0; i<8; i++)
-				x3[i]+=x1[i];
-			for(uint8_t i=0; i<8; i++)
-				x3[i]+=64;
-			for(uint8_t i=0; i<8; i++)
-				x3[i]>>=7;
-			for(uint8_t i=0; i<8; i++)
-				x3[i]=std::min(std::max(x3[i],0),pixel_max);
-			for(uint8_t i=0; i<8; i++)
-			{
-				x7[i]=edgep[i1+i+7];
-				x1[i]=edgep[i1+i+9];
-			}
-			i1+=8;
-			if (i1<=0)
-			{
-				for(uint8_t i=0; i<8; i++)
-					dst[i1+i]=x3[i];
-			}
-			else
-			{
-				for(uint8_t i=0; i<4; i++)
-					dst[i1+i]=x3[i];
-			}
-		}
-		while(i1<0);
+      // combine vertical and horizontal offset
+      __m128i srcpitch_and_one = _mm_unpacklo_epi16(_mm_set1_epi16(src_pitch),_mm_set1_epi16(1));
+      // const int32_t offs = (vert[i] * src_pitch) + (horiz_offset[i] * 1)     ?? + i; <- i offset later directly
+      __m128i offs_lo = _mm_madd_epi16(_mm_unpacklo_epi16(vert,horiz_offset),srcpitch_and_one);
+      __m128i offs_hi = _mm_madd_epi16(_mm_unpackhi_epi16(vert,horiz_offset),srcpitch_and_one);
 
-		srcp += src_pitch4;
-		srcp2 += src_pitch4;
-		edgep += edge_pitch;
-		dstp += dst_pitch;
-	}
+      // read 2x8 pixels
+      __m128i curr_01_lo = _mm_undefined_si128();
+      __m128i curr_01_hi = _mm_undefined_si128();
+      __m128i bottom_01_lo = _mm_undefined_si128();
+      __m128i bottom_01_hi = _mm_undefined_si128();
+      int offs;
+      // lo
+      // #0
+      offs = _mm_cvtsi128_si32(offs_lo);
+      offs_lo = _mm_srli_si128(offs_lo,4);
+      // stuff even and odd pixel pair, see later curr_0 and curr_1, bottom_0 and bottom_1
+      curr_01_lo = _mm_insert_epi32(curr_01_lo,srcp[offs+0],0);
+      bottom_01_lo = _mm_insert_epi32(bottom_01_lo,srcp2[offs+0],0);
+      // #1
+      offs = _mm_cvtsi128_si32(offs_lo);
+      offs_lo = _mm_srli_si128(offs_lo,4);
+      curr_01_lo = _mm_insert_epi32(curr_01_lo,srcp[offs+1],1);
+      bottom_01_lo = _mm_insert_epi32(bottom_01_lo,srcp2[offs+1],1);
+      // #2
+      offs = _mm_cvtsi128_si32(offs_lo);
+      offs_lo = _mm_srli_si128(offs_lo,4);
+      curr_01_lo = _mm_insert_epi32(curr_01_lo,srcp[offs+2],2);
+      bottom_01_lo = _mm_insert_epi32(bottom_01_lo,srcp2[offs+2],2);
+      // #3
+      offs = _mm_cvtsi128_si32(offs_lo);
+      // not used anymore // offs_lo = _mm_srli_si128(offs_lo, 4);
+      curr_01_lo = _mm_insert_epi32(curr_01_lo, srcp[offs+ 3],3);
+      bottom_01_lo = _mm_insert_epi32(bottom_01_lo, srcp2[offs+3],3);
+      // high part, source offset is 4-7, target offset is 0-3 again
+      // #4
+      offs = _mm_cvtsi128_si32(offs_hi);
+      offs_hi = _mm_srli_si128(offs_hi,4);
+      curr_01_hi = _mm_insert_epi32(curr_01_hi,srcp[offs+4],0);
+      bottom_01_hi = _mm_insert_epi32(bottom_01_hi,srcp2[offs+4],0);
+      // #5
+      offs = _mm_cvtsi128_si32(offs_hi);
+      offs_hi = _mm_srli_si128(offs_hi,4);
+      curr_01_hi = _mm_insert_epi32(curr_01_hi,srcp[offs+5],1);
+      bottom_01_hi = _mm_insert_epi32(bottom_01_hi,srcp2[offs+5],1);
+      // #6
+      offs = _mm_cvtsi128_si32(offs_hi);
+      offs_hi = _mm_srli_si128(offs_hi,4);
+      curr_01_hi = _mm_insert_epi32(curr_01_hi,srcp[offs+6],2);
+      bottom_01_hi = _mm_insert_epi32(bottom_01_hi,srcp2[offs+6],2);
+      // #7
+      offs = _mm_cvtsi128_si32(offs_hi);
+      // not used anymore // offs_hi = _mm_srli_si128(offs_hi, 4);
+      curr_01_hi = _mm_insert_epi32(curr_01_hi,srcp[offs+7],3);
+      bottom_01_hi = _mm_insert_epi32(bottom_01_hi,srcp2[offs+7],3);
+
+      // combine even and odds together
+      __m128i mask0000FFFF = _mm_set1_epi32(0xFFFF);
+      __m128i curr_0 = _mm_packus_epi32(_mm_and_si128(curr_01_lo,mask0000FFFF),_mm_and_si128(curr_01_hi,mask0000FFFF)); // evens
+      __m128i curr_1 = _mm_packus_epi32(_mm_srli_epi32(curr_01_lo,16),_mm_srli_epi32(curr_01_hi,16)); // odds
+      __m128i bottom_0 = _mm_packus_epi32(_mm_and_si128(bottom_01_lo,mask0000FFFF),_mm_and_si128(bottom_01_hi,mask0000FFFF)); // evens
+      __m128i bottom_1 = _mm_packus_epi32(_mm_srli_epi32(bottom_01_lo,16),_mm_srli_epi32(bottom_01_hi,16)); // odds
+
+      // calculate weighted averages of the four pixel groups
+      // each pixel position has one vertical and one horizontal weight (0 to 127)
+      __m128i one = _mm_set1_epi16(ARITH_ONE);
+      __m128i rounder32bit = _mm_set1_epi32(ARITH_ROUNDER);
+      __m128i shifter_to_signed = _mm_set1_epi16(-32768); // to allow signed mul for unsigned 16 bit
+
+      // trick: convert to signed 16 bit (really this is not needed for 10-14 bits)
+      if (!lessthan16bits)
+	  {
+        curr_0 = _mm_sub_epi16(curr_0,shifter_to_signed);
+        curr_1 = _mm_sub_epi16(curr_1,shifter_to_signed);
+        bottom_0 = _mm_sub_epi16(bottom_0,shifter_to_signed);
+        bottom_1 = _mm_sub_epi16(bottom_1,shifter_to_signed);
+      }
+
+      // curr = curr_0 * (1 - x0/128) + curr_1 * (x0/128)
+      // bottom = bottom_0 * (1 - x0/128) + bottom_1 * (x0/128)
+      __m128i inv_horiz_weight = _mm_sub_epi16(one,horiz_weight);
+      
+      __m128i curr_lo = _mm_madd_epi16(_mm_unpacklo_epi16(curr_0,curr_1),_mm_unpacklo_epi16(inv_horiz_weight,horiz_weight));
+      __m128i curr_hi = _mm_madd_epi16(_mm_unpackhi_epi16(curr_0,curr_1),_mm_unpackhi_epi16(inv_horiz_weight,horiz_weight));
+      curr_lo = _mm_srai_epi32(_mm_add_epi32(curr_lo,rounder32bit),ARITH_BITS);
+      curr_hi = _mm_srai_epi32(_mm_add_epi32(curr_hi,rounder32bit),ARITH_BITS);
+      // back to signed 16 bits
+      __m128i curr = _mm_packs_epi32(curr_lo,curr_hi);
+
+      __m128i bottom_lo = _mm_madd_epi16(_mm_unpacklo_epi16(bottom_0,bottom_1),_mm_unpacklo_epi16(inv_horiz_weight,horiz_weight));
+      __m128i bottom_hi = _mm_madd_epi16(_mm_unpackhi_epi16(bottom_0,bottom_1),_mm_unpackhi_epi16(inv_horiz_weight,horiz_weight));
+      bottom_lo = _mm_srai_epi32(_mm_add_epi32(bottom_lo,rounder32bit),ARITH_BITS);
+      bottom_hi = _mm_srai_epi32(_mm_add_epi32(bottom_hi,rounder32bit),ARITH_BITS);
+      // back to signed 16 bits
+      __m128i bottom = _mm_packs_epi32(bottom_lo,bottom_hi);
+
+      // result = curr * (1 - vert_weight/128) + bottom * (vert_weight/128)
+      __m128i inv_vert_weight = _mm_sub_epi16(one,vert_weight);
+      __m128i result_lo = _mm_madd_epi16(_mm_unpacklo_epi16(curr,bottom),_mm_unpacklo_epi16(inv_vert_weight,vert_weight));
+      __m128i result_hi = _mm_madd_epi16(_mm_unpackhi_epi16(curr,bottom),_mm_unpackhi_epi16(inv_vert_weight,vert_weight));
+      result_lo = _mm_srai_epi32(_mm_add_epi32(result_lo,rounder32bit),ARITH_BITS);
+      result_hi = _mm_srai_epi32(_mm_add_epi32(result_hi,rounder32bit),ARITH_BITS);
+
+      // combine clamp pixel min max
+
+      // packs clamps -32768..32767 (0..65535 after going back to unsigned)
+      __m128i result = _mm_packs_epi32(result_lo, result_hi);
+      if (!lessthan16bits)
+	  {
+        // trick: convert to back to unsigned 16 bit (really this is not needed for 10-14 bits)
+        result = _mm_add_epi16(result,shifter_to_signed);
+      }
+      if (lessthan16bits)
+	  {
+        // clamp to valid pixel range, not needed for exact 16 bit, since packs has done that
+        result = _mm_min_epu16(result,pixel_max);
+      }
+      
+      // for avs+ and 10-16bits pixels we can safely ignore range check, avs+ is guaranteed to have at least 32 bit alignment
+      // we need here only align 16
+      _mm_store_si128(reinterpret_cast<__m128i *>(dst+x),result);
+      // if (x >= wmod8), store less bytes // not needed!
+
+      // preload next 8 pixels
+      if (x<wmod8)
+	  { // prevent overread
+        edge_left = _mm_load_si128(reinterpret_cast<const __m128i *>(edgeptr+x+8-1));
+        edge_right = _mm_load_si128(reinterpret_cast<const __m128i *>(edgeptr+x+8+1));
+      }
+    }
+
+    srcp += src_pitch*SMAG;
+    srcp2 += src_pitch*SMAG;
+    edgeptr += edge_pitch;
+    dstp += dst_pitch;
+  }
 }
 
 
-
-
-static void warp2_u16_c_MT(const unsigned char *srcp8,const unsigned char *edgep8,unsigned char *dstp8,const int32_t src_pitch_,
-	const int32_t edge_pitch_,const int32_t dst_pitch_,const int32_t width,const int32_t height, int depth, int depthV,
-	const uint8_t bits_per_sample,const int32_t ymin,const int32_t ymax)
+// this has to be called
+// PF
+static void warp0_u16(const unsigned char *srcp8,const unsigned char *edgep8,unsigned char *dstp8,const int32_t src_pitch_,
+  const int32_t edge_pitch_,const int32_t dst_pitch_,const int32_t width,const int32_t height,int depth,int depthV,
+  const uint8_t bits_per_sample)
 {
-    const uint16_t *srcp = (const uint16_t *)(srcp8+(ymin*(src_pitch_ << 2)));
-	const uint16_t *srcp2 = (const uint16_t *)(srcp8+((ymin+1)*(src_pitch_ << 2)));
-    const uint16_t *edgep = (const uint16_t *)(edgep8+(ymin*edge_pitch_));
-    uint16_t *dstp = (uint16_t *)(dstp8+(ymin*dst_pitch_));
-
-	const int32_t src_pitch=src_pitch_ >> 1;
-	const int32_t edge_pitch=edge_pitch_ >> 1;
-	const int32_t dst_pitch=dst_pitch_ >> 1;
-	const int32_t src_pitch4=src_pitch<<2;
-
-	const int32_t i0 = -((width+3)&~3);
-	const int32_t c = width + i0 - 1;
-
-	srcp -= (i0<<2);
-	edgep -= i0;
-	dstp -= i0;
-
-	const int32_t x_limit_min[8] = {i0<<2,(i0-1)<<2,(i0-2)<<2,(i0-3)<<2,(i0-4)<<2,(i0-5)<<2,(i0-6)<<2,(i0-7)<<2};
-	const int32_t x_limit_max[8] = {c<<2,(c-1)<<2,(c-2)<<2,(c-3)<<2,(c-4)<<2,(c-5)<<2,(c-6)<<2,(c-7)<<2};
-
-    const uint8_t over_bits = bits_per_sample-8;
-    const int32_t pixel_max = (1 << bits_per_sample)-1;
-
-    depth <<= 8-over_bits;
-	depthV <<= 8-over_bits;
-
-    for (int32_t y=ymin; y<ymax; y++)
-    {
-		const int32_t y_limit_min = -y*128;
-		const int32_t y_limit_max = (height-y)*128-129;
-		const int32_t edg_pitchp = (y!=0) ? -edge_pitch:0;
-		const int32_t edg_pitchn = (y!=(height-1)) ? edge_pitch:0;
-		int32_t i1=i0;
-
-		const uint16_t *edgp=edgep,*edgn=edgep;
-		uint16_t *dst=dstp;
-
-		edgp+=edg_pitchp;
-		edgn+=edg_pitchn;
-		dst-=8;
-
-		int32_t x1[8],x7[8];
-
-		for(uint8_t i=1; i<8; i++)
-		{
-			x7[i]=edgep[i1+i-1];
-			x1[i]=edgep[i1+i+1];
-		}
-		x7[0]=x7[1];
-		x1[0]=edgep[i1+1];
-
-		do
-		{
-			int32_t x0[8],x2[8],x3[8],x4[8];
-			bool b0[8],b3[8];
-
-			for(uint8_t i=0; i<8; i++)
-			{
-				x7[i]-=x1[i];
-				x4[i]=(int32_t)edgp[i1+i]-(int32_t)edgn[i1+i];
-			}
-			for(uint8_t i=0; i<8; i++)
-			{
-				x7[i]<<=7;
-				x4[i]<<=7;
-			}
-			for(uint8_t i=0; i<8; i++)
-			{
-				x7[i]*=depth;
-				x4[i]*=depthV;
-			}
-			for(uint8_t i=0; i<8; i++)
-			{
-				x7[i]>>=16;
-				x4[i]>>=16;
-			}
-			for(uint8_t i=0; i<8; i++)
-				x4[i]=std::max(std::min(x4[i],y_limit_max),y_limit_min);
-			memcpy(x1,x7,8*sizeof(int32_t));
-			memcpy(x2,x4,8*sizeof(int32_t));
-			for(uint8_t i=0; i<8; i++)
-			{
-				x7[i]<<=2;
-				x4[i]<<=2;
-			}
-			for(uint8_t i=0; i<8; i++)
-			{
-				x7[i]&=0x7F;
-				x4[i]&=0x7F;
-				x1[i]>>=5;
-				x2[i]>>=5;
-			}
-
-			const int32_t i2=i1<<2;
-
-			for(uint8_t i=0; i<8; i++)
-				x1[i]+=i2;
-			for(uint8_t i=0; i<8; i++)
-			{
-				b3[i]=x_limit_max[i]>x1[i];
-				b0[i]=x_limit_min[i]>x1[i];
-			}
-			for(uint8_t i=0; i<8; i++)
-				x1[i]=std::max(std::min(x_limit_max[i],x1[i]),x_limit_min[i]);
-			for(uint8_t i=0; i<8; i++)
-				x7[i]=b3[i]?x7[i]:0;
-			for(uint8_t i=0; i<8; i++)
-				x0[i]=(!b0[i])?x7[i]:0;
-			for(uint8_t i=0; i<8; i++)
-				x2[i]*=src_pitch;
-			for(uint8_t i=0; i<8; i++)
-				x2[i]+=x1[i];
-			for(uint8_t i=0; i<8; i++)
-			{
-				const int32_t offs=x2[i]+(i<<2);
-
-				x3[i]=(int32_t)srcp[offs];
-				x2[i]=(int32_t)srcp[offs+1];
-				x1[i]=(int32_t)srcp2[offs];
-				x7[i]=(int32_t)srcp2[offs+1];
-			}
-			for(uint8_t i=0; i<8; i++)
-			{
-				const int32_t a=x0[i],b=128-a;
-
-				x3[i]*=b;
-				x1[i]*=b;
-				x2[i]*=a;
-				x7[i]*=a;
-			}
-			for(uint8_t i=0; i<8; i++)
-			{
-				x3[i]+=x2[i];
-				x1[i]+=x7[i];
-			}
-			for(uint8_t i=0; i<8; i++)
-			{
-				x3[i]+=64;
-				x1[i]+=64;
-			}
-			for(uint8_t i=0; i<8; i++)
-			{
-				x3[i]>>=7;
-				x1[i]>>=7;
-			}
-			for(uint8_t i=0; i<8; i++)
-			{
-				x1[i]*=x4[i];
-				x3[i]*=128-x4[i];
-			}
-			for(uint8_t i=0; i<8; i++)
-				x3[i]+=x1[i];
-			for(uint8_t i=0; i<8; i++)
-				x3[i]+=64;
-			for(uint8_t i=0; i<8; i++)
-				x3[i]>>=7;
-			for(uint8_t i=0; i<8; i++)
-				x3[i]=std::min(std::max(x3[i],0),pixel_max);
-			for(uint8_t i=0; i<8; i++)
-			{
-				x7[i]=edgep[i1+i+7];
-				x1[i]=edgep[i1+i+9];
-			}
-			i1+=8;
-			if (i1<=0)
-			{
-				for(uint8_t i=0; i<8; i++)
-					dst[i1+i]=x3[i];
-			}
-			else
-			{
-				for(uint8_t i=0; i<4; i++)
-					dst[i1+i]=x3[i];
-			}
-		}
-		while(i1<0);
-
-		srcp += src_pitch4;
-		srcp2 += src_pitch4;
-		edgep += edge_pitch;
-		dstp += dst_pitch;
-	}
+  if ((aWarpSharp_g_cpuid & CPUF_SSE4_1)!=0)
+  {
+    if (bits_per_sample<16)
+      warp_u16_sse41_core<0,true>(srcp8,edgep8,dstp8,src_pitch_,edge_pitch_,dst_pitch_,width,height,depth,depthV,bits_per_sample);
+    else
+      warp_u16_sse41_core<0,false>(srcp8,edgep8,dstp8,src_pitch_,edge_pitch_,dst_pitch_,width,height,depth,depthV,bits_per_sample);
+  }
+  else
+  {
+    warp_c<0,uint16_t>(srcp8,edgep8,dstp8,src_pitch_,edge_pitch_,dst_pitch_,width,height,depth,depthV,bits_per_sample);
+  }
 }
+
+// PF180313
+static void warp2_u16(const unsigned char *srcp8,const unsigned char *edgep8,unsigned char *dstp8,const int32_t src_pitch_,
+  const int32_t edge_pitch_,const int32_t dst_pitch_,const int32_t width,const int32_t height,int depth,int depthV,
+  const uint8_t bits_per_sample)
+{
+  if ((aWarpSharp_g_cpuid & CPUF_SSE4_1)!=0)
+  {
+    if (bits_per_sample<16)
+      warp_u16_sse41_core<2, true>(srcp8,edgep8,dstp8,src_pitch_,edge_pitch_,dst_pitch_,width,height,depth,depthV,bits_per_sample);
+    else
+      warp_u16_sse41_core<2, false>(srcp8,edgep8,dstp8,src_pitch_,edge_pitch_,dst_pitch_,width,height,depth,depthV,bits_per_sample);
+  }
+  else
+  {
+    warp_c<2, uint16_t>(srcp8,edgep8,dstp8,src_pitch_,edge_pitch_,dst_pitch_,width,height,depth,depthV,bits_per_sample);
+  }
+}
+
+
+// this has to be called
+// PF
+static void warp0_u16_MT(const unsigned char *srcp8,const unsigned char *edgep8,unsigned char *dstp8,const int32_t src_pitch_,
+  const int32_t edge_pitch_,const int32_t dst_pitch_,const int32_t width,const int32_t height,int depth,int depthV,
+  const uint8_t bits_per_sample,const int32_t ymin,const int32_t ymax)
+{
+  if ((aWarpSharp_g_cpuid & CPUF_SSE4_1)!=0)
+  {
+    if (bits_per_sample<16)
+      warp_u16_sse41_core_MT<0,true>(srcp8,edgep8,dstp8,src_pitch_,edge_pitch_,dst_pitch_,width,height,depth,depthV,bits_per_sample,
+		ymin,ymax);
+    else
+      warp_u16_sse41_core_MT<0,false>(srcp8,edgep8,dstp8,src_pitch_,edge_pitch_,dst_pitch_,width,height,depth,depthV,bits_per_sample,
+		ymin,ymax);
+  }
+  else
+  {
+    warp_c_MT<0,uint16_t>(srcp8,edgep8,dstp8,src_pitch_,edge_pitch_,dst_pitch_,width,height,depth,depthV,bits_per_sample,ymin,ymax);
+  }
+}
+
+
+// PF180313
+static void warp2_u16_MT(const unsigned char *srcp8,const unsigned char *edgep8,unsigned char *dstp8,const int32_t src_pitch_,
+  const int32_t edge_pitch_,const int32_t dst_pitch_,const int32_t width,const int32_t height,int depth,int depthV,
+  const uint8_t bits_per_sample,const int32_t ymin,const int32_t ymax)
+{
+  if ((aWarpSharp_g_cpuid & CPUF_SSE4_1)!=0)
+  {
+    if (bits_per_sample<16)
+      warp_u16_sse41_core_MT<2, true>(srcp8,edgep8,dstp8,src_pitch_,edge_pitch_,dst_pitch_,width,height,depth,depthV,bits_per_sample,
+		ymin,ymax);
+    else
+      warp_u16_sse41_core_MT<2, false>(srcp8,edgep8,dstp8,src_pitch_,edge_pitch_,dst_pitch_,width,height,depth,depthV,bits_per_sample,
+		ymin,ymax);
+  }
+  else
+  {
+    warp_c_MT<2, uint16_t>(srcp8,edgep8,dstp8,src_pitch_,edge_pitch_,dst_pitch_,width,height,depth,depthV,bits_per_sample,
+		ymin,ymax);
+  }
+}
+
 
 
 static void Warp0_8(const unsigned char *psrc,const unsigned char *pedg,unsigned char *pdst,const int32_t src_pitch,
@@ -895,26 +1165,6 @@ static void Warp0_8(const unsigned char *psrc,const unsigned char *pedg,unsigned
   }
   else
   {
-
-  if ((aWarpSharp_g_cpuid & CPUF_SSE3)!=0)
-  {
-    for (int32_t y=0; y<dst_height; y++)
-    {
-      int32_t y_limit_min = -y * 0x80;
-      int32_t y_limit_max = (dst_height - y) * 0x80 - 0x81;
-      int32_t edg_pitchp = -(y ? edg_pitch : 0);
-      int32_t edg_pitchn = y != dst_height - 1 ? edg_pitch : 0;
-
-	  JPSDR_Warp0_8_SSE3(psrc,pedg,pdst,src_pitch,edg_pitchp,edg_pitchn,y_limit_min,y_limit_max,
-		  x_limit_min,x_limit_max,i,depthH,depthV);
-
-      psrc += src_pitch;
-      pedg += edg_pitch;
-      pdst += dst_pitch;
-	}
-  }
-  else
-  {
     for (int32_t y=0; y<dst_height; y++)
     {
       int32_t y_limit_min = -y * 0x80;
@@ -929,8 +1179,6 @@ static void Warp0_8(const unsigned char *psrc,const unsigned char *pedg,unsigned
       pedg += edg_pitch;
       pdst += dst_pitch;
 	}
-  }
-
   }
 }
 
@@ -977,26 +1225,6 @@ static void Warp0_8_MT(const unsigned char *psrc,const unsigned char *pedg,unsig
   }
   else
   {
-
-  if ((aWarpSharp_g_cpuid & CPUF_SSE3)!=0)
-  {
-    for (int32_t y=ymin; y<ymax; y++)
-    {
-      int32_t y_limit_min = -y * 0x80;
-      int32_t y_limit_max = (dst_height - y) * 0x80 - 0x81;
-      int32_t edg_pitchp = -(y ? edg_pitch : 0);
-      int32_t edg_pitchn = y != dst_height - 1 ? edg_pitch : 0;
-
-	  JPSDR_Warp0_8_SSE3(psrc,pedg,pdst,src_pitch,edg_pitchp,edg_pitchn,y_limit_min,y_limit_max,
-		  x_limit_min,x_limit_max,i,depthH,depthV);
-
-      psrc += src_pitch;
-      pedg += edg_pitch;
-      pdst += dst_pitch;
-	}
-  }
-  else
-  {
     for (int32_t y=ymin; y<ymax; y++)
     {
       int32_t y_limit_min = -y * 0x80;
@@ -1011,8 +1239,6 @@ static void Warp0_8_MT(const unsigned char *psrc,const unsigned char *pedg,unsig
       pedg += edg_pitch;
       pdst += dst_pitch;
 	}
-  }
-
   }
 }
 
@@ -1056,26 +1282,6 @@ static void Warp2_8(const unsigned char *psrc,const unsigned char *pedg,unsigned
   }
   else
   {
-
-  if ((aWarpSharp_g_cpuid & CPUF_SSE3)!=0)
-  {
-    for (int32_t y=0; y<dst_height; y++)
-    {
-      int32_t y_limit_min = -y * 0x80;
-      int32_t y_limit_max = (dst_height - y) * 0x80 - 0x81;
-      int32_t edg_pitchp = -(y ? edg_pitch : 0);
-      int32_t edg_pitchn = y != dst_height - 1 ? edg_pitch : 0;
-
-	  JPSDR_Warp2_8_SSE3(psrc,pedg,pdst,src_pitch,edg_pitchp,edg_pitchn,y_limit_min,y_limit_max,
-		  x_limit_min,x_limit_max,i,depthH,depthV);
-
-      psrc += src_pitch4;
-      pedg += edg_pitch;
-      pdst += dst_pitch;
-	}
-  }
-  else
-  {
     for (int32_t y=0; y<dst_height; y++)
     {
       int32_t y_limit_min = -y * 0x80;
@@ -1090,8 +1296,6 @@ static void Warp2_8(const unsigned char *psrc,const unsigned char *pedg,unsigned
       pedg += edg_pitch;
       pdst += dst_pitch;
 	}
-  }
-
   }
 }
 
@@ -1139,26 +1343,6 @@ static void Warp2_8_MT(const unsigned char *psrc,const unsigned char *pedg,unsig
   }
   else
   {
-
-  if ((aWarpSharp_g_cpuid & CPUF_SSE3)!=0)
-  {
-    for (int32_t y=ymin; y<ymax; y++)
-    {
-      int32_t y_limit_min = -y * 0x80;
-      int32_t y_limit_max = (dst_height - y) * 0x80 - 0x81;
-      int32_t edg_pitchp = -(y ? edg_pitch : 0);
-      int32_t edg_pitchn = y != dst_height - 1 ? edg_pitch : 0;
-
-	  JPSDR_Warp2_8_SSE3(psrc,pedg,pdst,src_pitch,edg_pitchp,edg_pitchn,y_limit_min,y_limit_max,
-		  x_limit_min,x_limit_max,i,depthH,depthV);
-
-      psrc += src_pitch4;
-      pedg += edg_pitch;
-      pdst += dst_pitch;
-	}
-  }
-  else
-  {
     for (int32_t y=ymin; y<ymax; y++)
     {
       int32_t y_limit_min = -y * 0x80;
@@ -1173,8 +1357,6 @@ static void Warp2_8_MT(const unsigned char *psrc,const unsigned char *pedg,unsig
       pedg += edg_pitch;
       pdst += dst_pitch;
 	}
-  }
-
   }
 }
 
@@ -1349,17 +1531,6 @@ static void BlurR6_8(unsigned char *const psrc,unsigned char *const ptmp,const i
 			ptmp2 += tmp_pitch;
 		}
 	  }
-	  else
-	  {
-
-	  if ((aWarpSharp_g_cpuid & CPUF_SSSE3)!=0) // SSSE3
-		// SSSE3 version (palignr, pshufb)
-	    for (int32_t y=0; y<src_height; y++)
-		{
-			JPSDR_H_BlurR6_8_SSE3(psrc2,ptmp2,src_row_size,dq0toF);
-			psrc2 += src_pitch;
-			ptmp2 += tmp_pitch;
-		}
 	else
 	{
 		const int32_t offsetw1=src_row_size-16-6,offsetw2=src_row_size-16;
@@ -1378,8 +1549,6 @@ static void BlurR6_8(unsigned char *const psrc,unsigned char *const ptmp,const i
 			psrc2 += src_pitch;
 			ptmp2 += tmp_pitch;
 		}
-	  }
-
 	  }
   }
   else
@@ -1620,17 +1789,6 @@ static void BlurR6_8_MT_H(unsigned char *const psrc,unsigned char *const ptmp,co
 			ptmp2 += tmp_pitch;
 		}
 	  }
-	  else
-	  {
-
-	  if ((aWarpSharp_g_cpuid & CPUF_SSSE3)!=0) // SSSE3
-		// SSSE3 version (palignr, pshufb)
-	    for (int32_t y=ymin; y<ymax; y++)
-		{
-			JPSDR_H_BlurR6_8_SSE3(psrc2,ptmp2,src_row_size,dq0toF);
-			psrc2 += src_pitch;
-			ptmp2 += tmp_pitch;
-		}
 	else
 	{
 		const int32_t offsetw1=src_row_size-16-6,offsetw2=src_row_size-16;
@@ -1649,8 +1807,6 @@ static void BlurR6_8_MT_H(unsigned char *const psrc,unsigned char *const ptmp,co
 			psrc2 += src_pitch;
 			ptmp2 += tmp_pitch;
 		}
-	  }
-
 	  }
   }
   else
@@ -1988,18 +2144,6 @@ static void BlurR2_8(unsigned char *const psrc,unsigned char *const ptmp,const i
 		  ptmp2 += tmp_pitch;
 		}
 	  }
-	  else
-	  {
-
-	  if ((aWarpSharp_g_cpuid & CPUF_SSSE3)!=0)
-		// SSSE3 version (palignr, pshufb)
-	    for (int32_t y=0; y<src_height; y++)
-		{
-			JPSDR_H_BlurR2_8_SSE3(psrc2,ptmp2,src_row_size,dq0toF);
-
-	      psrc2 += src_pitch;
-		  ptmp2 += tmp_pitch;
-		}
 	else
 	{
 		// SSE2 version
@@ -2048,7 +2192,6 @@ static void BlurR2_8(unsigned char *const psrc,unsigned char *const ptmp,const i
 			ptmp2 += tmp_pitch;
 		}
 
-	  }
 	  }
   }
   else
@@ -2311,17 +2454,6 @@ static void BlurR2_8_MT_H(unsigned char *const psrc,unsigned char *const ptmp,co
 			ptmp2 += tmp_pitch;
 		}
 	  }
-	  else
-	  {
-
-	  if ((aWarpSharp_g_cpuid & CPUF_SSSE3)!=0)
-		// SSSE3 version (palignr, pshufb)
-	    for (int32_t y=ymin; y<ymax; y++)
-		{
-			JPSDR_H_BlurR2_8_SSE3(psrc2,ptmp2,src_row_size,dq0toF);
-			psrc2 += src_pitch;
-			ptmp2 += tmp_pitch;
-		}
 	else
 	{
 		// SSE2 version
@@ -2369,9 +2501,6 @@ static void BlurR2_8_MT_H(unsigned char *const psrc,unsigned char *const ptmp,co
 			psrc2 += src_pitch;
 			ptmp2 += tmp_pitch;
 		}
-
-	  }
-
 	  }
   }
   else
@@ -3802,7 +3931,7 @@ void aWarpSharp::StaticThreadpool(void *ptr)
 				mt_data_inf.row_size_Y2,mt_data_inf.processV,mt_data_inf.dst_Y_h_min,mt_data_inf.dst_Y_h_max);
 			break;
 		case 45 :
-			warp0_u16_c_MT((const unsigned char *)mt_data_inf.src_Y1,(const unsigned char *)mt_data_inf.src_Y2,
+			warp0_u16_MT((const unsigned char *)mt_data_inf.src_Y1,(const unsigned char *)mt_data_inf.src_Y2,
 				(unsigned char *)mt_data_inf.dst_Y2,mt_data_inf.src_pitch_Y1,mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_Y2,
 				mt_data_inf.row_size_Y3 >> 1,mt_data_inf.dst_Y_h,ptrClass->depth,ptrClass->depthV,ptrClass->bits_per_pixel,
 				mt_data_inf.dst_Y_h_min,mt_data_inf.dst_Y_h_max);
@@ -3857,7 +3986,7 @@ void aWarpSharp::StaticThreadpool(void *ptr)
 				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
 			break;
 		case 55 :
-			warp0_u16_c_MT((const unsigned char *)mt_data_inf.src_U1,(const unsigned char *)mt_data_inf.src_U2,
+			warp0_u16_MT((const unsigned char *)mt_data_inf.src_U1,(const unsigned char *)mt_data_inf.src_U2,
 				(unsigned char *)mt_data_inf.dst_U2,mt_data_inf.src_pitch_U1,mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U2,
 				mt_data_inf.row_size_U2 >> 1,mt_data_inf.dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
 				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
@@ -3912,7 +4041,7 @@ void aWarpSharp::StaticThreadpool(void *ptr)
 				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
 			break;
 		case 65 :
-			warp0_u16_c_MT((const unsigned char *)mt_data_inf.src_V1,(const unsigned char *)mt_data_inf.src_V2,
+			warp0_u16_MT((const unsigned char *)mt_data_inf.src_V1,(const unsigned char *)mt_data_inf.src_V2,
 				(unsigned char *)mt_data_inf.dst_V2,mt_data_inf.src_pitch_V1,mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V2,
 				mt_data_inf.row_size_V2 >> 1,mt_data_inf.dst_V_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
 				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
@@ -3924,25 +4053,25 @@ void aWarpSharp::StaticThreadpool(void *ptr)
 				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
 			break;
 		case 67 :
-			warp0_u16_c_MT((const unsigned char *)mt_data_inf.src_U1,(const unsigned char *)mt_data_inf.src_U2,
+			warp0_u16_MT((const unsigned char *)mt_data_inf.src_U1,(const unsigned char *)mt_data_inf.src_U2,
 				(unsigned char *)mt_data_inf.dst_U2,mt_data_inf.src_pitch_U1,mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U2,
 				mt_data_inf.row_size_U2 >> 1,mt_data_inf.dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
 				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
 			break;
 		case 68 :
-			warp0_u16_c_MT((const unsigned char *)mt_data_inf.src_V1,(const unsigned char *)mt_data_inf.src_U2,
+			warp0_u16_MT((const unsigned char *)mt_data_inf.src_V1,(const unsigned char *)mt_data_inf.src_U2,
 				(unsigned char *)mt_data_inf.dst_V2,mt_data_inf.src_pitch_V1,mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_V2,
 				mt_data_inf.row_size_V2 >> 1,mt_data_inf.dst_V_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
 				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
 			break;
 		case 69 :
-			warp0_u16_c_MT((const unsigned char *)mt_data_inf.src_U1,(const unsigned char *)mt_data_inf.src_Y2,
+			warp0_u16_MT((const unsigned char *)mt_data_inf.src_U1,(const unsigned char *)mt_data_inf.src_Y2,
 				(unsigned char *)mt_data_inf.dst_U2,mt_data_inf.src_pitch_U1,mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_U2,
 				mt_data_inf.row_size_U2 >> 1,mt_data_inf.dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
 				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
 			break;
 		case 70 :
-			warp0_u16_c_MT((const unsigned char *)mt_data_inf.src_V1,(const unsigned char *)mt_data_inf.src_Y2,
+			warp0_u16_MT((const unsigned char *)mt_data_inf.src_V1,(const unsigned char *)mt_data_inf.src_Y2,
 				(unsigned char *)mt_data_inf.dst_V2,mt_data_inf.src_pitch_V1,mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_V2,
 				mt_data_inf.row_size_V2 >> 1,mt_data_inf.dst_V_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
 				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
@@ -3969,25 +4098,31 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
   const int32_t dst_pitch_V = dst->GetPitch(PLANAR_V);
 
   const unsigned char *psrc_Y = src->GetReadPtr(PLANAR_Y);
-  const unsigned char *ptmp_Y = tmp->GetReadPtr(PLANAR_Y);
+
   unsigned char *const wptmp_Y= tmp->GetWritePtr(PLANAR_Y);
-  unsigned char *dptmp_Y = tmp->GetWritePtr(PLANAR_Y);
+  const unsigned char *ptmp_Y = wptmp_Y;
+  unsigned char *dptmp_Y = const_cast<unsigned char *>(wptmp_Y);
+
   unsigned char *const wpdst_Y = dst->GetWritePtr(PLANAR_Y);
-  unsigned char *pdst_Y = dst->GetWritePtr(PLANAR_Y);
+  unsigned char *pdst_Y = const_cast<unsigned char *>(wpdst_Y);
 
   const unsigned char *psrc_U = src->GetReadPtr(PLANAR_U);
-  const unsigned char *ptmp_U = tmp->GetReadPtr(PLANAR_U);
+
   unsigned char *const wptmp_U = tmp->GetWritePtr(PLANAR_U);
-  unsigned char *dptmp_U = tmp->GetWritePtr(PLANAR_U);
+  const unsigned char *ptmp_U = wptmp_U;
+  unsigned char *dptmp_U = const_cast<unsigned char *>(wptmp_U);
+
   unsigned char *const wpdst_U = dst->GetWritePtr(PLANAR_U);
-  unsigned char *pdst_U = dst->GetWritePtr(PLANAR_U);
+  unsigned char *pdst_U = const_cast<unsigned char *>(wpdst_U);
 
   const unsigned char *psrc_V = src->GetReadPtr(PLANAR_V);
-  const unsigned char *ptmp_V = tmp->GetReadPtr(PLANAR_V);
+
   unsigned char *const wptmp_V = tmp->GetWritePtr(PLANAR_V);
-  unsigned char *dptmp_V = tmp->GetWritePtr(PLANAR_V);
+  const unsigned char *ptmp_V = wptmp_V;
+  unsigned char *dptmp_V = const_cast<unsigned char *>(wptmp_V);
+
   unsigned char *const wpdst_V = dst->GetWritePtr(PLANAR_V);
-  unsigned char *pdst_V = dst->GetWritePtr(PLANAR_V);
+  unsigned char *pdst_V = const_cast<unsigned char *>(wpdst_V);
 
   const int SubH_Y = vi.GetPlaneHeightSubsampling(PLANAR_Y);
   const int SubH_U = vi.IsY() ? 0:vi.GetPlaneHeightSubsampling(PLANAR_U);
@@ -4110,6 +4245,8 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 		for(uint8_t i=0; i<threads_number; i++)
 			MT_Thread[i].f_process++;
 		if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
+
+		CopyPlane(dst,tmp,PLANAR_Y,vi);
 	}
 
 	f_proc=(blur_type==1) ? (6+offs_16b):(8+offs_16b);
@@ -4123,6 +4260,8 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 		for(uint8_t i=0; i<threads_number; i++)
 			MT_Thread[i].f_process++;
 		if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
+
+		CopyPlane(dst,tmp,PLANAR_Y,vi);
 	}
 
     if ((chroma!=6) && ((depth!=0) || (depthV!=0)))
@@ -4181,6 +4320,8 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 		for(uint8_t i=0; i<threads_number; i++)
 			MT_Thread[i].f_process++;
 		if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
+
+		CopyPlane(dst,tmp,PLANAR_U,vi);
 	}
 
 		  f_proc=(blur_type==1) ? (16+offs_16b):(18+offs_16b);
@@ -4194,6 +4335,8 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 		for(uint8_t i=0; i<threads_number; i++)
 			MT_Thread[i].f_process++;
 		if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
+
+		CopyPlane(dst,tmp,PLANAR_U,vi);
 	}
 
 	f_proc=20+offs_16b;
@@ -4221,6 +4364,8 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 		for(uint8_t i=0; i<threads_number; i++)
 			MT_Thread[i].f_process++;
 		if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
+
+		CopyPlane(dst,tmp,PLANAR_V,vi);
 	}
 
 	f_proc=(blur_type==1) ? (26+offs_16b):(28+offs_16b);
@@ -4234,6 +4379,8 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 		for(uint8_t i=0; i<threads_number; i++)
 			MT_Thread[i].f_process++;
 		if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
+
+		CopyPlane(dst,tmp,PLANAR_V,vi);
 	}
 
 	f_proc=30+offs_16b;
@@ -4329,6 +4476,7 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 			if (blur_type==1) BlurR2_16(wptmp_Y,wpdst_Y,tmp_pitch_Y,dst_pitch_Y,tmp_height_Y,tmp_row_size_Y,true,true);
 			else BlurR6_16(wptmp_Y,wpdst_Y,tmp_pitch_Y,dst_pitch_Y,tmp_height_Y,tmp_row_size_Y,true,true);
 		}
+		CopyPlane(dst,tmp,PLANAR_Y,vi);
 	}
 	for (int i=0; i<blurLr; i++)
 	{
@@ -4342,11 +4490,12 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 			if (blur_type==1) BlurR2_16(wptmp_Y,wpdst_Y,tmp_pitch_Y,dst_pitch_Y,tmp_height_Y,tmp_row_size_Y,processH,processV);
 			else BlurR6_16(wptmp_Y,wpdst_Y,tmp_pitch_Y,dst_pitch_Y,tmp_height_Y,tmp_row_size_Y,processH,processV);
 		}
+		CopyPlane(dst,tmp,PLANAR_Y,vi);
 	}
     if ((chroma!=6) && ((depth!=0) || (depthV!=0)))
 	{
 		if (pixelsize==1) Warp0_8(psrc_Y,ptmp_Y,pdst_Y,src_pitch_Y,tmp_pitch_Y,dst_pitch_Y,dst_row_size_Y,dst_height_Y,depth,depthV);
-		else warp0_u16_c(psrc_Y,ptmp_Y,pdst_Y,src_pitch_Y,tmp_pitch_Y,dst_pitch_Y,dst_row_size_Y >> 1,dst_height_Y,
+		else warp0_u16(psrc_Y,ptmp_Y,pdst_Y,src_pitch_Y,tmp_pitch_Y,dst_pitch_Y,dst_row_size_Y >> 1,dst_height_Y,
 			depth,depthV,bits_per_pixel);
 	}
     else
@@ -4392,6 +4541,7 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 			if (blur_type==1) BlurR2_16(wptmp_U,wpdst_U,tmp_pitch_U,dst_pitch_U,tmp_height_U,tmp_row_size_U,true,true);
 			else BlurR6_16(wptmp_U,wpdst_U,tmp_pitch_U,dst_pitch_U,tmp_height_U,tmp_row_size_U,true,true);
 		}
+		CopyPlane(dst,tmp,PLANAR_U,vi);
 	}
 	for (int i=0; i<cblurLr; i++)
 	{
@@ -4405,9 +4555,10 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 			if (blur_type) BlurR2_16(wptmp_U,wpdst_U,tmp_pitch_U,dst_pitch_U,tmp_height_U,tmp_row_size_U,cprocessH,cprocessV);
 			else BlurR6_16(wptmp_U,wpdst_U,tmp_pitch_U,dst_pitch_U,tmp_height_U,tmp_row_size_U,cprocessH,cprocessV);
 		}
+		CopyPlane(dst,tmp,PLANAR_U,vi);
 	}
 	if (pixelsize==1) Warp0_8(psrc_U,ptmp_U,pdst_U,src_pitch_U,tmp_pitch_U,dst_pitch_U,dst_row_size_U,dst_height_U,depthC,depthVC);
-	else warp0_u16_c(psrc_U,ptmp_U,pdst_U,src_pitch_U,tmp_pitch_U,dst_pitch_U,dst_row_size_U >> 1,dst_height_U,
+	else warp0_u16(psrc_U,ptmp_U,pdst_U,src_pitch_U,tmp_pitch_U,dst_pitch_U,dst_row_size_U >> 1,dst_height_U,
 		depthC,depthVC,bits_per_pixel);
 
 	if (pixelsize==1) Sobel_8(psrc_V,dptmp_V,src_pitch_V,tmp_pitch_V,src_height_V,tmp_row_size_V,threshC);
@@ -4424,6 +4575,7 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 			if (blur_type==1) BlurR2_16(wptmp_V,wpdst_V,tmp_pitch_V,dst_pitch_V,tmp_height_V,tmp_row_size_V,true,true);
 			else BlurR6_16(wptmp_V,wpdst_V,tmp_pitch_V,dst_pitch_V,tmp_height_V,tmp_row_size_V,true,true);
 		}
+		CopyPlane(dst,tmp,PLANAR_V,vi);
 	}
 	for (int i=0; i<cblurLr; i++)
 	{
@@ -4437,10 +4589,11 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 			if (blur_type==1) BlurR2_16(wptmp_V,wpdst_V,tmp_pitch_V,dst_pitch_V,tmp_height_V,tmp_row_size_V,cprocessH,cprocessV);
 			else BlurR6_16(wptmp_V,wpdst_V,tmp_pitch_V,dst_pitch_V,tmp_height_V,tmp_row_size_V,cprocessH,cprocessV);
 		}
+		CopyPlane(dst,tmp,PLANAR_V,vi);
 
 	}
 	if (pixelsize==1) Warp0_8(psrc_V,ptmp_V,pdst_V,src_pitch_V,tmp_pitch_V,dst_pitch_V,dst_row_size_V,dst_height_V,depthC,depthVC);
-	else warp0_u16_c(psrc_V,ptmp_V,pdst_V,src_pitch_V,tmp_pitch_V,dst_pitch_V,dst_row_size_V >> 1,dst_height_V,
+	else warp0_u16(psrc_V,ptmp_V,pdst_V,src_pitch_V,tmp_pitch_V,dst_pitch_V,dst_row_size_V >> 1,dst_height_V,
 		depthC,depthVC,bits_per_pixel);
 	  }
 	  else
@@ -4467,9 +4620,9 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 	  }
 	  else
 	  {
-		  warp0_u16_c(psrc_U,ptmp_U,pdst_U,src_pitch_U,tmp_pitch_U,dst_pitch_U,dst_row_size_U >> 1,dst_height_U,
+		  warp0_u16(psrc_U,ptmp_U,pdst_U,src_pitch_U,tmp_pitch_U,dst_pitch_U,dst_row_size_U >> 1,dst_height_U,
 			  depthC,depthVC,bits_per_pixel);
-		  warp0_u16_c(psrc_V,ptmp_U,pdst_V,src_pitch_V,tmp_pitch_U,dst_pitch_V,dst_row_size_V >> 1,dst_height_V,
+		  warp0_u16(psrc_V,ptmp_U,pdst_V,src_pitch_V,tmp_pitch_U,dst_pitch_V,dst_row_size_V >> 1,dst_height_V,
 			  depthC,depthVC,bits_per_pixel);
 	  }
     }
@@ -4482,9 +4635,9 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 		}
 		else
 		{
-			warp0_u16_c(psrc_U,ptmp_Y,pdst_U,src_pitch_U,tmp_pitch_Y,dst_pitch_U,dst_row_size_U >> 1,dst_height_U,
+			warp0_u16(psrc_U,ptmp_Y,pdst_U,src_pitch_U,tmp_pitch_Y,dst_pitch_U,dst_row_size_U >> 1,dst_height_U,
 				depthC,depthVC,bits_per_pixel);
-			warp0_u16_c(psrc_V,ptmp_Y,pdst_V,src_pitch_V,tmp_pitch_Y,dst_pitch_V,dst_row_size_V >> 1,dst_height_V,
+			warp0_u16(psrc_V,ptmp_Y,pdst_V,src_pitch_V,tmp_pitch_Y,dst_pitch_V,dst_row_size_V >> 1,dst_height_V,
 				depthC,depthVC,bits_per_pixel);
 		}
     }
@@ -5658,19 +5811,19 @@ void aWarp::StaticThreadpool(void *ptr)
 			break;
 			// 16 bits
 		case 9 :
-			warp0_u16_c_MT((const unsigned char*)mt_data_inf.src_Y1,(const unsigned char*)mt_data_inf.src_Y2,
+			warp0_u16_MT((const unsigned char*)mt_data_inf.src_Y1,(const unsigned char*)mt_data_inf.src_Y2,
 				(unsigned char*)mt_data_inf.dst_Y1,mt_data_inf.src_pitch_Y1,mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_Y1,
 				mt_data_inf.row_size_Y1 >> 1,mt_data_inf.dst_Y_h,ptrClass->depth,ptrClass->depthV,ptrClass->bits_per_pixel,
 				mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
 			break;
 		case 10 :
-			warp0_u16_c_MT((const unsigned char*)mt_data_inf.src_U1,(const unsigned char*)mt_data_inf.src_U2,
+			warp0_u16_MT((const unsigned char*)mt_data_inf.src_U1,(const unsigned char*)mt_data_inf.src_U2,
 				(unsigned char*)mt_data_inf.dst_U2,mt_data_inf.src_pitch_U1,mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U1,
 				mt_data_inf.row_size_U1 >> 1,mt_data_inf.dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
 				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
 			break;
 		case 11 :
-			warp0_u16_c_MT((const unsigned char*)mt_data_inf.src_V1,(const unsigned char*)mt_data_inf.src_V2,
+			warp0_u16_MT((const unsigned char*)mt_data_inf.src_V1,(const unsigned char*)mt_data_inf.src_V2,
 				(unsigned char*)mt_data_inf.dst_V1,mt_data_inf.src_pitch_V1,mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V1,
 				mt_data_inf.row_size_V1 >> 1,mt_data_inf.dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
 				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
@@ -5682,25 +5835,25 @@ void aWarp::StaticThreadpool(void *ptr)
 				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
 			break;
 		case 13 :
-			warp0_u16_c_MT((const unsigned char*)mt_data_inf.src_U1,(const unsigned char*)mt_data_inf.src_U2,
+			warp0_u16_MT((const unsigned char*)mt_data_inf.src_U1,(const unsigned char*)mt_data_inf.src_U2,
 				(unsigned char*)mt_data_inf.dst_U2,mt_data_inf.src_pitch_U1,mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U1,
 				mt_data_inf.row_size_U1 >> 1,mt_data_inf.dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
 				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
 			break;
 		case 14 :
-			warp0_u16_c_MT((const unsigned char*)mt_data_inf.src_V1,(const unsigned char*)mt_data_inf.src_U2,
+			warp0_u16_MT((const unsigned char*)mt_data_inf.src_V1,(const unsigned char*)mt_data_inf.src_U2,
 				(unsigned char*)mt_data_inf.dst_V1,mt_data_inf.src_pitch_V1,mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_V1,
 				mt_data_inf.row_size_V1 >> 1,mt_data_inf.dst_V_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
 				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
 			break;
 		case 15 :
-			warp0_u16_c_MT((const unsigned char*)mt_data_inf.src_U1,(const unsigned char*)mt_data_inf.src_Y2,
+			warp0_u16_MT((const unsigned char*)mt_data_inf.src_U1,(const unsigned char*)mt_data_inf.src_Y2,
 				(unsigned char*)mt_data_inf.dst_U2,mt_data_inf.src_pitch_U1,mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_U1,
 				mt_data_inf.row_size_U1 >> 1,mt_data_inf.dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
 				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
 			break;
 		case 16 :
-			warp0_u16_c_MT((const unsigned char*)mt_data_inf.src_V1,(const unsigned char*)mt_data_inf.src_Y2,
+			warp0_u16_MT((const unsigned char*)mt_data_inf.src_V1,(const unsigned char*)mt_data_inf.src_Y2,
 				(unsigned char*)mt_data_inf.dst_V1,mt_data_inf.src_pitch_V1,mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_V1,
 				mt_data_inf.row_size_V1 >> 1,mt_data_inf.dst_V_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
 				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
@@ -5954,7 +6107,7 @@ PVideoFrame __stdcall aWarp::GetFrame(int n, IScriptEnvironment *env)
 	  if (pixelsize==1)
 		  Warp0_8(psrc_Y,pedg_Y,pdst_Y,src_pitch_Y,edg_pitch_Y,dst_pitch_Y,dst_row_size_Y,dst_height_Y,depth,depthV);
 	  else
-		  warp0_u16_c(psrc_Y,pedg_Y,pdst_Y,src_pitch_Y,edg_pitch_Y,dst_pitch_Y,dst_row_size_Y >> 1,dst_height_Y,depth,depthV,bits_per_pixel);
+		  warp0_u16(psrc_Y,pedg_Y,pdst_Y,src_pitch_Y,edg_pitch_Y,dst_pitch_Y,dst_row_size_Y >> 1,dst_height_Y,depth,depthV,bits_per_pixel);
   }
   else
     CopyPlane(src,dst,PLANAR_Y,vi);
@@ -5989,9 +6142,9 @@ PVideoFrame __stdcall aWarp::GetFrame(int n, IScriptEnvironment *env)
 		  }
 		  else
 		  {
-			  warp0_u16_c(psrc_U,pedg_U,pdst_U,src_pitch_U,edg_pitch_U,dst_pitch_U,dst_row_size_U >> 1,dst_height_U,
+			  warp0_u16(psrc_U,pedg_U,pdst_U,src_pitch_U,edg_pitch_U,dst_pitch_U,dst_row_size_U >> 1,dst_height_U,
 				  depthC,depthVC,bits_per_pixel);
-			  warp0_u16_c(psrc_V,pedg_V,pdst_V,src_pitch_V,edg_pitch_V,dst_pitch_V,dst_row_size_V >> 1,dst_height_V,
+			  warp0_u16(psrc_V,pedg_V,pdst_V,src_pitch_V,edg_pitch_V,dst_pitch_V,dst_row_size_V >> 1,dst_height_V,
 				  depthC,depthVC,bits_per_pixel);
 		  }
 	  }
@@ -6040,9 +6193,9 @@ PVideoFrame __stdcall aWarp::GetFrame(int n, IScriptEnvironment *env)
 	  }
 	  else
 	  {
-		  warp0_u16_c(psrc_U,pedg_U,pdst_U,src_pitch_U,edg_pitch_U,dst_pitch_U,dst_row_size_U >> 1,dst_height_U,
+		  warp0_u16(psrc_U,pedg_U,pdst_U,src_pitch_U,edg_pitch_U,dst_pitch_U,dst_row_size_U >> 1,dst_height_U,
 			  depthC,depthVC,bits_per_pixel);
-		  warp0_u16_c(psrc_V,pedg_U,pdst_V,src_pitch_V,edg_pitch_U,dst_pitch_V,dst_row_size_V >> 1,dst_height_V,
+		  warp0_u16(psrc_V,pedg_U,pdst_V,src_pitch_V,edg_pitch_U,dst_pitch_V,dst_row_size_V >> 1,dst_height_V,
 			  depthC,depthVC,bits_per_pixel);
 	  }
     }
@@ -6055,9 +6208,9 @@ PVideoFrame __stdcall aWarp::GetFrame(int n, IScriptEnvironment *env)
 		}
 		else
 		{
-			warp0_u16_c(psrc_U,pedg_Y,pdst_U,src_pitch_U,edg_pitch_Y,dst_pitch_U,dst_row_size_U >> 1,dst_height_U,
+			warp0_u16(psrc_U,pedg_Y,pdst_U,src_pitch_U,edg_pitch_Y,dst_pitch_U,dst_row_size_U >> 1,dst_height_U,
 				depthC,depthVC,bits_per_pixel);
-			warp0_u16_c(psrc_V,pedg_Y,pdst_V,src_pitch_V,edg_pitch_Y,dst_pitch_V,dst_row_size_V >> 1,dst_height_V,
+			warp0_u16(psrc_V,pedg_Y,pdst_V,src_pitch_V,edg_pitch_Y,dst_pitch_V,dst_row_size_V >> 1,dst_height_V,
 				depthC,depthVC,bits_per_pixel);
 		}
     }
@@ -6254,19 +6407,19 @@ void aWarp4::StaticThreadpool(void *ptr)
 			break;
 			// 16 bits
 		case 9 :
-			warp2_u16_c_MT((const unsigned char*)mt_data_inf.src_Y1,(const unsigned char*)mt_data_inf.src_Y2,
+			warp2_u16_MT((const unsigned char*)mt_data_inf.src_Y1,(const unsigned char*)mt_data_inf.src_Y2,
 				(unsigned char*)mt_data_inf.dst_Y1,mt_data_inf.src_pitch_Y1,mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_Y1,
 				mt_data_inf.row_size_Y1 >> 1,mt_data_inf.dst_Y_h,ptrClass->depth,ptrClass->depthV,ptrClass->bits_per_pixel,
 				mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
 			break;
 		case 10 :
-			warp2_u16_c_MT((const unsigned char*)mt_data_inf.src_U1,(const unsigned char*)mt_data_inf.src_U2,
+			warp2_u16_MT((const unsigned char*)mt_data_inf.src_U1,(const unsigned char*)mt_data_inf.src_U2,
 				(unsigned char*)mt_data_inf.dst_U2,mt_data_inf.src_pitch_U1,mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U1,
 				mt_data_inf.row_size_U1 >> 1,mt_data_inf.dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
 				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
 			break;
 		case 11 :
-			warp2_u16_c_MT((const unsigned char*)mt_data_inf.src_V1,(const unsigned char*)mt_data_inf.src_V2,
+			warp2_u16_MT((const unsigned char*)mt_data_inf.src_V1,(const unsigned char*)mt_data_inf.src_V2,
 				(unsigned char*)mt_data_inf.dst_V1,mt_data_inf.src_pitch_V1,mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V1,
 				mt_data_inf.row_size_V1 >> 1,mt_data_inf.dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
 				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
@@ -6278,25 +6431,25 @@ void aWarp4::StaticThreadpool(void *ptr)
 				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
 			break;
 		case 13 :
-			warp2_u16_c_MT((const unsigned char*)mt_data_inf.src_U1,(const unsigned char*)mt_data_inf.src_U2,
+			warp2_u16_MT((const unsigned char*)mt_data_inf.src_U1,(const unsigned char*)mt_data_inf.src_U2,
 				(unsigned char*)mt_data_inf.dst_U2,mt_data_inf.src_pitch_U1,mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U1,
 				mt_data_inf.row_size_U1 >> 1,mt_data_inf.dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
 				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
 			break;
 		case 14 :
-			warp2_u16_c_MT((const unsigned char*)mt_data_inf.src_V1,(const unsigned char*)mt_data_inf.src_U2,
+			warp2_u16_MT((const unsigned char*)mt_data_inf.src_V1,(const unsigned char*)mt_data_inf.src_U2,
 				(unsigned char*)mt_data_inf.dst_V1,mt_data_inf.src_pitch_V1,mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_V1,
 				mt_data_inf.row_size_V1 >> 1,mt_data_inf.dst_V_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
 				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
 			break;
 		case 15 :
-			warp2_u16_c_MT((const unsigned char*)mt_data_inf.src_U1,(const unsigned char*)mt_data_inf.src_Y2,
+			warp2_u16_MT((const unsigned char*)mt_data_inf.src_U1,(const unsigned char*)mt_data_inf.src_Y2,
 				(unsigned char*)mt_data_inf.dst_U2,mt_data_inf.src_pitch_U1,mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_U1,
 				mt_data_inf.row_size_U1 >> 1,mt_data_inf.dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
 				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
 			break;
 		case 16 :
-			warp2_u16_c_MT((const unsigned char*)mt_data_inf.src_V1,(const unsigned char*)mt_data_inf.src_Y2,
+			warp2_u16_MT((const unsigned char*)mt_data_inf.src_V1,(const unsigned char*)mt_data_inf.src_Y2,
 				(unsigned char*)mt_data_inf.dst_V1,mt_data_inf.src_pitch_V1,mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_V1,
 				mt_data_inf.row_size_V1 >> 1,mt_data_inf.dst_V_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
 				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
@@ -6530,7 +6683,7 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
 	  if (pixelsize==1)
 		  Warp2_8(psrc_Y,pedg_Y,pdst_Y,src_pitch_Y,edg_pitch_Y,dst_pitch_Y,dst_row_size_Y,dst_height_Y,depth,depthV);
 	  else
-		  warp2_u16_c(psrc_Y,pedg_Y,pdst_Y,src_pitch_Y,edg_pitch_Y,dst_pitch_Y,dst_row_size_Y >> 1,dst_height_Y,
+		  warp2_u16(psrc_Y,pedg_Y,pdst_Y,src_pitch_Y,edg_pitch_Y,dst_pitch_Y,dst_row_size_Y >> 1,dst_height_Y,
 			depth,depthV,bits_per_pixel);
   }
 
@@ -6560,9 +6713,9 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
 	  }
 	  else
 	  {
-		  warp2_u16_c(psrc_U,pedg_U,pdst_U,src_pitch_U,edg_pitch_U,dst_pitch_U,dst_row_size_U >> 1,dst_height_U,
+		  warp2_u16(psrc_U,pedg_U,pdst_U,src_pitch_U,edg_pitch_U,dst_pitch_U,dst_row_size_U >> 1,dst_height_U,
 			  depthC,depthVC,bits_per_pixel);
-		  warp2_u16_c(psrc_V,pedg_V,pdst_V,src_pitch_V,edg_pitch_V,dst_pitch_V,dst_row_size_V >> 1,dst_height_V,
+		  warp2_u16(psrc_V,pedg_V,pdst_V,src_pitch_V,edg_pitch_V,dst_pitch_V,dst_row_size_V >> 1,dst_height_V,
 			  depthC,depthVC,bits_per_pixel);
 	  }
     break;
@@ -6603,9 +6756,9 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
 	  }
 	  else
 	  {
-		  warp2_u16_c(psrc_U,pedg_U,pdst_U,src_pitch_U,edg_pitch_U,dst_pitch_U,dst_row_size_U >> 1,dst_height_U,
+		  warp2_u16(psrc_U,pedg_U,pdst_U,src_pitch_U,edg_pitch_U,dst_pitch_U,dst_row_size_U >> 1,dst_height_U,
 			  depthC,depthVC,bits_per_pixel);
-		  warp2_u16_c(psrc_V,pedg_U,pdst_V,src_pitch_V,edg_pitch_U,dst_pitch_V,dst_row_size_V >> 1,dst_height_V,
+		  warp2_u16(psrc_V,pedg_U,pdst_V,src_pitch_V,edg_pitch_U,dst_pitch_V,dst_row_size_V >> 1,dst_height_V,
 			  depthC,depthVC,bits_per_pixel);
 	  }
     }
@@ -6618,9 +6771,9 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
 		 }
 		 else
 		 {
-			 warp2_u16_c(psrc_U,pedg_Y,pdst_U,src_pitch_U,edg_pitch_Y,dst_pitch_U,dst_row_size_U >> 1,dst_height_U,
+			 warp2_u16(psrc_U,pedg_Y,pdst_U,src_pitch_U,edg_pitch_Y,dst_pitch_U,dst_row_size_U >> 1,dst_height_U,
 				 depthC,depthVC,bits_per_pixel);
-			 warp2_u16_c(psrc_V,pedg_Y,pdst_V,src_pitch_V,edg_pitch_Y,dst_pitch_V,dst_row_size_V >> 1,dst_height_V,
+			 warp2_u16(psrc_V,pedg_Y,pdst_V,src_pitch_V,edg_pitch_Y,dst_pitch_V,dst_row_size_V >> 1,dst_height_V,
 				 depthC,depthVC,bits_per_pixel);
 		 }
     }
