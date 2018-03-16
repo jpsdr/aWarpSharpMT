@@ -143,7 +143,6 @@ static void warp_c(const unsigned char *srcp8,const unsigned char *edgep8,unsign
   const int32_t x_limit_min[8] = {0*SMAG,-1*SMAG,-2*SMAG,-3*SMAG,-4*SMAG,-5*SMAG,-6*SMAG,-7*SMAG};
   const int32_t x_limit_max[8] = {c*SMAG,(c-1)*SMAG,(c-2)*SMAG,(c-3)*SMAG,(c-4)*SMAG,(c-5)*SMAG,(c-6)*SMAG,(c-7)*SMAG};
 
-  const uint8_t over_bits = bits_per_sample-8;
   const int32_t pixel_max = (1 << bits_per_sample)-1;
 
   const int ARITH_BITS = 7;
@@ -325,7 +324,6 @@ static void warp_c_MT(const unsigned char *srcp8,const unsigned char *edgep8,uns
   const int32_t x_limit_min[8] = {0*SMAG,-1*SMAG,-2*SMAG,-3*SMAG,-4*SMAG,-5*SMAG,-6*SMAG,-7*SMAG};
   const int32_t x_limit_max[8] = {c*SMAG,(c-1)*SMAG,(c-2)*SMAG,(c-3)*SMAG,(c-4)*SMAG,(c-5)*SMAG,(c-6)*SMAG,(c-7)*SMAG};
 
-  const uint8_t over_bits = bits_per_sample-8;
   const int32_t pixel_max = (1 << bits_per_sample)-1;
 
   const int ARITH_BITS = 7;
@@ -510,7 +508,6 @@ static void warp_u16_sse41_core(const unsigned char *srcp8,const unsigned char *
   const __m128i x_limit_min = _mm_setr_epi16(0*SMAG,-1*SMAG,-2*SMAG,-3*SMAG,-4*SMAG,-5*SMAG,-6*SMAG,-7*SMAG);
   const __m128i x_limit_max = _mm_setr_epi16(c*SMAG,(c-1)*SMAG,(c-2)*SMAG,(c-3)*SMAG,(c-4)*SMAG,(c-5)*SMAG,(c-6)*SMAG,(c-7)*SMAG);
 
-  //const uint8_t over_bits = bits_per_sample - 8;
   const __m128i pixel_max = _mm_set1_epi16((1 << bits_per_sample)-1);
 
   const int ARITH_BITS = 7;
@@ -791,7 +788,6 @@ static void warp_u16_sse41_core_MT(const unsigned char *srcp8,const unsigned cha
   const __m128i x_limit_min = _mm_setr_epi16(0*SMAG,-1*SMAG,-2*SMAG,-3*SMAG,-4*SMAG,-5*SMAG,-6*SMAG,-7*SMAG);
   const __m128i x_limit_max = _mm_setr_epi16(c*SMAG,(c-1)*SMAG,(c-2)*SMAG,(c-3)*SMAG,(c-4)*SMAG,(c-5)*SMAG,(c-6)*SMAG,(c-7)*SMAG);
 
-  //const uint8_t over_bits = bits_per_sample - 8;
   const __m128i pixel_max = _mm_set1_epi16((1 << bits_per_sample)-1);
 
   const int ARITH_BITS = 7;
@@ -4098,31 +4094,25 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
   const int32_t dst_pitch_V = dst->GetPitch(PLANAR_V);
 
   const unsigned char *psrc_Y = src->GetReadPtr(PLANAR_Y);
-
+  const unsigned char *ptmp_Y = tmp->GetReadPtr(PLANAR_Y);
   unsigned char *const wptmp_Y= tmp->GetWritePtr(PLANAR_Y);
-  const unsigned char *ptmp_Y = wptmp_Y;
-  unsigned char *dptmp_Y = const_cast<unsigned char *>(wptmp_Y);
-
+  unsigned char *dptmp_Y = tmp->GetWritePtr(PLANAR_Y);
   unsigned char *const wpdst_Y = dst->GetWritePtr(PLANAR_Y);
-  unsigned char *pdst_Y = const_cast<unsigned char *>(wpdst_Y);
+  unsigned char *pdst_Y = dst->GetWritePtr(PLANAR_Y);
 
   const unsigned char *psrc_U = src->GetReadPtr(PLANAR_U);
-
+  const unsigned char *ptmp_U = tmp->GetReadPtr(PLANAR_U);
   unsigned char *const wptmp_U = tmp->GetWritePtr(PLANAR_U);
-  const unsigned char *ptmp_U = wptmp_U;
-  unsigned char *dptmp_U = const_cast<unsigned char *>(wptmp_U);
-
+  unsigned char *dptmp_U = tmp->GetWritePtr(PLANAR_U);
   unsigned char *const wpdst_U = dst->GetWritePtr(PLANAR_U);
-  unsigned char *pdst_U = const_cast<unsigned char *>(wpdst_U);
+  unsigned char *pdst_U = dst->GetWritePtr(PLANAR_U);
 
   const unsigned char *psrc_V = src->GetReadPtr(PLANAR_V);
-
+  const unsigned char *ptmp_V = tmp->GetReadPtr(PLANAR_V);
   unsigned char *const wptmp_V = tmp->GetWritePtr(PLANAR_V);
-  const unsigned char *ptmp_V = wptmp_V;
-  unsigned char *dptmp_V = const_cast<unsigned char *>(wptmp_V);
-
+  unsigned char *dptmp_V = tmp->GetWritePtr(PLANAR_V);
   unsigned char *const wpdst_V = dst->GetWritePtr(PLANAR_V);
-  unsigned char *pdst_V = const_cast<unsigned char *>(wpdst_V);
+  unsigned char *pdst_V = dst->GetWritePtr(PLANAR_V);
 
   const int SubH_Y = vi.GetPlaneHeightSubsampling(PLANAR_Y);
   const int SubH_U = vi.IsY() ? 0:vi.GetPlaneHeightSubsampling(PLANAR_U);
@@ -4245,8 +4235,6 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 		for(uint8_t i=0; i<threads_number; i++)
 			MT_Thread[i].f_process++;
 		if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
-
-		CopyPlane(dst,tmp,PLANAR_Y,vi);
 	}
 
 	f_proc=(blur_type==1) ? (6+offs_16b):(8+offs_16b);
@@ -4260,8 +4248,6 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 		for(uint8_t i=0; i<threads_number; i++)
 			MT_Thread[i].f_process++;
 		if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
-
-		CopyPlane(dst,tmp,PLANAR_Y,vi);
 	}
 
     if ((chroma!=6) && ((depth!=0) || (depthV!=0)))
@@ -4320,8 +4306,6 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 		for(uint8_t i=0; i<threads_number; i++)
 			MT_Thread[i].f_process++;
 		if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
-
-		CopyPlane(dst,tmp,PLANAR_U,vi);
 	}
 
 		  f_proc=(blur_type==1) ? (16+offs_16b):(18+offs_16b);
@@ -4335,8 +4319,6 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 		for(uint8_t i=0; i<threads_number; i++)
 			MT_Thread[i].f_process++;
 		if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
-
-		CopyPlane(dst,tmp,PLANAR_U,vi);
 	}
 
 	f_proc=20+offs_16b;
@@ -4364,8 +4346,6 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 		for(uint8_t i=0; i<threads_number; i++)
 			MT_Thread[i].f_process++;
 		if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
-
-		CopyPlane(dst,tmp,PLANAR_V,vi);
 	}
 
 	f_proc=(blur_type==1) ? (26+offs_16b):(28+offs_16b);
@@ -4379,8 +4359,6 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 		for(uint8_t i=0; i<threads_number; i++)
 			MT_Thread[i].f_process++;
 		if (poolInterface->StartThreads(UserId)) poolInterface->WaitThreadsEnd(UserId);
-
-		CopyPlane(dst,tmp,PLANAR_V,vi);
 	}
 
 	f_proc=30+offs_16b;
@@ -4476,7 +4454,6 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 			if (blur_type==1) BlurR2_16(wptmp_Y,wpdst_Y,tmp_pitch_Y,dst_pitch_Y,tmp_height_Y,tmp_row_size_Y,true,true);
 			else BlurR6_16(wptmp_Y,wpdst_Y,tmp_pitch_Y,dst_pitch_Y,tmp_height_Y,tmp_row_size_Y,true,true);
 		}
-		CopyPlane(dst,tmp,PLANAR_Y,vi);
 	}
 	for (int i=0; i<blurLr; i++)
 	{
@@ -4490,7 +4467,6 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 			if (blur_type==1) BlurR2_16(wptmp_Y,wpdst_Y,tmp_pitch_Y,dst_pitch_Y,tmp_height_Y,tmp_row_size_Y,processH,processV);
 			else BlurR6_16(wptmp_Y,wpdst_Y,tmp_pitch_Y,dst_pitch_Y,tmp_height_Y,tmp_row_size_Y,processH,processV);
 		}
-		CopyPlane(dst,tmp,PLANAR_Y,vi);
 	}
     if ((chroma!=6) && ((depth!=0) || (depthV!=0)))
 	{
@@ -4541,7 +4517,6 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 			if (blur_type==1) BlurR2_16(wptmp_U,wpdst_U,tmp_pitch_U,dst_pitch_U,tmp_height_U,tmp_row_size_U,true,true);
 			else BlurR6_16(wptmp_U,wpdst_U,tmp_pitch_U,dst_pitch_U,tmp_height_U,tmp_row_size_U,true,true);
 		}
-		CopyPlane(dst,tmp,PLANAR_U,vi);
 	}
 	for (int i=0; i<cblurLr; i++)
 	{
@@ -4555,7 +4530,6 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 			if (blur_type) BlurR2_16(wptmp_U,wpdst_U,tmp_pitch_U,dst_pitch_U,tmp_height_U,tmp_row_size_U,cprocessH,cprocessV);
 			else BlurR6_16(wptmp_U,wpdst_U,tmp_pitch_U,dst_pitch_U,tmp_height_U,tmp_row_size_U,cprocessH,cprocessV);
 		}
-		CopyPlane(dst,tmp,PLANAR_U,vi);
 	}
 	if (pixelsize==1) Warp0_8(psrc_U,ptmp_U,pdst_U,src_pitch_U,tmp_pitch_U,dst_pitch_U,dst_row_size_U,dst_height_U,depthC,depthVC);
 	else warp0_u16(psrc_U,ptmp_U,pdst_U,src_pitch_U,tmp_pitch_U,dst_pitch_U,dst_row_size_U >> 1,dst_height_U,
@@ -4575,7 +4549,6 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 			if (blur_type==1) BlurR2_16(wptmp_V,wpdst_V,tmp_pitch_V,dst_pitch_V,tmp_height_V,tmp_row_size_V,true,true);
 			else BlurR6_16(wptmp_V,wpdst_V,tmp_pitch_V,dst_pitch_V,tmp_height_V,tmp_row_size_V,true,true);
 		}
-		CopyPlane(dst,tmp,PLANAR_V,vi);
 	}
 	for (int i=0; i<cblurLr; i++)
 	{
@@ -4589,8 +4562,6 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 			if (blur_type==1) BlurR2_16(wptmp_V,wpdst_V,tmp_pitch_V,dst_pitch_V,tmp_height_V,tmp_row_size_V,cprocessH,cprocessV);
 			else BlurR6_16(wptmp_V,wpdst_V,tmp_pitch_V,dst_pitch_V,tmp_height_V,tmp_row_size_V,cprocessH,cprocessV);
 		}
-		CopyPlane(dst,tmp,PLANAR_V,vi);
-
 	}
 	if (pixelsize==1) Warp0_8(psrc_V,ptmp_V,pdst_V,src_pitch_V,tmp_pitch_V,dst_pitch_V,dst_row_size_V,dst_height_V,depthC,depthVC);
 	else warp0_u16(psrc_V,ptmp_V,pdst_V,src_pitch_V,tmp_pitch_V,dst_pitch_V,dst_row_size_V >> 1,dst_height_V,
