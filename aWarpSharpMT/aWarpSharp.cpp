@@ -3688,404 +3688,402 @@ int __stdcall aWarpSharp::SetCacheHints(int cachehints,int frame_range)
 
 void aWarpSharp::StaticThreadpool(void *ptr)
 {
-	const Public_MT_Data_Thread *data=(const Public_MT_Data_Thread *)ptr;
-	const aWarpSharp *ptrClass=(aWarpSharp *)data->pClass;
+	Public_MT_Data_Thread *data=(Public_MT_Data_Thread *)ptr;
+	aWarpSharp *ptrClass=(aWarpSharp *)data->pClass;
 
-	const uint8_t thread_num=data->thread_Id;
-	const MT_Data_Info_WarpSharp *MT_DataGF=(const MT_Data_Info_WarpSharp *)data->pData;
-	const MT_Data_Info_WarpSharp mt_data_inf=MT_DataGF[thread_num];
+	MT_Data_Info_WarpSharp *mt_data_inf=((MT_Data_Info_WarpSharp *)data->pData)+data->thread_Id;
 	
 	switch(data->f_process)
 	{
 		case 1 :
-			Sobel_8_MT((const unsigned char *)mt_data_inf.src_Y1,(unsigned char *)mt_data_inf.dst_Y1,
-				mt_data_inf.src_pitch_Y1,mt_data_inf.src_pitch_Y2,mt_data_inf.src_Y_h,
-				mt_data_inf.row_size_Y2,ptrClass->thresh,mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
+			Sobel_8_MT((const unsigned char *)mt_data_inf->src_Y1,(unsigned char *)mt_data_inf->dst_Y1,
+				mt_data_inf->src_pitch_Y1,mt_data_inf->src_pitch_Y2,mt_data_inf->src_Y_h,
+				mt_data_inf->row_size_Y2,ptrClass->thresh,mt_data_inf->src_Y_h_min,mt_data_inf->src_Y_h_max);
 			break;
 		case 2 :
-			BlurR2_8_MT_H((unsigned char *const)mt_data_inf.dst_Y1,(unsigned char *const)mt_data_inf.dst_Y2,
-				mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_Y2,mt_data_inf.dst_Y_h,
-				mt_data_inf.row_size_Y2,true,mt_data_inf.dst_Y_h_min,mt_data_inf.dst_Y_h_max);
+			BlurR2_8_MT_H((unsigned char *const)mt_data_inf->dst_Y1,(unsigned char *const)mt_data_inf->dst_Y2,
+				mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_Y2,mt_data_inf->dst_Y_h,
+				mt_data_inf->row_size_Y2,true,mt_data_inf->dst_Y_h_min,mt_data_inf->dst_Y_h_max);
 			break;
 		case 3 :
-			BlurR2_8_MT_V((unsigned char *const)mt_data_inf.dst_Y1,(unsigned char *const)mt_data_inf.dst_Y2,
-				mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_Y2,mt_data_inf.dst_Y_h,
-				mt_data_inf.row_size_Y2,true,mt_data_inf.dst_Y_h_min,mt_data_inf.dst_Y_h_max);
+			BlurR2_8_MT_V((unsigned char *const)mt_data_inf->dst_Y1,(unsigned char *const)mt_data_inf->dst_Y2,
+				mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_Y2,mt_data_inf->dst_Y_h,
+				mt_data_inf->row_size_Y2,true,mt_data_inf->dst_Y_h_min,mt_data_inf->dst_Y_h_max);
 			break;
 		case 4 :
-			BlurR6_8_MT_H((unsigned char *const)mt_data_inf.dst_Y1,(unsigned char *const)mt_data_inf.dst_Y2,
-				mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_Y2,mt_data_inf.dst_Y_h,
-				mt_data_inf.row_size_Y2,true,mt_data_inf.dst_Y_h_min,mt_data_inf.dst_Y_h_max);
+			BlurR6_8_MT_H((unsigned char *const)mt_data_inf->dst_Y1,(unsigned char *const)mt_data_inf->dst_Y2,
+				mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_Y2,mt_data_inf->dst_Y_h,
+				mt_data_inf->row_size_Y2,true,mt_data_inf->dst_Y_h_min,mt_data_inf->dst_Y_h_max);
 			break;
 		case 5 :
-			BlurR6_8_MT_V((unsigned char *const)mt_data_inf.dst_Y1,(unsigned char *const)mt_data_inf.dst_Y2,
-				mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_Y2,mt_data_inf.dst_Y_h,
-				mt_data_inf.row_size_Y2,true,mt_data_inf.dst_Y_h_min,mt_data_inf.dst_Y_h_max);
+			BlurR6_8_MT_V((unsigned char *const)mt_data_inf->dst_Y1,(unsigned char *const)mt_data_inf->dst_Y2,
+				mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_Y2,mt_data_inf->dst_Y_h,
+				mt_data_inf->row_size_Y2,true,mt_data_inf->dst_Y_h_min,mt_data_inf->dst_Y_h_max);
 			break;
 		case 6 :
-			BlurR2_8_MT_H((unsigned char *const)mt_data_inf.dst_Y1,(unsigned char *const)mt_data_inf.dst_Y2,
-				mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_Y2,mt_data_inf.dst_Y_h,
-				mt_data_inf.row_size_Y2,mt_data_inf.processH,mt_data_inf.dst_Y_h_min,mt_data_inf.dst_Y_h_max);
+			BlurR2_8_MT_H((unsigned char *const)mt_data_inf->dst_Y1,(unsigned char *const)mt_data_inf->dst_Y2,
+				mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_Y2,mt_data_inf->dst_Y_h,
+				mt_data_inf->row_size_Y2,mt_data_inf->processH,mt_data_inf->dst_Y_h_min,mt_data_inf->dst_Y_h_max);
 			break;
 		case 7 :
-			BlurR2_8_MT_V((unsigned char *const)mt_data_inf.dst_Y1,(unsigned char *const)mt_data_inf.dst_Y2,
-				mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_Y2,mt_data_inf.dst_Y_h,
-				mt_data_inf.row_size_Y2,mt_data_inf.processV,mt_data_inf.dst_Y_h_min,mt_data_inf.dst_Y_h_max);
+			BlurR2_8_MT_V((unsigned char *const)mt_data_inf->dst_Y1,(unsigned char *const)mt_data_inf->dst_Y2,
+				mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_Y2,mt_data_inf->dst_Y_h,
+				mt_data_inf->row_size_Y2,mt_data_inf->processV,mt_data_inf->dst_Y_h_min,mt_data_inf->dst_Y_h_max);
 			break;
 		case 8 :
-			BlurR6_8_MT_H((unsigned char *const)mt_data_inf.dst_Y1,(unsigned char *const)mt_data_inf.dst_Y2,
-				mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_Y2,mt_data_inf.dst_Y_h,
-				mt_data_inf.row_size_Y2,mt_data_inf.processH,mt_data_inf.dst_Y_h_min,mt_data_inf.dst_Y_h_max);
+			BlurR6_8_MT_H((unsigned char *const)mt_data_inf->dst_Y1,(unsigned char *const)mt_data_inf->dst_Y2,
+				mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_Y2,mt_data_inf->dst_Y_h,
+				mt_data_inf->row_size_Y2,mt_data_inf->processH,mt_data_inf->dst_Y_h_min,mt_data_inf->dst_Y_h_max);
 			break;
 		case 9 :
-			BlurR6_8_MT_V((unsigned char *const)mt_data_inf.dst_Y1,(unsigned char *const)mt_data_inf.dst_Y2,
-				mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_Y2,mt_data_inf.dst_Y_h,
-				mt_data_inf.row_size_Y2,mt_data_inf.processV,mt_data_inf.dst_Y_h_min,mt_data_inf.dst_Y_h_max);
+			BlurR6_8_MT_V((unsigned char *const)mt_data_inf->dst_Y1,(unsigned char *const)mt_data_inf->dst_Y2,
+				mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_Y2,mt_data_inf->dst_Y_h,
+				mt_data_inf->row_size_Y2,mt_data_inf->processV,mt_data_inf->dst_Y_h_min,mt_data_inf->dst_Y_h_max);
 			break;
 		case 10 :
-			Warp0_8_MT((const unsigned char *)mt_data_inf.src_Y1,(const unsigned char *)mt_data_inf.src_Y2,
-				(unsigned char *)mt_data_inf.dst_Y2,
-				mt_data_inf.src_pitch_Y1,mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_Y2,
-				mt_data_inf.row_size_Y3,mt_data_inf.dst_Y_h,ptrClass->depth,ptrClass->depthV,
-				mt_data_inf.dst_Y_h_min,mt_data_inf.dst_Y_h_max);
+			Warp0_8_MT((const unsigned char *)mt_data_inf->src_Y1,(const unsigned char *)mt_data_inf->src_Y2,
+				(unsigned char *)mt_data_inf->dst_Y2,
+				mt_data_inf->src_pitch_Y1,mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_Y2,
+				mt_data_inf->row_size_Y3,mt_data_inf->dst_Y_h,ptrClass->depth,ptrClass->depthV,
+				mt_data_inf->dst_Y_h_min,mt_data_inf->dst_Y_h_max);
 			break;
 		case 11 :
-			Sobel_8_MT((const unsigned char *)mt_data_inf.src_U1,(unsigned char *)mt_data_inf.dst_U1,
-				mt_data_inf.src_pitch_U1,mt_data_inf.src_pitch_U2,mt_data_inf.src_U_h,
-				mt_data_inf.row_size_U1,ptrClass->threshC,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			Sobel_8_MT((const unsigned char *)mt_data_inf->src_U1,(unsigned char *)mt_data_inf->dst_U1,
+				mt_data_inf->src_pitch_U1,mt_data_inf->src_pitch_U2,mt_data_inf->src_U_h,
+				mt_data_inf->row_size_U1,ptrClass->threshC,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 12 :
-			BlurR2_8_MT_H((unsigned char *const)mt_data_inf.dst_U1,(unsigned char *const)mt_data_inf.dst_U2,
-				mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U2,mt_data_inf.dst_U_h,
-				mt_data_inf.row_size_U1,true,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			BlurR2_8_MT_H((unsigned char *const)mt_data_inf->dst_U1,(unsigned char *const)mt_data_inf->dst_U2,
+				mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U2,mt_data_inf->dst_U_h,
+				mt_data_inf->row_size_U1,true,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 13 :
-			BlurR2_8_MT_V((unsigned char *const)mt_data_inf.dst_U1,(unsigned char *const)mt_data_inf.dst_U2,
-				mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U2,mt_data_inf.dst_U_h,
-				mt_data_inf.row_size_U1,true,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			BlurR2_8_MT_V((unsigned char *const)mt_data_inf->dst_U1,(unsigned char *const)mt_data_inf->dst_U2,
+				mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U2,mt_data_inf->dst_U_h,
+				mt_data_inf->row_size_U1,true,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 14 :
-			BlurR6_8_MT_H((unsigned char *const)mt_data_inf.dst_U1,(unsigned char *const)mt_data_inf.dst_U2,
-				mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U2,mt_data_inf.dst_U_h,
-				mt_data_inf.row_size_U1,true,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			BlurR6_8_MT_H((unsigned char *const)mt_data_inf->dst_U1,(unsigned char *const)mt_data_inf->dst_U2,
+				mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U2,mt_data_inf->dst_U_h,
+				mt_data_inf->row_size_U1,true,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 15 :
-			BlurR6_8_MT_V((unsigned char *const)mt_data_inf.dst_U1,(unsigned char *const)mt_data_inf.dst_U2,
-				mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U2,mt_data_inf.dst_U_h,
-				mt_data_inf.row_size_U1,true,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			BlurR6_8_MT_V((unsigned char *const)mt_data_inf->dst_U1,(unsigned char *const)mt_data_inf->dst_U2,
+				mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U2,mt_data_inf->dst_U_h,
+				mt_data_inf->row_size_U1,true,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 16 :
-			BlurR2_8_MT_H((unsigned char *const)mt_data_inf.dst_U1,(unsigned char *const)mt_data_inf.dst_U2,
-				mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U2,mt_data_inf.dst_U_h,
-				mt_data_inf.row_size_U1,mt_data_inf.cprocessH,
-				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			BlurR2_8_MT_H((unsigned char *const)mt_data_inf->dst_U1,(unsigned char *const)mt_data_inf->dst_U2,
+				mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U2,mt_data_inf->dst_U_h,
+				mt_data_inf->row_size_U1,mt_data_inf->cprocessH,
+				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 17 :
-			BlurR2_8_MT_V((unsigned char *const)mt_data_inf.dst_U1,(unsigned char *const)mt_data_inf.dst_U2,
-				mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U2,mt_data_inf.dst_U_h,
-				mt_data_inf.row_size_U1,mt_data_inf.cprocessV,
-				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			BlurR2_8_MT_V((unsigned char *const)mt_data_inf->dst_U1,(unsigned char *const)mt_data_inf->dst_U2,
+				mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U2,mt_data_inf->dst_U_h,
+				mt_data_inf->row_size_U1,mt_data_inf->cprocessV,
+				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 18 :
-			BlurR6_8_MT_H((unsigned char *const)mt_data_inf.dst_U1,(unsigned char *const)mt_data_inf.dst_U2,
-				mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U2,mt_data_inf.dst_U_h,
-				mt_data_inf.row_size_U1,mt_data_inf.cprocessH,
-				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			BlurR6_8_MT_H((unsigned char *const)mt_data_inf->dst_U1,(unsigned char *const)mt_data_inf->dst_U2,
+				mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U2,mt_data_inf->dst_U_h,
+				mt_data_inf->row_size_U1,mt_data_inf->cprocessH,
+				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 19 :
-			BlurR6_8_MT_V((unsigned char *const)mt_data_inf.dst_U1,(unsigned char *const)mt_data_inf.dst_U2,
-				mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U2,mt_data_inf.dst_U_h,
-				mt_data_inf.row_size_U1,mt_data_inf.cprocessV,
-				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			BlurR6_8_MT_V((unsigned char *const)mt_data_inf->dst_U1,(unsigned char *const)mt_data_inf->dst_U2,
+				mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U2,mt_data_inf->dst_U_h,
+				mt_data_inf->row_size_U1,mt_data_inf->cprocessV,
+				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 20 :
-			Warp0_8_MT((const unsigned char *)mt_data_inf.src_U1,(const unsigned char *)mt_data_inf.src_U2,
-				(unsigned char *)mt_data_inf.dst_U2,
-				mt_data_inf.src_pitch_U1,mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U2,
-				mt_data_inf.row_size_U2,mt_data_inf.dst_U_h,ptrClass->depthC,ptrClass->depthVC,
-				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			Warp0_8_MT((const unsigned char *)mt_data_inf->src_U1,(const unsigned char *)mt_data_inf->src_U2,
+				(unsigned char *)mt_data_inf->dst_U2,
+				mt_data_inf->src_pitch_U1,mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U2,
+				mt_data_inf->row_size_U2,mt_data_inf->dst_U_h,ptrClass->depthC,ptrClass->depthVC,
+				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 21 :
-			Sobel_8_MT((const unsigned char *)mt_data_inf.src_V1,(unsigned char *)mt_data_inf.dst_V1,
-				mt_data_inf.src_pitch_V1,mt_data_inf.src_pitch_V2,mt_data_inf.src_V_h,
-				mt_data_inf.row_size_V1,ptrClass->threshC,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			Sobel_8_MT((const unsigned char *)mt_data_inf->src_V1,(unsigned char *)mt_data_inf->dst_V1,
+				mt_data_inf->src_pitch_V1,mt_data_inf->src_pitch_V2,mt_data_inf->src_V_h,
+				mt_data_inf->row_size_V1,ptrClass->threshC,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 22 :
-			BlurR2_8_MT_H((unsigned char *const)mt_data_inf.dst_V1,(unsigned char *const)mt_data_inf.dst_V2,
-				mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V2,mt_data_inf.dst_V_h,
-				mt_data_inf.row_size_V1,true,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			BlurR2_8_MT_H((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
+				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
+				mt_data_inf->row_size_V1,true,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 23 :
-			BlurR2_8_MT_V((unsigned char *const)mt_data_inf.dst_V1,(unsigned char *const)mt_data_inf.dst_V2,
-				mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V2,mt_data_inf.dst_V_h,
-				mt_data_inf.row_size_V1,true,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			BlurR2_8_MT_V((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
+				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
+				mt_data_inf->row_size_V1,true,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 24 :
-			BlurR6_8_MT_H((unsigned char *const)mt_data_inf.dst_V1,(unsigned char *const)mt_data_inf.dst_V2,
-				mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V2,mt_data_inf.dst_V_h,
-				mt_data_inf.row_size_V1,true,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			BlurR6_8_MT_H((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
+				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
+				mt_data_inf->row_size_V1,true,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 25 :
-			BlurR6_8_MT_V((unsigned char *const)mt_data_inf.dst_V1,(unsigned char *const)mt_data_inf.dst_V2,
-				mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V2,mt_data_inf.dst_V_h,
-				mt_data_inf.row_size_V1,true,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			BlurR6_8_MT_V((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
+				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
+				mt_data_inf->row_size_V1,true,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 26 :
-			BlurR2_8_MT_H((unsigned char *const)mt_data_inf.dst_V1,(unsigned char *const)mt_data_inf.dst_V2,
-				mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V2,mt_data_inf.dst_V_h,
-				mt_data_inf.row_size_V1,mt_data_inf.cprocessH,
-				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			BlurR2_8_MT_H((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
+				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
+				mt_data_inf->row_size_V1,mt_data_inf->cprocessH,
+				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 27 :
-			BlurR2_8_MT_V((unsigned char *const)mt_data_inf.dst_V1,(unsigned char *const)mt_data_inf.dst_V2,
-				mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V2,mt_data_inf.dst_V_h,
-				mt_data_inf.row_size_V1,mt_data_inf.cprocessV,
-				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			BlurR2_8_MT_V((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
+				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
+				mt_data_inf->row_size_V1,mt_data_inf->cprocessV,
+				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 28 :
-			BlurR6_8_MT_H((unsigned char *const)mt_data_inf.dst_V1,(unsigned char *const)mt_data_inf.dst_V2,
-				mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V2,mt_data_inf.dst_V_h,
-				mt_data_inf.row_size_V1,mt_data_inf.cprocessH,
-				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			BlurR6_8_MT_H((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
+				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
+				mt_data_inf->row_size_V1,mt_data_inf->cprocessH,
+				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 29 :
-			BlurR6_8_MT_V((unsigned char *const)mt_data_inf.dst_V1,(unsigned char *const)mt_data_inf.dst_V2,
-				mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V2,mt_data_inf.dst_V_h,
-				mt_data_inf.row_size_V1,mt_data_inf.cprocessV,
-				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			BlurR6_8_MT_V((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
+				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
+				mt_data_inf->row_size_V1,mt_data_inf->cprocessV,
+				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 30 :
-			Warp0_8_MT((const unsigned char *)mt_data_inf.src_V1,(const unsigned char *)mt_data_inf.src_V2,
-				(unsigned char *)mt_data_inf.dst_V2,
-				mt_data_inf.src_pitch_V1,mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V2,
-				mt_data_inf.row_size_V2,mt_data_inf.dst_V_h,ptrClass->depthC,ptrClass->depthVC,
-				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			Warp0_8_MT((const unsigned char *)mt_data_inf->src_V1,(const unsigned char *)mt_data_inf->src_V2,
+				(unsigned char *)mt_data_inf->dst_V2,
+				mt_data_inf->src_pitch_V1,mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,
+				mt_data_inf->row_size_V2,mt_data_inf->dst_V_h,ptrClass->depthC,ptrClass->depthVC,
+				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 31 :
-			GuideChroma_8_MT((const unsigned char *)mt_data_inf.src_Y2,(unsigned char *)mt_data_inf.dst_U1,
-				mt_data_inf.src_pitch_Y2,mt_data_inf.src_pitch_U2,mt_data_inf.dst_U_h,
-				mt_data_inf.row_size_U1,mt_data_inf.SubW_U,mt_data_inf.SubH_U,ptrClass->cplace_mpeg2_flag,
-				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			GuideChroma_8_MT((const unsigned char *)mt_data_inf->src_Y2,(unsigned char *)mt_data_inf->dst_U1,
+				mt_data_inf->src_pitch_Y2,mt_data_inf->src_pitch_U2,mt_data_inf->dst_U_h,
+				mt_data_inf->row_size_U1,mt_data_inf->SubW_U,mt_data_inf->SubH_U,ptrClass->cplace_mpeg2_flag,
+				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 32 :
-			Warp0_8_MT((const unsigned char *)mt_data_inf.src_U1,(const unsigned char *)mt_data_inf.src_U2,
-				(unsigned char *)mt_data_inf.dst_U2,
-				mt_data_inf.src_pitch_U1,mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U2,
-				mt_data_inf.row_size_U2,mt_data_inf.dst_U_h,ptrClass->depthC,ptrClass->depthVC,
-				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			Warp0_8_MT((const unsigned char *)mt_data_inf->src_U1,(const unsigned char *)mt_data_inf->src_U2,
+				(unsigned char *)mt_data_inf->dst_U2,
+				mt_data_inf->src_pitch_U1,mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U2,
+				mt_data_inf->row_size_U2,mt_data_inf->dst_U_h,ptrClass->depthC,ptrClass->depthVC,
+				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 33 :
-			Warp0_8_MT((const unsigned char *)mt_data_inf.src_V1,(const unsigned char *)mt_data_inf.src_U2,
-				(unsigned char *)mt_data_inf.dst_V2,
-				mt_data_inf.src_pitch_V1,mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_V2,
-				mt_data_inf.row_size_V2,mt_data_inf.dst_V_h,ptrClass->depthC,ptrClass->depthVC,
-				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			Warp0_8_MT((const unsigned char *)mt_data_inf->src_V1,(const unsigned char *)mt_data_inf->src_U2,
+				(unsigned char *)mt_data_inf->dst_V2,
+				mt_data_inf->src_pitch_V1,mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_V2,
+				mt_data_inf->row_size_V2,mt_data_inf->dst_V_h,ptrClass->depthC,ptrClass->depthVC,
+				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 34 :
-			Warp0_8_MT((const unsigned char *)mt_data_inf.src_U1,(const unsigned char *)mt_data_inf.src_Y2,
-				(unsigned char *)mt_data_inf.dst_U2,
-				mt_data_inf.src_pitch_U1,mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_U2,
-				mt_data_inf.row_size_U2,mt_data_inf.dst_U_h,ptrClass->depthC,ptrClass->depthVC,
-				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			Warp0_8_MT((const unsigned char *)mt_data_inf->src_U1,(const unsigned char *)mt_data_inf->src_Y2,
+				(unsigned char *)mt_data_inf->dst_U2,
+				mt_data_inf->src_pitch_U1,mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_U2,
+				mt_data_inf->row_size_U2,mt_data_inf->dst_U_h,ptrClass->depthC,ptrClass->depthVC,
+				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 35 :
-			Warp0_8_MT((const unsigned char *)mt_data_inf.src_V1,(const unsigned char *)mt_data_inf.src_Y2,
-				(unsigned char *)mt_data_inf.dst_V2,
-				mt_data_inf.src_pitch_V1,mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_V2,
-				mt_data_inf.row_size_V2,mt_data_inf.dst_V_h,ptrClass->depthC,ptrClass->depthVC,
-				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			Warp0_8_MT((const unsigned char *)mt_data_inf->src_V1,(const unsigned char *)mt_data_inf->src_Y2,
+				(unsigned char *)mt_data_inf->dst_V2,
+				mt_data_inf->src_pitch_V1,mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_V2,
+				mt_data_inf->row_size_V2,mt_data_inf->dst_V_h,ptrClass->depthC,ptrClass->depthVC,
+				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 			// 16 bits
 		case 36 :
-			Sobel_16_MT((const unsigned char *)mt_data_inf.src_Y1,(unsigned char *)mt_data_inf.dst_Y1,
-				mt_data_inf.src_pitch_Y1,mt_data_inf.src_pitch_Y2,mt_data_inf.src_Y_h,mt_data_inf.row_size_Y2,
-				ptrClass->thresh,ptrClass->bits_per_pixel,mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
+			Sobel_16_MT((const unsigned char *)mt_data_inf->src_Y1,(unsigned char *)mt_data_inf->dst_Y1,
+				mt_data_inf->src_pitch_Y1,mt_data_inf->src_pitch_Y2,mt_data_inf->src_Y_h,mt_data_inf->row_size_Y2,
+				ptrClass->thresh,ptrClass->bits_per_pixel,mt_data_inf->src_Y_h_min,mt_data_inf->src_Y_h_max);
 			break;
 		case 37 :
-			BlurR2_16_MT_H((unsigned char *const)mt_data_inf.dst_Y1,(unsigned char *const)mt_data_inf.dst_Y2,
-				mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_Y2,mt_data_inf.dst_Y_h,
-				mt_data_inf.row_size_Y2,true,mt_data_inf.dst_Y_h_min,mt_data_inf.dst_Y_h_max);
+			BlurR2_16_MT_H((unsigned char *const)mt_data_inf->dst_Y1,(unsigned char *const)mt_data_inf->dst_Y2,
+				mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_Y2,mt_data_inf->dst_Y_h,
+				mt_data_inf->row_size_Y2,true,mt_data_inf->dst_Y_h_min,mt_data_inf->dst_Y_h_max);
 			break;
 		case 38 :
-			BlurR2_16_MT_V((unsigned char *const)mt_data_inf.dst_Y1,(unsigned char *const)mt_data_inf.dst_Y2,
-				mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_Y2,mt_data_inf.dst_Y_h,
-				mt_data_inf.row_size_Y2,true,mt_data_inf.dst_Y_h_min,mt_data_inf.dst_Y_h_max);
+			BlurR2_16_MT_V((unsigned char *const)mt_data_inf->dst_Y1,(unsigned char *const)mt_data_inf->dst_Y2,
+				mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_Y2,mt_data_inf->dst_Y_h,
+				mt_data_inf->row_size_Y2,true,mt_data_inf->dst_Y_h_min,mt_data_inf->dst_Y_h_max);
 			break;
 		case 39 :
-			BlurR6_16_MT_H((unsigned char *const)mt_data_inf.dst_Y1,(unsigned char *const)mt_data_inf.dst_Y2,
-				mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_Y2,mt_data_inf.dst_Y_h,
-				mt_data_inf.row_size_Y2,true,mt_data_inf.dst_Y_h_min,mt_data_inf.dst_Y_h_max);
+			BlurR6_16_MT_H((unsigned char *const)mt_data_inf->dst_Y1,(unsigned char *const)mt_data_inf->dst_Y2,
+				mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_Y2,mt_data_inf->dst_Y_h,
+				mt_data_inf->row_size_Y2,true,mt_data_inf->dst_Y_h_min,mt_data_inf->dst_Y_h_max);
 			break;
 		case 40 :
-			BlurR6_16_MT_V((unsigned char *const)mt_data_inf.dst_Y1,(unsigned char *const)mt_data_inf.dst_Y2,
-				mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_Y2,mt_data_inf.dst_Y_h,
-				mt_data_inf.row_size_Y2,true,mt_data_inf.dst_Y_h_min,mt_data_inf.dst_Y_h_max);
+			BlurR6_16_MT_V((unsigned char *const)mt_data_inf->dst_Y1,(unsigned char *const)mt_data_inf->dst_Y2,
+				mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_Y2,mt_data_inf->dst_Y_h,
+				mt_data_inf->row_size_Y2,true,mt_data_inf->dst_Y_h_min,mt_data_inf->dst_Y_h_max);
 			break;
 		case 41 :
-			BlurR2_16_MT_H((unsigned char *const)mt_data_inf.dst_Y1,(unsigned char *const)mt_data_inf.dst_Y2,
-				mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_Y2,mt_data_inf.dst_Y_h,
-				mt_data_inf.row_size_Y2,mt_data_inf.processH,mt_data_inf.dst_Y_h_min,mt_data_inf.dst_Y_h_max);
+			BlurR2_16_MT_H((unsigned char *const)mt_data_inf->dst_Y1,(unsigned char *const)mt_data_inf->dst_Y2,
+				mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_Y2,mt_data_inf->dst_Y_h,
+				mt_data_inf->row_size_Y2,mt_data_inf->processH,mt_data_inf->dst_Y_h_min,mt_data_inf->dst_Y_h_max);
 			break;
 		case 42 :
-			BlurR2_16_MT_V((unsigned char *const)mt_data_inf.dst_Y1,(unsigned char *const)mt_data_inf.dst_Y2,
-				mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_Y2,mt_data_inf.dst_Y_h,
-				mt_data_inf.row_size_Y2,mt_data_inf.processV,mt_data_inf.dst_Y_h_min,mt_data_inf.dst_Y_h_max);
+			BlurR2_16_MT_V((unsigned char *const)mt_data_inf->dst_Y1,(unsigned char *const)mt_data_inf->dst_Y2,
+				mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_Y2,mt_data_inf->dst_Y_h,
+				mt_data_inf->row_size_Y2,mt_data_inf->processV,mt_data_inf->dst_Y_h_min,mt_data_inf->dst_Y_h_max);
 			break;
 		case 43 :
-			BlurR6_16_MT_H((unsigned char *const)mt_data_inf.dst_Y1,(unsigned char *const)mt_data_inf.dst_Y2,
-				mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_Y2,mt_data_inf.dst_Y_h,
-				mt_data_inf.row_size_Y2,mt_data_inf.processH,mt_data_inf.dst_Y_h_min,mt_data_inf.dst_Y_h_max);
+			BlurR6_16_MT_H((unsigned char *const)mt_data_inf->dst_Y1,(unsigned char *const)mt_data_inf->dst_Y2,
+				mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_Y2,mt_data_inf->dst_Y_h,
+				mt_data_inf->row_size_Y2,mt_data_inf->processH,mt_data_inf->dst_Y_h_min,mt_data_inf->dst_Y_h_max);
 			break;
 		case 44 :
-			BlurR6_16_MT_V((unsigned char *const)mt_data_inf.dst_Y1,(unsigned char *const)mt_data_inf.dst_Y2,
-				mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_Y2,mt_data_inf.dst_Y_h,
-				mt_data_inf.row_size_Y2,mt_data_inf.processV,mt_data_inf.dst_Y_h_min,mt_data_inf.dst_Y_h_max);
+			BlurR6_16_MT_V((unsigned char *const)mt_data_inf->dst_Y1,(unsigned char *const)mt_data_inf->dst_Y2,
+				mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_Y2,mt_data_inf->dst_Y_h,
+				mt_data_inf->row_size_Y2,mt_data_inf->processV,mt_data_inf->dst_Y_h_min,mt_data_inf->dst_Y_h_max);
 			break;
 		case 45 :
-			warp0_u16_MT((const unsigned char *)mt_data_inf.src_Y1,(const unsigned char *)mt_data_inf.src_Y2,
-				(unsigned char *)mt_data_inf.dst_Y2,mt_data_inf.src_pitch_Y1,mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_Y2,
-				mt_data_inf.row_size_Y3 >> 1,mt_data_inf.dst_Y_h,ptrClass->depth,ptrClass->depthV,ptrClass->bits_per_pixel,
-				mt_data_inf.dst_Y_h_min,mt_data_inf.dst_Y_h_max);
+			warp0_u16_MT((const unsigned char *)mt_data_inf->src_Y1,(const unsigned char *)mt_data_inf->src_Y2,
+				(unsigned char *)mt_data_inf->dst_Y2,mt_data_inf->src_pitch_Y1,mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_Y2,
+				mt_data_inf->row_size_Y3 >> 1,mt_data_inf->dst_Y_h,ptrClass->depth,ptrClass->depthV,ptrClass->bits_per_pixel,
+				mt_data_inf->dst_Y_h_min,mt_data_inf->dst_Y_h_max);
 			break;
 		case 46 :
-			Sobel_16_MT((const unsigned char *)mt_data_inf.src_U1,(unsigned char *)mt_data_inf.dst_U1,
-				mt_data_inf.src_pitch_U1,mt_data_inf.src_pitch_U2,mt_data_inf.src_U_h,mt_data_inf.row_size_U1,
-				ptrClass->threshC,ptrClass->bits_per_pixel,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			Sobel_16_MT((const unsigned char *)mt_data_inf->src_U1,(unsigned char *)mt_data_inf->dst_U1,
+				mt_data_inf->src_pitch_U1,mt_data_inf->src_pitch_U2,mt_data_inf->src_U_h,mt_data_inf->row_size_U1,
+				ptrClass->threshC,ptrClass->bits_per_pixel,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 47 :
-			BlurR2_16_MT_H((unsigned char *const)mt_data_inf.dst_U1,(unsigned char *const)mt_data_inf.dst_U2,
-				mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U2,mt_data_inf.dst_U_h,
-				mt_data_inf.row_size_U1,true,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			BlurR2_16_MT_H((unsigned char *const)mt_data_inf->dst_U1,(unsigned char *const)mt_data_inf->dst_U2,
+				mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U2,mt_data_inf->dst_U_h,
+				mt_data_inf->row_size_U1,true,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 48 :
-			BlurR2_16_MT_V((unsigned char *const)mt_data_inf.dst_U1,(unsigned char *const)mt_data_inf.dst_U2,
-				mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U2,mt_data_inf.dst_U_h,
-				mt_data_inf.row_size_U1,true,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			BlurR2_16_MT_V((unsigned char *const)mt_data_inf->dst_U1,(unsigned char *const)mt_data_inf->dst_U2,
+				mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U2,mt_data_inf->dst_U_h,
+				mt_data_inf->row_size_U1,true,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 49 :
-			BlurR6_16_MT_H((unsigned char *const)mt_data_inf.dst_U1,(unsigned char *const)mt_data_inf.dst_U2,
-				mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U2,mt_data_inf.dst_U_h,
-				mt_data_inf.row_size_U1,true,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			BlurR6_16_MT_H((unsigned char *const)mt_data_inf->dst_U1,(unsigned char *const)mt_data_inf->dst_U2,
+				mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U2,mt_data_inf->dst_U_h,
+				mt_data_inf->row_size_U1,true,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 50 :
-			BlurR6_16_MT_V((unsigned char *const)mt_data_inf.dst_U1,(unsigned char *const)mt_data_inf.dst_U2,
-				mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U2,mt_data_inf.dst_U_h,
-				mt_data_inf.row_size_U1,true,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			BlurR6_16_MT_V((unsigned char *const)mt_data_inf->dst_U1,(unsigned char *const)mt_data_inf->dst_U2,
+				mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U2,mt_data_inf->dst_U_h,
+				mt_data_inf->row_size_U1,true,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 51 :
-			BlurR2_16_MT_H((unsigned char *const)mt_data_inf.dst_U1,(unsigned char *const)mt_data_inf.dst_U2,
-				mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U2,mt_data_inf.dst_U_h,
-				mt_data_inf.row_size_U1,mt_data_inf.cprocessH,
-				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			BlurR2_16_MT_H((unsigned char *const)mt_data_inf->dst_U1,(unsigned char *const)mt_data_inf->dst_U2,
+				mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U2,mt_data_inf->dst_U_h,
+				mt_data_inf->row_size_U1,mt_data_inf->cprocessH,
+				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 52 :
-			BlurR2_16_MT_V((unsigned char *const)mt_data_inf.dst_U1,(unsigned char *const)mt_data_inf.dst_U2,
-				mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U2,mt_data_inf.dst_U_h,
-				mt_data_inf.row_size_U1,mt_data_inf.cprocessV,
-				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			BlurR2_16_MT_V((unsigned char *const)mt_data_inf->dst_U1,(unsigned char *const)mt_data_inf->dst_U2,
+				mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U2,mt_data_inf->dst_U_h,
+				mt_data_inf->row_size_U1,mt_data_inf->cprocessV,
+				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 53 :
-			BlurR6_16_MT_H((unsigned char *const)mt_data_inf.dst_U1,(unsigned char *const)mt_data_inf.dst_U2,
-				mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U2,mt_data_inf.dst_U_h,
-				mt_data_inf.row_size_U1,mt_data_inf.cprocessH,
-				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			BlurR6_16_MT_H((unsigned char *const)mt_data_inf->dst_U1,(unsigned char *const)mt_data_inf->dst_U2,
+				mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U2,mt_data_inf->dst_U_h,
+				mt_data_inf->row_size_U1,mt_data_inf->cprocessH,
+				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 54 :
-			BlurR6_16_MT_V((unsigned char *const)mt_data_inf.dst_U1,(unsigned char *const)mt_data_inf.dst_U2,
-				mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U2,mt_data_inf.dst_U_h,
-				mt_data_inf.row_size_U1,mt_data_inf.cprocessV,
-				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			BlurR6_16_MT_V((unsigned char *const)mt_data_inf->dst_U1,(unsigned char *const)mt_data_inf->dst_U2,
+				mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U2,mt_data_inf->dst_U_h,
+				mt_data_inf->row_size_U1,mt_data_inf->cprocessV,
+				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 55 :
-			warp0_u16_MT((const unsigned char *)mt_data_inf.src_U1,(const unsigned char *)mt_data_inf.src_U2,
-				(unsigned char *)mt_data_inf.dst_U2,mt_data_inf.src_pitch_U1,mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U2,
-				mt_data_inf.row_size_U2 >> 1,mt_data_inf.dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
-				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			warp0_u16_MT((const unsigned char *)mt_data_inf->src_U1,(const unsigned char *)mt_data_inf->src_U2,
+				(unsigned char *)mt_data_inf->dst_U2,mt_data_inf->src_pitch_U1,mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U2,
+				mt_data_inf->row_size_U2 >> 1,mt_data_inf->dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
+				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 56 :
-			Sobel_16_MT((const unsigned char *)mt_data_inf.src_V1,(unsigned char *)mt_data_inf.dst_V1,
-				mt_data_inf.src_pitch_V1,mt_data_inf.src_pitch_V2,mt_data_inf.src_V_h,mt_data_inf.row_size_V1,
-				ptrClass->threshC,ptrClass->bits_per_pixel,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			Sobel_16_MT((const unsigned char *)mt_data_inf->src_V1,(unsigned char *)mt_data_inf->dst_V1,
+				mt_data_inf->src_pitch_V1,mt_data_inf->src_pitch_V2,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,
+				ptrClass->threshC,ptrClass->bits_per_pixel,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 57 :
-			BlurR2_16_MT_H((unsigned char *const)mt_data_inf.dst_V1,(unsigned char *const)mt_data_inf.dst_V2,
-				mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V2,mt_data_inf.dst_V_h,
-				mt_data_inf.row_size_V1,true,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			BlurR2_16_MT_H((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
+				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
+				mt_data_inf->row_size_V1,true,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 58 :
-			BlurR2_16_MT_V((unsigned char *const)mt_data_inf.dst_V1,(unsigned char *const)mt_data_inf.dst_V2,
-				mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V2,mt_data_inf.dst_V_h,
-				mt_data_inf.row_size_V1,true,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			BlurR2_16_MT_V((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
+				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
+				mt_data_inf->row_size_V1,true,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 59 :
-			BlurR6_16_MT_H((unsigned char *const)mt_data_inf.dst_V1,(unsigned char *const)mt_data_inf.dst_V2,
-				mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V2,mt_data_inf.dst_V_h,
-				mt_data_inf.row_size_V1,true,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			BlurR6_16_MT_H((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
+				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
+				mt_data_inf->row_size_V1,true,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 60 :
-			BlurR6_16_MT_V((unsigned char *const)mt_data_inf.dst_V1,(unsigned char *const)mt_data_inf.dst_V2,
-				mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V2,mt_data_inf.dst_V_h,
-				mt_data_inf.row_size_V1,true,mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			BlurR6_16_MT_V((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
+				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
+				mt_data_inf->row_size_V1,true,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 61 :
-			BlurR2_16_MT_H((unsigned char *const)mt_data_inf.dst_V1,(unsigned char *const)mt_data_inf.dst_V2,
-				mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V2,mt_data_inf.dst_V_h,
-				mt_data_inf.row_size_V1,mt_data_inf.cprocessH,
-				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			BlurR2_16_MT_H((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
+				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
+				mt_data_inf->row_size_V1,mt_data_inf->cprocessH,
+				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 62 :
-			BlurR2_16_MT_V((unsigned char *const)mt_data_inf.dst_V1,(unsigned char *const)mt_data_inf.dst_V2,
-				mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V2,mt_data_inf.dst_V_h,
-				mt_data_inf.row_size_V1,mt_data_inf.cprocessV,
-				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			BlurR2_16_MT_V((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
+				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
+				mt_data_inf->row_size_V1,mt_data_inf->cprocessV,
+				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 63 :
-			BlurR6_16_MT_H((unsigned char *const)mt_data_inf.dst_V1,(unsigned char *const)mt_data_inf.dst_V2,
-				mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V2,mt_data_inf.dst_V_h,
-				mt_data_inf.row_size_V1,mt_data_inf.cprocessH,
-				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			BlurR6_16_MT_H((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
+				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
+				mt_data_inf->row_size_V1,mt_data_inf->cprocessH,
+				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 64 :
-			BlurR6_16_MT_V((unsigned char *const)mt_data_inf.dst_V1,(unsigned char *const)mt_data_inf.dst_V2,
-				mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V2,mt_data_inf.dst_V_h,
-				mt_data_inf.row_size_V1,mt_data_inf.cprocessV,
-				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			BlurR6_16_MT_V((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
+				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
+				mt_data_inf->row_size_V1,mt_data_inf->cprocessV,
+				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 65 :
-			warp0_u16_MT((const unsigned char *)mt_data_inf.src_V1,(const unsigned char *)mt_data_inf.src_V2,
-				(unsigned char *)mt_data_inf.dst_V2,mt_data_inf.src_pitch_V1,mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V2,
-				mt_data_inf.row_size_V2 >> 1,mt_data_inf.dst_V_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
-				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			warp0_u16_MT((const unsigned char *)mt_data_inf->src_V1,(const unsigned char *)mt_data_inf->src_V2,
+				(unsigned char *)mt_data_inf->dst_V2,mt_data_inf->src_pitch_V1,mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,
+				mt_data_inf->row_size_V2 >> 1,mt_data_inf->dst_V_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
+				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 66 :
-			GuideChroma_16_MT((const unsigned char *)mt_data_inf.src_Y2,(unsigned char *)mt_data_inf.dst_U1,
-				mt_data_inf.src_pitch_Y2,mt_data_inf.src_pitch_U2,mt_data_inf.dst_U_h,
-				mt_data_inf.row_size_U1 >> 1,mt_data_inf.SubW_U,mt_data_inf.SubH_U,ptrClass->cplace_mpeg2_flag,
-				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			GuideChroma_16_MT((const unsigned char *)mt_data_inf->src_Y2,(unsigned char *)mt_data_inf->dst_U1,
+				mt_data_inf->src_pitch_Y2,mt_data_inf->src_pitch_U2,mt_data_inf->dst_U_h,
+				mt_data_inf->row_size_U1 >> 1,mt_data_inf->SubW_U,mt_data_inf->SubH_U,ptrClass->cplace_mpeg2_flag,
+				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 67 :
-			warp0_u16_MT((const unsigned char *)mt_data_inf.src_U1,(const unsigned char *)mt_data_inf.src_U2,
-				(unsigned char *)mt_data_inf.dst_U2,mt_data_inf.src_pitch_U1,mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U2,
-				mt_data_inf.row_size_U2 >> 1,mt_data_inf.dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
-				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			warp0_u16_MT((const unsigned char *)mt_data_inf->src_U1,(const unsigned char *)mt_data_inf->src_U2,
+				(unsigned char *)mt_data_inf->dst_U2,mt_data_inf->src_pitch_U1,mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U2,
+				mt_data_inf->row_size_U2 >> 1,mt_data_inf->dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
+				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 68 :
-			warp0_u16_MT((const unsigned char *)mt_data_inf.src_V1,(const unsigned char *)mt_data_inf.src_U2,
-				(unsigned char *)mt_data_inf.dst_V2,mt_data_inf.src_pitch_V1,mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_V2,
-				mt_data_inf.row_size_V2 >> 1,mt_data_inf.dst_V_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
-				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			warp0_u16_MT((const unsigned char *)mt_data_inf->src_V1,(const unsigned char *)mt_data_inf->src_U2,
+				(unsigned char *)mt_data_inf->dst_V2,mt_data_inf->src_pitch_V1,mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_V2,
+				mt_data_inf->row_size_V2 >> 1,mt_data_inf->dst_V_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
+				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 69 :
-			warp0_u16_MT((const unsigned char *)mt_data_inf.src_U1,(const unsigned char *)mt_data_inf.src_Y2,
-				(unsigned char *)mt_data_inf.dst_U2,mt_data_inf.src_pitch_U1,mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_U2,
-				mt_data_inf.row_size_U2 >> 1,mt_data_inf.dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
-				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			warp0_u16_MT((const unsigned char *)mt_data_inf->src_U1,(const unsigned char *)mt_data_inf->src_Y2,
+				(unsigned char *)mt_data_inf->dst_U2,mt_data_inf->src_pitch_U1,mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_U2,
+				mt_data_inf->row_size_U2 >> 1,mt_data_inf->dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
+				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 70 :
-			warp0_u16_MT((const unsigned char *)mt_data_inf.src_V1,(const unsigned char *)mt_data_inf.src_Y2,
-				(unsigned char *)mt_data_inf.dst_V2,mt_data_inf.src_pitch_V1,mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_V2,
-				mt_data_inf.row_size_V2 >> 1,mt_data_inf.dst_V_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
-				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			warp0_u16_MT((const unsigned char *)mt_data_inf->src_V1,(const unsigned char *)mt_data_inf->src_Y2,
+				(unsigned char *)mt_data_inf->dst_V2,mt_data_inf->src_pitch_V1,mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_V2,
+				mt_data_inf->row_size_V2 >> 1,mt_data_inf->dst_V_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
+				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		default : ;
 	}
@@ -4172,7 +4170,8 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
   memcpy(MT_ThreadGF,MT_Thread,sizeof(MT_Thread));
   memcpy(MT_DataGF,MT_Data,sizeof(MT_Data));
 
-  MT_ThreadGF->pData=MT_DataGF;
+  for(uint8_t i=0; i<threads_number; i++)
+	MT_ThreadGF[i].pData=(void *)MT_DataGF;
 
   if (threads_number>1)
   {
@@ -4744,45 +4743,43 @@ int __stdcall aSobel::SetCacheHints(int cachehints,int frame_range)
 
 void aSobel::StaticThreadpool(void *ptr)
 {
-	const Public_MT_Data_Thread *data=(const Public_MT_Data_Thread *)ptr;
-	const aSobel *ptrClass=(aSobel *)data->pClass;
+	Public_MT_Data_Thread *data=(Public_MT_Data_Thread *)ptr;
+	aSobel *ptrClass=(aSobel *)data->pClass;
 
-	const uint8_t thread_num=data->thread_Id;
-	const MT_Data_Info_WarpSharp *MT_DataGF=(const MT_Data_Info_WarpSharp *)data->pData;
-	const MT_Data_Info_WarpSharp mt_data_inf=MT_DataGF[thread_num];
+	MT_Data_Info_WarpSharp *mt_data_inf=((MT_Data_Info_WarpSharp *)data->pData)+data->thread_Id;
 	
 	switch(data->f_process)
 	{
 		case 1 :
-			Sobel_8_MT((const unsigned char *)mt_data_inf.src_Y1,(unsigned char *)mt_data_inf.dst_Y1,
-				mt_data_inf.src_pitch_Y1,mt_data_inf.dst_pitch_Y1,mt_data_inf.src_Y_h,
-				mt_data_inf.row_size_Y1,ptrClass->thresh,mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
+			Sobel_8_MT((const unsigned char *)mt_data_inf->src_Y1,(unsigned char *)mt_data_inf->dst_Y1,
+				mt_data_inf->src_pitch_Y1,mt_data_inf->dst_pitch_Y1,mt_data_inf->src_Y_h,
+				mt_data_inf->row_size_Y1,ptrClass->thresh,mt_data_inf->src_Y_h_min,mt_data_inf->src_Y_h_max);
 			break;
 		case 2 :
-			Sobel_8_MT((const unsigned char *)mt_data_inf.src_U1,(unsigned char *)mt_data_inf.dst_U1,
-				mt_data_inf.src_pitch_U1,mt_data_inf.dst_pitch_U1,mt_data_inf.src_U_h,
-				mt_data_inf.row_size_U1,ptrClass->threshC,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			Sobel_8_MT((const unsigned char *)mt_data_inf->src_U1,(unsigned char *)mt_data_inf->dst_U1,
+				mt_data_inf->src_pitch_U1,mt_data_inf->dst_pitch_U1,mt_data_inf->src_U_h,
+				mt_data_inf->row_size_U1,ptrClass->threshC,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 3 :
-			Sobel_8_MT((const unsigned char *)mt_data_inf.src_V1,(unsigned char *)mt_data_inf.dst_V1,
-				mt_data_inf.src_pitch_V1,mt_data_inf.dst_pitch_V1,mt_data_inf.src_V_h,
-				mt_data_inf.row_size_V1,ptrClass->threshC,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			Sobel_8_MT((const unsigned char *)mt_data_inf->src_V1,(unsigned char *)mt_data_inf->dst_V1,
+				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,
+				mt_data_inf->row_size_V1,ptrClass->threshC,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 			// 16 bits
 		case 4 :
-			Sobel_16_MT((const unsigned char *)mt_data_inf.src_Y1,(unsigned char *)mt_data_inf.dst_Y1,
-				mt_data_inf.src_pitch_Y1,mt_data_inf.dst_pitch_Y1,mt_data_inf.src_Y_h,mt_data_inf.row_size_Y1,
-				ptrClass->thresh,ptrClass->bits_per_pixel,mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
+			Sobel_16_MT((const unsigned char *)mt_data_inf->src_Y1,(unsigned char *)mt_data_inf->dst_Y1,
+				mt_data_inf->src_pitch_Y1,mt_data_inf->dst_pitch_Y1,mt_data_inf->src_Y_h,mt_data_inf->row_size_Y1,
+				ptrClass->thresh,ptrClass->bits_per_pixel,mt_data_inf->src_Y_h_min,mt_data_inf->src_Y_h_max);
 			break;
 		case 5 :
-			Sobel_16_MT((const unsigned char *)mt_data_inf.src_U1,(unsigned char *)mt_data_inf.dst_U1,
-				mt_data_inf.src_pitch_U1,mt_data_inf.dst_pitch_U1,mt_data_inf.src_U_h,mt_data_inf.row_size_U1,
-				ptrClass->threshC,ptrClass->bits_per_pixel,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			Sobel_16_MT((const unsigned char *)mt_data_inf->src_U1,(unsigned char *)mt_data_inf->dst_U1,
+				mt_data_inf->src_pitch_U1,mt_data_inf->dst_pitch_U1,mt_data_inf->src_U_h,mt_data_inf->row_size_U1,
+				ptrClass->threshC,ptrClass->bits_per_pixel,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 6 :
-			Sobel_16_MT((const unsigned char *)mt_data_inf.src_V1,(unsigned char *)mt_data_inf.dst_V1,
-				mt_data_inf.src_pitch_V1,mt_data_inf.dst_pitch_V1,mt_data_inf.src_V_h,mt_data_inf.row_size_V1,
-				ptrClass->threshC,ptrClass->bits_per_pixel,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			Sobel_16_MT((const unsigned char *)mt_data_inf->src_V1,(unsigned char *)mt_data_inf->dst_V1,
+				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,
+				ptrClass->threshC,ptrClass->bits_per_pixel,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		default : ;
 	}
@@ -4829,7 +4826,8 @@ PVideoFrame __stdcall aSobel::GetFrame(int n, IScriptEnvironment *env)
   memcpy(MT_ThreadGF,MT_Thread,sizeof(MT_Thread));
   memcpy(MT_DataGF,MT_Data,sizeof(MT_Data));
 
-  MT_ThreadGF->pData=MT_DataGF;
+  for(uint8_t i=0; i<threads_number; i++)
+	MT_ThreadGF[i].pData=(void *)MT_DataGF;
 
   if (threads_number>1)
   {
@@ -5080,255 +5078,253 @@ int __stdcall aBlur::SetCacheHints(int cachehints,int frame_range)
 
 void aBlur::StaticThreadpool(void *ptr)
 {
-	const Public_MT_Data_Thread *data=(const Public_MT_Data_Thread *)ptr;
-	const aBlur *ptrClass=(aBlur *)data->pClass;
+	Public_MT_Data_Thread *data=(Public_MT_Data_Thread *)ptr;
+	aBlur *ptrClass=(aBlur *)data->pClass;
 
-	const uint8_t thread_num=data->thread_Id;
-	const MT_Data_Info_WarpSharp *MT_DataGF=(const MT_Data_Info_WarpSharp *)data->pData;
-	const MT_Data_Info_WarpSharp mt_data_inf=MT_DataGF[thread_num];
+	MT_Data_Info_WarpSharp *mt_data_inf=((MT_Data_Info_WarpSharp *)data->pData)+data->thread_Id;
 	
 	switch(data->f_process)
 	{
 		case 1 :
-			BlurR2_8_MT_H((unsigned char *const)mt_data_inf.src_Y1,(unsigned char *const)mt_data_inf.dst_Y1,
-				mt_data_inf.src_pitch_Y1,mt_data_inf.dst_pitch_Y1,mt_data_inf.src_Y_h,mt_data_inf.row_size_Y1,true,
-				mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
+			BlurR2_8_MT_H((unsigned char *const)mt_data_inf->src_Y1,(unsigned char *const)mt_data_inf->dst_Y1,
+				mt_data_inf->src_pitch_Y1,mt_data_inf->dst_pitch_Y1,mt_data_inf->src_Y_h,mt_data_inf->row_size_Y1,true,
+				mt_data_inf->src_Y_h_min,mt_data_inf->src_Y_h_max);
 			break;
 		case 2 :
-			BlurR2_8_MT_V((unsigned char *const)mt_data_inf.src_Y1,(unsigned char *const)mt_data_inf.dst_Y1,
-				mt_data_inf.src_pitch_Y1,mt_data_inf.dst_pitch_Y1,mt_data_inf.src_Y_h,mt_data_inf.row_size_Y1,true,
-				mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
+			BlurR2_8_MT_V((unsigned char *const)mt_data_inf->src_Y1,(unsigned char *const)mt_data_inf->dst_Y1,
+				mt_data_inf->src_pitch_Y1,mt_data_inf->dst_pitch_Y1,mt_data_inf->src_Y_h,mt_data_inf->row_size_Y1,true,
+				mt_data_inf->src_Y_h_min,mt_data_inf->src_Y_h_max);
 			break;
 		case 3 :
-			BlurR6_8_MT_H((unsigned char *const)mt_data_inf.src_Y1,(unsigned char *const)mt_data_inf.dst_Y1,
-				mt_data_inf.src_pitch_Y1,mt_data_inf.dst_pitch_Y1,mt_data_inf.src_Y_h,mt_data_inf.row_size_Y1,true,
-				mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
+			BlurR6_8_MT_H((unsigned char *const)mt_data_inf->src_Y1,(unsigned char *const)mt_data_inf->dst_Y1,
+				mt_data_inf->src_pitch_Y1,mt_data_inf->dst_pitch_Y1,mt_data_inf->src_Y_h,mt_data_inf->row_size_Y1,true,
+				mt_data_inf->src_Y_h_min,mt_data_inf->src_Y_h_max);
 			break;
 		case 4 :
-			BlurR6_8_MT_V((unsigned char *const)mt_data_inf.src_Y1,(unsigned char *const)mt_data_inf.dst_Y1,
-				mt_data_inf.src_pitch_Y1,mt_data_inf.dst_pitch_Y1,mt_data_inf.src_Y_h,mt_data_inf.row_size_Y1,true,
-				mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
+			BlurR6_8_MT_V((unsigned char *const)mt_data_inf->src_Y1,(unsigned char *const)mt_data_inf->dst_Y1,
+				mt_data_inf->src_pitch_Y1,mt_data_inf->dst_pitch_Y1,mt_data_inf->src_Y_h,mt_data_inf->row_size_Y1,true,
+				mt_data_inf->src_Y_h_min,mt_data_inf->src_Y_h_max);
 			break;
 		case 5 :
-			BlurR2_8_MT_H((unsigned char *const)mt_data_inf.src_Y1,(unsigned char *const)mt_data_inf.dst_Y1,
-				mt_data_inf.src_pitch_Y1,mt_data_inf.dst_pitch_Y1,mt_data_inf.src_Y_h,mt_data_inf.row_size_Y1,
-				mt_data_inf.processH,mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
+			BlurR2_8_MT_H((unsigned char *const)mt_data_inf->src_Y1,(unsigned char *const)mt_data_inf->dst_Y1,
+				mt_data_inf->src_pitch_Y1,mt_data_inf->dst_pitch_Y1,mt_data_inf->src_Y_h,mt_data_inf->row_size_Y1,
+				mt_data_inf->processH,mt_data_inf->src_Y_h_min,mt_data_inf->src_Y_h_max);
 			break;
 		case 6 :
-			BlurR2_8_MT_V((unsigned char *const)mt_data_inf.src_Y1,(unsigned char *const)mt_data_inf.dst_Y1,
-				mt_data_inf.src_pitch_Y1,mt_data_inf.dst_pitch_Y1,mt_data_inf.src_Y_h,mt_data_inf.row_size_Y1,
-				mt_data_inf.processV,mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
+			BlurR2_8_MT_V((unsigned char *const)mt_data_inf->src_Y1,(unsigned char *const)mt_data_inf->dst_Y1,
+				mt_data_inf->src_pitch_Y1,mt_data_inf->dst_pitch_Y1,mt_data_inf->src_Y_h,mt_data_inf->row_size_Y1,
+				mt_data_inf->processV,mt_data_inf->src_Y_h_min,mt_data_inf->src_Y_h_max);
 			break;
 		case 7 :
-			BlurR6_8_MT_H((unsigned char *const)mt_data_inf.src_Y1,(unsigned char *const)mt_data_inf.dst_Y1,
-				mt_data_inf.src_pitch_Y1,mt_data_inf.dst_pitch_Y1,mt_data_inf.src_Y_h,mt_data_inf.row_size_Y1,
-				mt_data_inf.processH,mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
+			BlurR6_8_MT_H((unsigned char *const)mt_data_inf->src_Y1,(unsigned char *const)mt_data_inf->dst_Y1,
+				mt_data_inf->src_pitch_Y1,mt_data_inf->dst_pitch_Y1,mt_data_inf->src_Y_h,mt_data_inf->row_size_Y1,
+				mt_data_inf->processH,mt_data_inf->src_Y_h_min,mt_data_inf->src_Y_h_max);
 			break;
 		case 8 :
-			BlurR6_8_MT_V((unsigned char *const)mt_data_inf.src_Y1,(unsigned char *const)mt_data_inf.dst_Y1,
-				mt_data_inf.src_pitch_Y1,mt_data_inf.dst_pitch_Y1,mt_data_inf.src_Y_h,mt_data_inf.row_size_Y1,
-				mt_data_inf.processV,mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
+			BlurR6_8_MT_V((unsigned char *const)mt_data_inf->src_Y1,(unsigned char *const)mt_data_inf->dst_Y1,
+				mt_data_inf->src_pitch_Y1,mt_data_inf->dst_pitch_Y1,mt_data_inf->src_Y_h,mt_data_inf->row_size_Y1,
+				mt_data_inf->processV,mt_data_inf->src_Y_h_min,mt_data_inf->src_Y_h_max);
 			break;
 		case 9 :
-			BlurR2_8_MT_H((unsigned char *const)mt_data_inf.src_U1,(unsigned char *const)mt_data_inf.dst_U1,
-				mt_data_inf.src_pitch_U1,mt_data_inf.dst_pitch_U1,mt_data_inf.src_U_h,mt_data_inf.row_size_U1,true,
-				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			BlurR2_8_MT_H((unsigned char *const)mt_data_inf->src_U1,(unsigned char *const)mt_data_inf->dst_U1,
+				mt_data_inf->src_pitch_U1,mt_data_inf->dst_pitch_U1,mt_data_inf->src_U_h,mt_data_inf->row_size_U1,true,
+				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 10 :
-			BlurR2_8_MT_V((unsigned char *const)mt_data_inf.src_U1,(unsigned char *const)mt_data_inf.dst_U1,
-				mt_data_inf.src_pitch_U1,mt_data_inf.dst_pitch_U1,mt_data_inf.src_U_h,mt_data_inf.row_size_U1,true,
-				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			BlurR2_8_MT_V((unsigned char *const)mt_data_inf->src_U1,(unsigned char *const)mt_data_inf->dst_U1,
+				mt_data_inf->src_pitch_U1,mt_data_inf->dst_pitch_U1,mt_data_inf->src_U_h,mt_data_inf->row_size_U1,true,
+				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 11 :
-			BlurR6_8_MT_H((unsigned char *const)mt_data_inf.src_U1,(unsigned char *const)mt_data_inf.dst_U1,
-				mt_data_inf.src_pitch_U1,mt_data_inf.dst_pitch_U1,mt_data_inf.src_U_h,mt_data_inf.row_size_U1,true,
-				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			BlurR6_8_MT_H((unsigned char *const)mt_data_inf->src_U1,(unsigned char *const)mt_data_inf->dst_U1,
+				mt_data_inf->src_pitch_U1,mt_data_inf->dst_pitch_U1,mt_data_inf->src_U_h,mt_data_inf->row_size_U1,true,
+				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 12 :
-			BlurR6_8_MT_V((unsigned char *const)mt_data_inf.src_U1,(unsigned char *const)mt_data_inf.dst_U1,
-				mt_data_inf.src_pitch_U1,mt_data_inf.dst_pitch_U1,mt_data_inf.src_U_h,mt_data_inf.row_size_U1,true,
-				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			BlurR6_8_MT_V((unsigned char *const)mt_data_inf->src_U1,(unsigned char *const)mt_data_inf->dst_U1,
+				mt_data_inf->src_pitch_U1,mt_data_inf->dst_pitch_U1,mt_data_inf->src_U_h,mt_data_inf->row_size_U1,true,
+				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 13 :
-			BlurR2_8_MT_H((unsigned char *const)mt_data_inf.src_U1,(unsigned char *const)mt_data_inf.dst_U1,
-				mt_data_inf.src_pitch_U1,mt_data_inf.dst_pitch_U1,mt_data_inf.src_U_h,mt_data_inf.row_size_U1,
-				mt_data_inf.cprocessH,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			BlurR2_8_MT_H((unsigned char *const)mt_data_inf->src_U1,(unsigned char *const)mt_data_inf->dst_U1,
+				mt_data_inf->src_pitch_U1,mt_data_inf->dst_pitch_U1,mt_data_inf->src_U_h,mt_data_inf->row_size_U1,
+				mt_data_inf->cprocessH,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 14 :
-			BlurR2_8_MT_V((unsigned char *const)mt_data_inf.src_U1,(unsigned char *const)mt_data_inf.dst_U1,
-				mt_data_inf.src_pitch_U1,mt_data_inf.dst_pitch_U1,mt_data_inf.src_U_h,mt_data_inf.row_size_U1,
-				mt_data_inf.cprocessV,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			BlurR2_8_MT_V((unsigned char *const)mt_data_inf->src_U1,(unsigned char *const)mt_data_inf->dst_U1,
+				mt_data_inf->src_pitch_U1,mt_data_inf->dst_pitch_U1,mt_data_inf->src_U_h,mt_data_inf->row_size_U1,
+				mt_data_inf->cprocessV,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 15 :
-			BlurR6_8_MT_H((unsigned char *const)mt_data_inf.src_U1,(unsigned char *const)mt_data_inf.dst_U1,
-				mt_data_inf.src_pitch_U1,mt_data_inf.dst_pitch_U1,mt_data_inf.src_U_h,mt_data_inf.row_size_U1,
-				mt_data_inf.cprocessH,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			BlurR6_8_MT_H((unsigned char *const)mt_data_inf->src_U1,(unsigned char *const)mt_data_inf->dst_U1,
+				mt_data_inf->src_pitch_U1,mt_data_inf->dst_pitch_U1,mt_data_inf->src_U_h,mt_data_inf->row_size_U1,
+				mt_data_inf->cprocessH,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 16 :
-			BlurR6_8_MT_V((unsigned char *const)mt_data_inf.src_U1,(unsigned char *const)mt_data_inf.dst_U1,
-				mt_data_inf.src_pitch_U1,mt_data_inf.dst_pitch_U1,mt_data_inf.src_U_h,mt_data_inf.row_size_U1,
-				mt_data_inf.cprocessV,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			BlurR6_8_MT_V((unsigned char *const)mt_data_inf->src_U1,(unsigned char *const)mt_data_inf->dst_U1,
+				mt_data_inf->src_pitch_U1,mt_data_inf->dst_pitch_U1,mt_data_inf->src_U_h,mt_data_inf->row_size_U1,
+				mt_data_inf->cprocessV,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 17 :
-			BlurR2_8_MT_H((unsigned char *const)mt_data_inf.src_V1,(unsigned char *const)mt_data_inf.dst_V1,
-				mt_data_inf.src_pitch_V1,mt_data_inf.dst_pitch_V1,mt_data_inf.src_V_h,mt_data_inf.row_size_V1,true,
-				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			BlurR2_8_MT_H((unsigned char *const)mt_data_inf->src_V1,(unsigned char *const)mt_data_inf->dst_V1,
+				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,true,
+				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 18 :
-			BlurR2_8_MT_V((unsigned char *const)mt_data_inf.src_V1,(unsigned char *const)mt_data_inf.dst_V1,
-				mt_data_inf.src_pitch_V1,mt_data_inf.dst_pitch_V1,mt_data_inf.src_V_h,mt_data_inf.row_size_V1,true,
-				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			BlurR2_8_MT_V((unsigned char *const)mt_data_inf->src_V1,(unsigned char *const)mt_data_inf->dst_V1,
+				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,true,
+				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 19 :
-			BlurR6_8_MT_H((unsigned char *const)mt_data_inf.src_V1,(unsigned char *const)mt_data_inf.dst_V1,
-				mt_data_inf.src_pitch_V1,mt_data_inf.dst_pitch_V1,mt_data_inf.src_V_h,mt_data_inf.row_size_V1,true,
-				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			BlurR6_8_MT_H((unsigned char *const)mt_data_inf->src_V1,(unsigned char *const)mt_data_inf->dst_V1,
+				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,true,
+				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 20 :
-			BlurR6_8_MT_V((unsigned char *const)mt_data_inf.src_V1,(unsigned char *const)mt_data_inf.dst_V1,
-				mt_data_inf.src_pitch_V1,mt_data_inf.dst_pitch_V1,mt_data_inf.src_V_h,mt_data_inf.row_size_V1,true,
-				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			BlurR6_8_MT_V((unsigned char *const)mt_data_inf->src_V1,(unsigned char *const)mt_data_inf->dst_V1,
+				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,true,
+				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 21 :
-			BlurR2_8_MT_H((unsigned char *const)mt_data_inf.src_V1,(unsigned char *const)mt_data_inf.dst_V1,
-				mt_data_inf.src_pitch_V1,mt_data_inf.dst_pitch_V1,mt_data_inf.src_V_h,mt_data_inf.row_size_V1,
-				mt_data_inf.cprocessH,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			BlurR2_8_MT_H((unsigned char *const)mt_data_inf->src_V1,(unsigned char *const)mt_data_inf->dst_V1,
+				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,
+				mt_data_inf->cprocessH,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 22 :
-			BlurR2_8_MT_V((unsigned char *const)mt_data_inf.src_V1,(unsigned char *const)mt_data_inf.dst_V1,
-				mt_data_inf.src_pitch_V1,mt_data_inf.dst_pitch_V1,mt_data_inf.src_V_h,mt_data_inf.row_size_V1,
-				mt_data_inf.cprocessV,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			BlurR2_8_MT_V((unsigned char *const)mt_data_inf->src_V1,(unsigned char *const)mt_data_inf->dst_V1,
+				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,
+				mt_data_inf->cprocessV,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 23 :
-			BlurR6_8_MT_H((unsigned char *const)mt_data_inf.src_V1,(unsigned char *const)mt_data_inf.dst_V1,
-				mt_data_inf.src_pitch_V1,mt_data_inf.dst_pitch_V1,mt_data_inf.src_V_h,mt_data_inf.row_size_V1,
-				mt_data_inf.cprocessH,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			BlurR6_8_MT_H((unsigned char *const)mt_data_inf->src_V1,(unsigned char *const)mt_data_inf->dst_V1,
+				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,
+				mt_data_inf->cprocessH,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 24 :
-			BlurR6_8_MT_V((unsigned char *const)mt_data_inf.src_V1,(unsigned char *const)mt_data_inf.dst_V1,
-				mt_data_inf.src_pitch_V1,mt_data_inf.dst_pitch_V1,mt_data_inf.src_V_h,mt_data_inf.row_size_V1,
-				mt_data_inf.cprocessV,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			BlurR6_8_MT_V((unsigned char *const)mt_data_inf->src_V1,(unsigned char *const)mt_data_inf->dst_V1,
+				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,
+				mt_data_inf->cprocessV,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 			// 16 bits
 		case 25 :
-			BlurR2_16_MT_H((unsigned char *const)mt_data_inf.src_Y1,(unsigned char *const)mt_data_inf.dst_Y1,
-				mt_data_inf.src_pitch_Y1,mt_data_inf.dst_pitch_Y1,mt_data_inf.src_Y_h,mt_data_inf.row_size_Y1,true,
-				mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
+			BlurR2_16_MT_H((unsigned char *const)mt_data_inf->src_Y1,(unsigned char *const)mt_data_inf->dst_Y1,
+				mt_data_inf->src_pitch_Y1,mt_data_inf->dst_pitch_Y1,mt_data_inf->src_Y_h,mt_data_inf->row_size_Y1,true,
+				mt_data_inf->src_Y_h_min,mt_data_inf->src_Y_h_max);
 			break;
 		case 26 :
-			BlurR2_16_MT_V((unsigned char *const)mt_data_inf.src_Y1,(unsigned char *const)mt_data_inf.dst_Y1,
-				mt_data_inf.src_pitch_Y1,mt_data_inf.dst_pitch_Y1,mt_data_inf.src_Y_h,mt_data_inf.row_size_Y1,true,
-				mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
+			BlurR2_16_MT_V((unsigned char *const)mt_data_inf->src_Y1,(unsigned char *const)mt_data_inf->dst_Y1,
+				mt_data_inf->src_pitch_Y1,mt_data_inf->dst_pitch_Y1,mt_data_inf->src_Y_h,mt_data_inf->row_size_Y1,true,
+				mt_data_inf->src_Y_h_min,mt_data_inf->src_Y_h_max);
 			break;
 		case 27 :
-			BlurR6_16_MT_H((unsigned char *const)mt_data_inf.src_Y1,(unsigned char *const)mt_data_inf.dst_Y1,
-				mt_data_inf.src_pitch_Y1,mt_data_inf.dst_pitch_Y1,mt_data_inf.src_Y_h,mt_data_inf.row_size_Y1,true,
-				mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
+			BlurR6_16_MT_H((unsigned char *const)mt_data_inf->src_Y1,(unsigned char *const)mt_data_inf->dst_Y1,
+				mt_data_inf->src_pitch_Y1,mt_data_inf->dst_pitch_Y1,mt_data_inf->src_Y_h,mt_data_inf->row_size_Y1,true,
+				mt_data_inf->src_Y_h_min,mt_data_inf->src_Y_h_max);
 			break;
 		case 28 :
-			BlurR6_16_MT_V((unsigned char *const)mt_data_inf.src_Y1,(unsigned char *const)mt_data_inf.dst_Y1,
-				mt_data_inf.src_pitch_Y1,mt_data_inf.dst_pitch_Y1,mt_data_inf.src_Y_h,mt_data_inf.row_size_Y1,true,
-				mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
+			BlurR6_16_MT_V((unsigned char *const)mt_data_inf->src_Y1,(unsigned char *const)mt_data_inf->dst_Y1,
+				mt_data_inf->src_pitch_Y1,mt_data_inf->dst_pitch_Y1,mt_data_inf->src_Y_h,mt_data_inf->row_size_Y1,true,
+				mt_data_inf->src_Y_h_min,mt_data_inf->src_Y_h_max);
 			break;
 		case 29 :
-			BlurR2_16_MT_H((unsigned char *const)mt_data_inf.src_Y1,(unsigned char *const)mt_data_inf.dst_Y1,
-				mt_data_inf.src_pitch_Y1,mt_data_inf.dst_pitch_Y1,mt_data_inf.src_Y_h,mt_data_inf.row_size_Y1,
-				mt_data_inf.processH,mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
+			BlurR2_16_MT_H((unsigned char *const)mt_data_inf->src_Y1,(unsigned char *const)mt_data_inf->dst_Y1,
+				mt_data_inf->src_pitch_Y1,mt_data_inf->dst_pitch_Y1,mt_data_inf->src_Y_h,mt_data_inf->row_size_Y1,
+				mt_data_inf->processH,mt_data_inf->src_Y_h_min,mt_data_inf->src_Y_h_max);
 			break;
 		case 30 :
-			BlurR2_16_MT_V((unsigned char *const)mt_data_inf.src_Y1,(unsigned char *const)mt_data_inf.dst_Y1,
-				mt_data_inf.src_pitch_Y1,mt_data_inf.dst_pitch_Y1,mt_data_inf.src_Y_h,mt_data_inf.row_size_Y1,
-				mt_data_inf.processV,mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
+			BlurR2_16_MT_V((unsigned char *const)mt_data_inf->src_Y1,(unsigned char *const)mt_data_inf->dst_Y1,
+				mt_data_inf->src_pitch_Y1,mt_data_inf->dst_pitch_Y1,mt_data_inf->src_Y_h,mt_data_inf->row_size_Y1,
+				mt_data_inf->processV,mt_data_inf->src_Y_h_min,mt_data_inf->src_Y_h_max);
 			break;
 		case 31 :
-			BlurR6_16_MT_H((unsigned char *const)mt_data_inf.src_Y1,(unsigned char *const)mt_data_inf.dst_Y1,
-				mt_data_inf.src_pitch_Y1,mt_data_inf.dst_pitch_Y1,mt_data_inf.src_Y_h,mt_data_inf.row_size_Y1,
-				mt_data_inf.processH,mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
+			BlurR6_16_MT_H((unsigned char *const)mt_data_inf->src_Y1,(unsigned char *const)mt_data_inf->dst_Y1,
+				mt_data_inf->src_pitch_Y1,mt_data_inf->dst_pitch_Y1,mt_data_inf->src_Y_h,mt_data_inf->row_size_Y1,
+				mt_data_inf->processH,mt_data_inf->src_Y_h_min,mt_data_inf->src_Y_h_max);
 			break;
 		case 32 :
-			BlurR6_16_MT_V((unsigned char *const)mt_data_inf.src_Y1,(unsigned char *const)mt_data_inf.dst_Y1,
-				mt_data_inf.src_pitch_Y1,mt_data_inf.dst_pitch_Y1,mt_data_inf.src_Y_h,mt_data_inf.row_size_Y1,
-				mt_data_inf.processV,mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
+			BlurR6_16_MT_V((unsigned char *const)mt_data_inf->src_Y1,(unsigned char *const)mt_data_inf->dst_Y1,
+				mt_data_inf->src_pitch_Y1,mt_data_inf->dst_pitch_Y1,mt_data_inf->src_Y_h,mt_data_inf->row_size_Y1,
+				mt_data_inf->processV,mt_data_inf->src_Y_h_min,mt_data_inf->src_Y_h_max);
 			break;
 		case 33 :
-			BlurR2_16_MT_H((unsigned char *const)mt_data_inf.src_U1,(unsigned char *const)mt_data_inf.dst_U1,
-				mt_data_inf.src_pitch_U1,mt_data_inf.dst_pitch_U1,mt_data_inf.src_U_h,mt_data_inf.row_size_U1,true,
-				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			BlurR2_16_MT_H((unsigned char *const)mt_data_inf->src_U1,(unsigned char *const)mt_data_inf->dst_U1,
+				mt_data_inf->src_pitch_U1,mt_data_inf->dst_pitch_U1,mt_data_inf->src_U_h,mt_data_inf->row_size_U1,true,
+				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 34 :
-			BlurR2_16_MT_V((unsigned char *const)mt_data_inf.src_U1,(unsigned char *const)mt_data_inf.dst_U1,
-				mt_data_inf.src_pitch_U1,mt_data_inf.dst_pitch_U1,mt_data_inf.src_U_h,mt_data_inf.row_size_U1,true,
-				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			BlurR2_16_MT_V((unsigned char *const)mt_data_inf->src_U1,(unsigned char *const)mt_data_inf->dst_U1,
+				mt_data_inf->src_pitch_U1,mt_data_inf->dst_pitch_U1,mt_data_inf->src_U_h,mt_data_inf->row_size_U1,true,
+				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 35 :
-			BlurR6_16_MT_H((unsigned char *const)mt_data_inf.src_U1,(unsigned char *const)mt_data_inf.dst_U1,
-				mt_data_inf.src_pitch_U1,mt_data_inf.dst_pitch_U1,mt_data_inf.src_U_h,mt_data_inf.row_size_U1,true,
-				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			BlurR6_16_MT_H((unsigned char *const)mt_data_inf->src_U1,(unsigned char *const)mt_data_inf->dst_U1,
+				mt_data_inf->src_pitch_U1,mt_data_inf->dst_pitch_U1,mt_data_inf->src_U_h,mt_data_inf->row_size_U1,true,
+				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 36 :
-			BlurR6_16_MT_V((unsigned char *const)mt_data_inf.src_U1,(unsigned char *const)mt_data_inf.dst_U1,
-				mt_data_inf.src_pitch_U1,mt_data_inf.dst_pitch_U1,mt_data_inf.src_U_h,mt_data_inf.row_size_U1,true,
-				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			BlurR6_16_MT_V((unsigned char *const)mt_data_inf->src_U1,(unsigned char *const)mt_data_inf->dst_U1,
+				mt_data_inf->src_pitch_U1,mt_data_inf->dst_pitch_U1,mt_data_inf->src_U_h,mt_data_inf->row_size_U1,true,
+				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 37 :
-			BlurR2_16_MT_H((unsigned char *const)mt_data_inf.src_U1,(unsigned char *const)mt_data_inf.dst_U1,
-				mt_data_inf.src_pitch_U1,mt_data_inf.dst_pitch_U1,mt_data_inf.src_U_h,mt_data_inf.row_size_U1,
-				mt_data_inf.cprocessH,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			BlurR2_16_MT_H((unsigned char *const)mt_data_inf->src_U1,(unsigned char *const)mt_data_inf->dst_U1,
+				mt_data_inf->src_pitch_U1,mt_data_inf->dst_pitch_U1,mt_data_inf->src_U_h,mt_data_inf->row_size_U1,
+				mt_data_inf->cprocessH,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 38 :
-			BlurR2_16_MT_V((unsigned char *const)mt_data_inf.src_U1,(unsigned char *const)mt_data_inf.dst_U1,
-				mt_data_inf.src_pitch_U1,mt_data_inf.dst_pitch_U1,mt_data_inf.src_U_h,mt_data_inf.row_size_U1,
-				mt_data_inf.cprocessV,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			BlurR2_16_MT_V((unsigned char *const)mt_data_inf->src_U1,(unsigned char *const)mt_data_inf->dst_U1,
+				mt_data_inf->src_pitch_U1,mt_data_inf->dst_pitch_U1,mt_data_inf->src_U_h,mt_data_inf->row_size_U1,
+				mt_data_inf->cprocessV,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 39 :
-			BlurR6_16_MT_H((unsigned char *const)mt_data_inf.src_U1,(unsigned char *const)mt_data_inf.dst_U1,
-				mt_data_inf.src_pitch_U1,mt_data_inf.dst_pitch_U1,mt_data_inf.src_U_h,mt_data_inf.row_size_U1,
-				mt_data_inf.cprocessH,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			BlurR6_16_MT_H((unsigned char *const)mt_data_inf->src_U1,(unsigned char *const)mt_data_inf->dst_U1,
+				mt_data_inf->src_pitch_U1,mt_data_inf->dst_pitch_U1,mt_data_inf->src_U_h,mt_data_inf->row_size_U1,
+				mt_data_inf->cprocessH,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 40 :
-			BlurR6_16_MT_V((unsigned char *const)mt_data_inf.src_U1,(unsigned char *const)mt_data_inf.dst_U1,
-				mt_data_inf.src_pitch_U1,mt_data_inf.dst_pitch_U1,mt_data_inf.src_U_h,mt_data_inf.row_size_U1,
-				mt_data_inf.cprocessV,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			BlurR6_16_MT_V((unsigned char *const)mt_data_inf->src_U1,(unsigned char *const)mt_data_inf->dst_U1,
+				mt_data_inf->src_pitch_U1,mt_data_inf->dst_pitch_U1,mt_data_inf->src_U_h,mt_data_inf->row_size_U1,
+				mt_data_inf->cprocessV,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 41 :
-			BlurR2_16_MT_H((unsigned char *const)mt_data_inf.src_V1,(unsigned char *const)mt_data_inf.dst_V1,
-				mt_data_inf.src_pitch_V1,mt_data_inf.dst_pitch_V1,mt_data_inf.src_V_h,mt_data_inf.row_size_V1,true,
-				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			BlurR2_16_MT_H((unsigned char *const)mt_data_inf->src_V1,(unsigned char *const)mt_data_inf->dst_V1,
+				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,true,
+				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 42 :
-			BlurR2_16_MT_V((unsigned char *const)mt_data_inf.src_V1,(unsigned char *const)mt_data_inf.dst_V1,
-				mt_data_inf.src_pitch_V1,mt_data_inf.dst_pitch_V1,mt_data_inf.src_V_h,mt_data_inf.row_size_V1,true,
-				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			BlurR2_16_MT_V((unsigned char *const)mt_data_inf->src_V1,(unsigned char *const)mt_data_inf->dst_V1,
+				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,true,
+				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 43 :
-			BlurR6_16_MT_H((unsigned char *const)mt_data_inf.src_V1,(unsigned char *const)mt_data_inf.dst_V1,
-				mt_data_inf.src_pitch_V1,mt_data_inf.dst_pitch_V1,mt_data_inf.src_V_h,mt_data_inf.row_size_V1,true,
-				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			BlurR6_16_MT_H((unsigned char *const)mt_data_inf->src_V1,(unsigned char *const)mt_data_inf->dst_V1,
+				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,true,
+				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 44 :
-			BlurR6_16_MT_V((unsigned char *const)mt_data_inf.src_V1,(unsigned char *const)mt_data_inf.dst_V1,
-				mt_data_inf.src_pitch_V1,mt_data_inf.dst_pitch_V1,mt_data_inf.src_V_h,mt_data_inf.row_size_V1,true,
-				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			BlurR6_16_MT_V((unsigned char *const)mt_data_inf->src_V1,(unsigned char *const)mt_data_inf->dst_V1,
+				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,true,
+				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 45 :
-			BlurR2_16_MT_H((unsigned char *const)mt_data_inf.src_V1,(unsigned char *const)mt_data_inf.dst_V1,
-				mt_data_inf.src_pitch_V1,mt_data_inf.dst_pitch_V1,mt_data_inf.src_V_h,mt_data_inf.row_size_V1,
-				mt_data_inf.cprocessH,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			BlurR2_16_MT_H((unsigned char *const)mt_data_inf->src_V1,(unsigned char *const)mt_data_inf->dst_V1,
+				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,
+				mt_data_inf->cprocessH,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 46 :
-			BlurR2_16_MT_V((unsigned char *const)mt_data_inf.src_V1,(unsigned char *const)mt_data_inf.dst_V1,
-				mt_data_inf.src_pitch_V1,mt_data_inf.dst_pitch_V1,mt_data_inf.src_V_h,mt_data_inf.row_size_V1,
-				mt_data_inf.cprocessV,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			BlurR2_16_MT_V((unsigned char *const)mt_data_inf->src_V1,(unsigned char *const)mt_data_inf->dst_V1,
+				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,
+				mt_data_inf->cprocessV,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 47 :
-			BlurR6_16_MT_H((unsigned char *const)mt_data_inf.src_V1,(unsigned char *const)mt_data_inf.dst_V1,
-				mt_data_inf.src_pitch_V1,mt_data_inf.dst_pitch_V1,mt_data_inf.src_V_h,mt_data_inf.row_size_V1,
-				mt_data_inf.cprocessH,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			BlurR6_16_MT_H((unsigned char *const)mt_data_inf->src_V1,(unsigned char *const)mt_data_inf->dst_V1,
+				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,
+				mt_data_inf->cprocessH,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 48 :
-			BlurR6_16_MT_V((unsigned char *const)mt_data_inf.src_V1,(unsigned char *const)mt_data_inf.dst_V1,
-				mt_data_inf.src_pitch_V1,mt_data_inf.dst_pitch_V1,mt_data_inf.src_V_h,mt_data_inf.row_size_V1,
-				mt_data_inf.cprocessV,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			BlurR6_16_MT_V((unsigned char *const)mt_data_inf->src_V1,(unsigned char *const)mt_data_inf->dst_V1,
+				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,
+				mt_data_inf->cprocessV,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		default : ;
 	}
@@ -5385,7 +5381,8 @@ PVideoFrame __stdcall aBlur::GetFrame(int n, IScriptEnvironment *env)
   memcpy(MT_ThreadGF,MT_Thread,sizeof(MT_Thread));
   memcpy(MT_DataGF,MT_Data,sizeof(MT_Data));
 
-  MT_ThreadGF->pData=MT_DataGF;
+  for(uint8_t i=0; i<threads_number; i++)
+	MT_ThreadGF[i].pData=MT_DataGF;
 
   if (threads_number>1)
   {
@@ -5765,111 +5762,109 @@ int __stdcall aWarp::SetCacheHints(int cachehints,int frame_range)
 
 void aWarp::StaticThreadpool(void *ptr)
 {
-	const Public_MT_Data_Thread *data=(const Public_MT_Data_Thread *)ptr;
-	const aWarp *ptrClass=(aWarp *)data->pClass;
+	Public_MT_Data_Thread *data=(Public_MT_Data_Thread *)ptr;
+	aWarp *ptrClass=(aWarp *)data->pClass;
 
-	const uint8_t thread_num=data->thread_Id;
-	const MT_Data_Info_WarpSharp *MT_DataGF=(const MT_Data_Info_WarpSharp *)data->pData;
-	const MT_Data_Info_WarpSharp mt_data_inf=MT_DataGF[thread_num];
+	MT_Data_Info_WarpSharp *mt_data_inf=((MT_Data_Info_WarpSharp *)data->pData)+data->thread_Id;
 	
 	switch(data->f_process)
 	{
 		case 1 :
-			Warp0_8_MT((const unsigned char*)mt_data_inf.src_Y1,(const unsigned char*)mt_data_inf.src_Y2,
-				(unsigned char*)mt_data_inf.dst_Y1,
-				mt_data_inf.src_pitch_Y1,mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_Y1,mt_data_inf.row_size_Y1,
-				mt_data_inf.dst_Y_h,ptrClass->depth,ptrClass->depthV,mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
+			Warp0_8_MT((const unsigned char*)mt_data_inf->src_Y1,(const unsigned char*)mt_data_inf->src_Y2,
+				(unsigned char*)mt_data_inf->dst_Y1,
+				mt_data_inf->src_pitch_Y1,mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_Y1,mt_data_inf->row_size_Y1,
+				mt_data_inf->dst_Y_h,ptrClass->depth,ptrClass->depthV,mt_data_inf->src_Y_h_min,mt_data_inf->src_Y_h_max);
 			break;
 		case 2 :
-			Warp0_8_MT((const unsigned char*)mt_data_inf.src_U1,(const unsigned char*)mt_data_inf.src_U2,
-				(unsigned char*)mt_data_inf.dst_U2,
-				mt_data_inf.src_pitch_U1,mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U1,mt_data_inf.row_size_U1,
-				mt_data_inf.dst_U_h,ptrClass->depthC,ptrClass->depthVC,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			Warp0_8_MT((const unsigned char*)mt_data_inf->src_U1,(const unsigned char*)mt_data_inf->src_U2,
+				(unsigned char*)mt_data_inf->dst_U2,
+				mt_data_inf->src_pitch_U1,mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U1,mt_data_inf->row_size_U1,
+				mt_data_inf->dst_U_h,ptrClass->depthC,ptrClass->depthVC,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 3 :
-			Warp0_8_MT((const unsigned char*)mt_data_inf.src_V1,(const unsigned char*)mt_data_inf.src_V2,
-				(unsigned char*)mt_data_inf.dst_V1,
-				mt_data_inf.src_pitch_V1,mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V1,mt_data_inf.row_size_V1,
-				mt_data_inf.dst_U_h,ptrClass->depthC,ptrClass->depthVC,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			Warp0_8_MT((const unsigned char*)mt_data_inf->src_V1,(const unsigned char*)mt_data_inf->src_V2,
+				(unsigned char*)mt_data_inf->dst_V1,
+				mt_data_inf->src_pitch_V1,mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V1,mt_data_inf->row_size_V1,
+				mt_data_inf->dst_U_h,ptrClass->depthC,ptrClass->depthVC,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 4 :
-			GuideChroma_8_MT((const unsigned char*)mt_data_inf.src_Y2,(unsigned char*)mt_data_inf.dst_U1,
-				mt_data_inf.src_pitch_Y2,mt_data_inf.src_pitch_U2,mt_data_inf.src_U_h,mt_data_inf.row_size_U2,
-				mt_data_inf.SubW_U,mt_data_inf.SubH_U,ptrClass->cplace_mpeg2_flag,
-				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			GuideChroma_8_MT((const unsigned char*)mt_data_inf->src_Y2,(unsigned char*)mt_data_inf->dst_U1,
+				mt_data_inf->src_pitch_Y2,mt_data_inf->src_pitch_U2,mt_data_inf->src_U_h,mt_data_inf->row_size_U2,
+				mt_data_inf->SubW_U,mt_data_inf->SubH_U,ptrClass->cplace_mpeg2_flag,
+				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 5 :
-			Warp0_8_MT((const unsigned char*)mt_data_inf.src_U1,(const unsigned char*)mt_data_inf.src_U2,
-				(unsigned char*)mt_data_inf.dst_U2,
-				mt_data_inf.src_pitch_U1,mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U1,mt_data_inf.row_size_U1,
-				mt_data_inf.dst_U_h,ptrClass->depthC,ptrClass->depthVC,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			Warp0_8_MT((const unsigned char*)mt_data_inf->src_U1,(const unsigned char*)mt_data_inf->src_U2,
+				(unsigned char*)mt_data_inf->dst_U2,
+				mt_data_inf->src_pitch_U1,mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U1,mt_data_inf->row_size_U1,
+				mt_data_inf->dst_U_h,ptrClass->depthC,ptrClass->depthVC,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 6 :
-			Warp0_8_MT((const unsigned char*)mt_data_inf.src_V1,(const unsigned char*)mt_data_inf.src_U2,
-				(unsigned char*)mt_data_inf.dst_V1,
-				mt_data_inf.src_pitch_V1,mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_V1,mt_data_inf.row_size_V1,
-				mt_data_inf.dst_V_h,ptrClass->depthC,ptrClass->depthVC,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			Warp0_8_MT((const unsigned char*)mt_data_inf->src_V1,(const unsigned char*)mt_data_inf->src_U2,
+				(unsigned char*)mt_data_inf->dst_V1,
+				mt_data_inf->src_pitch_V1,mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_V1,mt_data_inf->row_size_V1,
+				mt_data_inf->dst_V_h,ptrClass->depthC,ptrClass->depthVC,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 7 :
-			Warp0_8_MT((const unsigned char*)mt_data_inf.src_U1,(const unsigned char*)mt_data_inf.src_Y2,
-				(unsigned char*)mt_data_inf.dst_U2,
-				mt_data_inf.src_pitch_U1,mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_U1,mt_data_inf.row_size_U1,
-				mt_data_inf.dst_U_h,ptrClass->depthC,ptrClass->depthVC,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			Warp0_8_MT((const unsigned char*)mt_data_inf->src_U1,(const unsigned char*)mt_data_inf->src_Y2,
+				(unsigned char*)mt_data_inf->dst_U2,
+				mt_data_inf->src_pitch_U1,mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_U1,mt_data_inf->row_size_U1,
+				mt_data_inf->dst_U_h,ptrClass->depthC,ptrClass->depthVC,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 8 :
-			Warp0_8_MT((const unsigned char*)mt_data_inf.src_V1,(const unsigned char*)mt_data_inf.src_Y2,
-				(unsigned char*)mt_data_inf.dst_V1,
-				mt_data_inf.src_pitch_V1,mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_V1,mt_data_inf.row_size_V1,
-				mt_data_inf.dst_V_h,ptrClass->depthC,ptrClass->depthVC,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			Warp0_8_MT((const unsigned char*)mt_data_inf->src_V1,(const unsigned char*)mt_data_inf->src_Y2,
+				(unsigned char*)mt_data_inf->dst_V1,
+				mt_data_inf->src_pitch_V1,mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_V1,mt_data_inf->row_size_V1,
+				mt_data_inf->dst_V_h,ptrClass->depthC,ptrClass->depthVC,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 			// 16 bits
 		case 9 :
-			warp0_u16_MT((const unsigned char*)mt_data_inf.src_Y1,(const unsigned char*)mt_data_inf.src_Y2,
-				(unsigned char*)mt_data_inf.dst_Y1,mt_data_inf.src_pitch_Y1,mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_Y1,
-				mt_data_inf.row_size_Y1 >> 1,mt_data_inf.dst_Y_h,ptrClass->depth,ptrClass->depthV,ptrClass->bits_per_pixel,
-				mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
+			warp0_u16_MT((const unsigned char*)mt_data_inf->src_Y1,(const unsigned char*)mt_data_inf->src_Y2,
+				(unsigned char*)mt_data_inf->dst_Y1,mt_data_inf->src_pitch_Y1,mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_Y1,
+				mt_data_inf->row_size_Y1 >> 1,mt_data_inf->dst_Y_h,ptrClass->depth,ptrClass->depthV,ptrClass->bits_per_pixel,
+				mt_data_inf->src_Y_h_min,mt_data_inf->src_Y_h_max);
 			break;
 		case 10 :
-			warp0_u16_MT((const unsigned char*)mt_data_inf.src_U1,(const unsigned char*)mt_data_inf.src_U2,
-				(unsigned char*)mt_data_inf.dst_U2,mt_data_inf.src_pitch_U1,mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U1,
-				mt_data_inf.row_size_U1 >> 1,mt_data_inf.dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
-				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			warp0_u16_MT((const unsigned char*)mt_data_inf->src_U1,(const unsigned char*)mt_data_inf->src_U2,
+				(unsigned char*)mt_data_inf->dst_U2,mt_data_inf->src_pitch_U1,mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U1,
+				mt_data_inf->row_size_U1 >> 1,mt_data_inf->dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
+				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 11 :
-			warp0_u16_MT((const unsigned char*)mt_data_inf.src_V1,(const unsigned char*)mt_data_inf.src_V2,
-				(unsigned char*)mt_data_inf.dst_V1,mt_data_inf.src_pitch_V1,mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V1,
-				mt_data_inf.row_size_V1 >> 1,mt_data_inf.dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
-				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			warp0_u16_MT((const unsigned char*)mt_data_inf->src_V1,(const unsigned char*)mt_data_inf->src_V2,
+				(unsigned char*)mt_data_inf->dst_V1,mt_data_inf->src_pitch_V1,mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V1,
+				mt_data_inf->row_size_V1 >> 1,mt_data_inf->dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
+				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 12 :
-			GuideChroma_16_MT((const unsigned char*)mt_data_inf.src_Y2,(unsigned char*)mt_data_inf.dst_U1,
-				mt_data_inf.src_pitch_Y2,mt_data_inf.src_pitch_U2,mt_data_inf.src_U_h,mt_data_inf.row_size_U2 >> 1,
-				mt_data_inf.SubW_U,mt_data_inf.SubH_U,ptrClass->cplace_mpeg2_flag,
-				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			GuideChroma_16_MT((const unsigned char*)mt_data_inf->src_Y2,(unsigned char*)mt_data_inf->dst_U1,
+				mt_data_inf->src_pitch_Y2,mt_data_inf->src_pitch_U2,mt_data_inf->src_U_h,mt_data_inf->row_size_U2 >> 1,
+				mt_data_inf->SubW_U,mt_data_inf->SubH_U,ptrClass->cplace_mpeg2_flag,
+				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 13 :
-			warp0_u16_MT((const unsigned char*)mt_data_inf.src_U1,(const unsigned char*)mt_data_inf.src_U2,
-				(unsigned char*)mt_data_inf.dst_U2,mt_data_inf.src_pitch_U1,mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U1,
-				mt_data_inf.row_size_U1 >> 1,mt_data_inf.dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
-				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			warp0_u16_MT((const unsigned char*)mt_data_inf->src_U1,(const unsigned char*)mt_data_inf->src_U2,
+				(unsigned char*)mt_data_inf->dst_U2,mt_data_inf->src_pitch_U1,mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U1,
+				mt_data_inf->row_size_U1 >> 1,mt_data_inf->dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
+				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 14 :
-			warp0_u16_MT((const unsigned char*)mt_data_inf.src_V1,(const unsigned char*)mt_data_inf.src_U2,
-				(unsigned char*)mt_data_inf.dst_V1,mt_data_inf.src_pitch_V1,mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_V1,
-				mt_data_inf.row_size_V1 >> 1,mt_data_inf.dst_V_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
-				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			warp0_u16_MT((const unsigned char*)mt_data_inf->src_V1,(const unsigned char*)mt_data_inf->src_U2,
+				(unsigned char*)mt_data_inf->dst_V1,mt_data_inf->src_pitch_V1,mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_V1,
+				mt_data_inf->row_size_V1 >> 1,mt_data_inf->dst_V_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
+				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 15 :
-			warp0_u16_MT((const unsigned char*)mt_data_inf.src_U1,(const unsigned char*)mt_data_inf.src_Y2,
-				(unsigned char*)mt_data_inf.dst_U2,mt_data_inf.src_pitch_U1,mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_U1,
-				mt_data_inf.row_size_U1 >> 1,mt_data_inf.dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
-				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			warp0_u16_MT((const unsigned char*)mt_data_inf->src_U1,(const unsigned char*)mt_data_inf->src_Y2,
+				(unsigned char*)mt_data_inf->dst_U2,mt_data_inf->src_pitch_U1,mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_U1,
+				mt_data_inf->row_size_U1 >> 1,mt_data_inf->dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
+				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 16 :
-			warp0_u16_MT((const unsigned char*)mt_data_inf.src_V1,(const unsigned char*)mt_data_inf.src_Y2,
-				(unsigned char*)mt_data_inf.dst_V1,mt_data_inf.src_pitch_V1,mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_V1,
-				mt_data_inf.row_size_V1 >> 1,mt_data_inf.dst_V_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
-				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			warp0_u16_MT((const unsigned char*)mt_data_inf->src_V1,(const unsigned char*)mt_data_inf->src_Y2,
+				(unsigned char*)mt_data_inf->dst_V1,mt_data_inf->src_pitch_V1,mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_V1,
+				mt_data_inf->row_size_V1 >> 1,mt_data_inf->dst_V_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
+				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		default : ;
 	}
@@ -5928,7 +5923,8 @@ PVideoFrame __stdcall aWarp::GetFrame(int n, IScriptEnvironment *env)
   memcpy(MT_ThreadGF,MT_Thread,sizeof(MT_Thread));
   memcpy(MT_DataGF,MT_Data,sizeof(MT_Data));
 
-  MT_ThreadGF->pData=MT_DataGF;
+  for(uint8_t i=0; i<threads_number; i++)
+	MT_ThreadGF[i].pData=(void *)MT_DataGF;
 
   if (threads_number>1)
   {
@@ -6370,111 +6366,109 @@ int __stdcall aWarp4::SetCacheHints(int cachehints,int frame_range)
 
 void aWarp4::StaticThreadpool(void *ptr)
 {
-	const Public_MT_Data_Thread *data=(const Public_MT_Data_Thread *)ptr;
-	const aWarp4 *ptrClass=(aWarp4 *)data->pClass;
+	Public_MT_Data_Thread *data=(Public_MT_Data_Thread *)ptr;
+	aWarp4 *ptrClass=(aWarp4 *)data->pClass;
 
-	const uint8_t thread_num=data->thread_Id;
-	const MT_Data_Info_WarpSharp *MT_DataGF=(const MT_Data_Info_WarpSharp *)data->pData;
-	const MT_Data_Info_WarpSharp mt_data_inf=MT_DataGF[thread_num];
+	MT_Data_Info_WarpSharp *mt_data_inf=((MT_Data_Info_WarpSharp *)data->pData)+data->thread_Id;
 	
 	switch(data->f_process)
 	{
 		case 1 :
-			Warp2_8_MT((const unsigned char*)mt_data_inf.src_Y1,(const unsigned char*)mt_data_inf.src_Y2,
-				(unsigned char*)mt_data_inf.dst_Y1,
-				mt_data_inf.src_pitch_Y1,mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_Y1,mt_data_inf.row_size_Y1,
-				mt_data_inf.dst_Y_h,ptrClass->depth,ptrClass->depthV,mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
+			Warp2_8_MT((const unsigned char*)mt_data_inf->src_Y1,(const unsigned char*)mt_data_inf->src_Y2,
+				(unsigned char*)mt_data_inf->dst_Y1,
+				mt_data_inf->src_pitch_Y1,mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_Y1,mt_data_inf->row_size_Y1,
+				mt_data_inf->dst_Y_h,ptrClass->depth,ptrClass->depthV,mt_data_inf->src_Y_h_min,mt_data_inf->src_Y_h_max);
 			break;
 		case 2 :
-			Warp2_8_MT((const unsigned char*)mt_data_inf.src_U1,(const unsigned char*)mt_data_inf.src_U2,
-				(unsigned char*)mt_data_inf.dst_U2,
-				mt_data_inf.src_pitch_U1,mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U1,mt_data_inf.row_size_U1,
-				mt_data_inf.dst_U_h,ptrClass->depthC,ptrClass->depthVC,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			Warp2_8_MT((const unsigned char*)mt_data_inf->src_U1,(const unsigned char*)mt_data_inf->src_U2,
+				(unsigned char*)mt_data_inf->dst_U2,
+				mt_data_inf->src_pitch_U1,mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U1,mt_data_inf->row_size_U1,
+				mt_data_inf->dst_U_h,ptrClass->depthC,ptrClass->depthVC,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 3 :
-			Warp2_8_MT((const unsigned char*)mt_data_inf.src_V1,(const unsigned char*)mt_data_inf.src_V2,
-				(unsigned char*)mt_data_inf.dst_V1,
-				mt_data_inf.src_pitch_V1,mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V1,mt_data_inf.row_size_V1,
-				mt_data_inf.dst_U_h,ptrClass->depthC,ptrClass->depthVC,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			Warp2_8_MT((const unsigned char*)mt_data_inf->src_V1,(const unsigned char*)mt_data_inf->src_V2,
+				(unsigned char*)mt_data_inf->dst_V1,
+				mt_data_inf->src_pitch_V1,mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V1,mt_data_inf->row_size_V1,
+				mt_data_inf->dst_U_h,ptrClass->depthC,ptrClass->depthVC,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 4 :
-			GuideChroma_8_MT((const unsigned char*)mt_data_inf.src_Y2,(unsigned char*)mt_data_inf.dst_U1,
-				mt_data_inf.src_pitch_Y2,mt_data_inf.src_pitch_U2,mt_data_inf.src_U_h,mt_data_inf.row_size_U2,
-				mt_data_inf.SubW_U,mt_data_inf.SubH_U,ptrClass->cplace_mpeg2_flag,
-				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			GuideChroma_8_MT((const unsigned char*)mt_data_inf->src_Y2,(unsigned char*)mt_data_inf->dst_U1,
+				mt_data_inf->src_pitch_Y2,mt_data_inf->src_pitch_U2,mt_data_inf->src_U_h,mt_data_inf->row_size_U2,
+				mt_data_inf->SubW_U,mt_data_inf->SubH_U,ptrClass->cplace_mpeg2_flag,
+				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 5 :
-			Warp2_8_MT((const unsigned char*)mt_data_inf.src_U1,(const unsigned char*)mt_data_inf.src_U2,
-				(unsigned char*)mt_data_inf.dst_U2,
-				mt_data_inf.src_pitch_U1,mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U1,mt_data_inf.row_size_U1,
-				mt_data_inf.dst_U_h,ptrClass->depthC,ptrClass->depthVC,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			Warp2_8_MT((const unsigned char*)mt_data_inf->src_U1,(const unsigned char*)mt_data_inf->src_U2,
+				(unsigned char*)mt_data_inf->dst_U2,
+				mt_data_inf->src_pitch_U1,mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U1,mt_data_inf->row_size_U1,
+				mt_data_inf->dst_U_h,ptrClass->depthC,ptrClass->depthVC,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 6 :
-			Warp2_8_MT((const unsigned char*)mt_data_inf.src_V1,(const unsigned char*)mt_data_inf.src_U2,
-				(unsigned char*)mt_data_inf.dst_V1,
-				mt_data_inf.src_pitch_V1,mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_V1,mt_data_inf.row_size_V1,
-				mt_data_inf.dst_V_h,ptrClass->depthC,ptrClass->depthVC,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			Warp2_8_MT((const unsigned char*)mt_data_inf->src_V1,(const unsigned char*)mt_data_inf->src_U2,
+				(unsigned char*)mt_data_inf->dst_V1,
+				mt_data_inf->src_pitch_V1,mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_V1,mt_data_inf->row_size_V1,
+				mt_data_inf->dst_V_h,ptrClass->depthC,ptrClass->depthVC,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 7 :
-			Warp2_8_MT((const unsigned char*)mt_data_inf.src_U1,(const unsigned char*)mt_data_inf.src_Y2,
-				(unsigned char*)mt_data_inf.dst_U2,
-				mt_data_inf.src_pitch_U1,mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_U1,mt_data_inf.row_size_U1,
-				mt_data_inf.dst_U_h,ptrClass->depthC,ptrClass->depthVC,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			Warp2_8_MT((const unsigned char*)mt_data_inf->src_U1,(const unsigned char*)mt_data_inf->src_Y2,
+				(unsigned char*)mt_data_inf->dst_U2,
+				mt_data_inf->src_pitch_U1,mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_U1,mt_data_inf->row_size_U1,
+				mt_data_inf->dst_U_h,ptrClass->depthC,ptrClass->depthVC,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 8 :
-			Warp2_8_MT((const unsigned char*)mt_data_inf.src_V1,(const unsigned char*)mt_data_inf.src_Y2,
-				(unsigned char*)mt_data_inf.dst_V1,
-				mt_data_inf.src_pitch_V1,mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_V1,mt_data_inf.row_size_V1,
-				mt_data_inf.dst_V_h,ptrClass->depthC,ptrClass->depthVC,mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			Warp2_8_MT((const unsigned char*)mt_data_inf->src_V1,(const unsigned char*)mt_data_inf->src_Y2,
+				(unsigned char*)mt_data_inf->dst_V1,
+				mt_data_inf->src_pitch_V1,mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_V1,mt_data_inf->row_size_V1,
+				mt_data_inf->dst_V_h,ptrClass->depthC,ptrClass->depthVC,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 			// 16 bits
 		case 9 :
-			warp2_u16_MT((const unsigned char*)mt_data_inf.src_Y1,(const unsigned char*)mt_data_inf.src_Y2,
-				(unsigned char*)mt_data_inf.dst_Y1,mt_data_inf.src_pitch_Y1,mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_Y1,
-				mt_data_inf.row_size_Y1 >> 1,mt_data_inf.dst_Y_h,ptrClass->depth,ptrClass->depthV,ptrClass->bits_per_pixel,
-				mt_data_inf.src_Y_h_min,mt_data_inf.src_Y_h_max);
+			warp2_u16_MT((const unsigned char*)mt_data_inf->src_Y1,(const unsigned char*)mt_data_inf->src_Y2,
+				(unsigned char*)mt_data_inf->dst_Y1,mt_data_inf->src_pitch_Y1,mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_Y1,
+				mt_data_inf->row_size_Y1 >> 1,mt_data_inf->dst_Y_h,ptrClass->depth,ptrClass->depthV,ptrClass->bits_per_pixel,
+				mt_data_inf->src_Y_h_min,mt_data_inf->src_Y_h_max);
 			break;
 		case 10 :
-			warp2_u16_MT((const unsigned char*)mt_data_inf.src_U1,(const unsigned char*)mt_data_inf.src_U2,
-				(unsigned char*)mt_data_inf.dst_U2,mt_data_inf.src_pitch_U1,mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U1,
-				mt_data_inf.row_size_U1 >> 1,mt_data_inf.dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
-				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			warp2_u16_MT((const unsigned char*)mt_data_inf->src_U1,(const unsigned char*)mt_data_inf->src_U2,
+				(unsigned char*)mt_data_inf->dst_U2,mt_data_inf->src_pitch_U1,mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U1,
+				mt_data_inf->row_size_U1 >> 1,mt_data_inf->dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
+				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 11 :
-			warp2_u16_MT((const unsigned char*)mt_data_inf.src_V1,(const unsigned char*)mt_data_inf.src_V2,
-				(unsigned char*)mt_data_inf.dst_V1,mt_data_inf.src_pitch_V1,mt_data_inf.src_pitch_V2,mt_data_inf.dst_pitch_V1,
-				mt_data_inf.row_size_V1 >> 1,mt_data_inf.dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
-				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			warp2_u16_MT((const unsigned char*)mt_data_inf->src_V1,(const unsigned char*)mt_data_inf->src_V2,
+				(unsigned char*)mt_data_inf->dst_V1,mt_data_inf->src_pitch_V1,mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V1,
+				mt_data_inf->row_size_V1 >> 1,mt_data_inf->dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
+				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 12 :
-			GuideChroma_16_MT((const unsigned char*)mt_data_inf.src_Y2,(unsigned char*)mt_data_inf.dst_U1,
-				mt_data_inf.src_pitch_Y2,mt_data_inf.src_pitch_U2,mt_data_inf.src_U_h,mt_data_inf.row_size_U2 >> 1,
-				mt_data_inf.SubW_U,mt_data_inf.SubH_U,ptrClass->cplace_mpeg2_flag,
-				mt_data_inf.dst_UV_h_min,mt_data_inf.dst_UV_h_max);
+			GuideChroma_16_MT((const unsigned char*)mt_data_inf->src_Y2,(unsigned char*)mt_data_inf->dst_U1,
+				mt_data_inf->src_pitch_Y2,mt_data_inf->src_pitch_U2,mt_data_inf->src_U_h,mt_data_inf->row_size_U2 >> 1,
+				mt_data_inf->SubW_U,mt_data_inf->SubH_U,ptrClass->cplace_mpeg2_flag,
+				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 13 :
-			warp2_u16_MT((const unsigned char*)mt_data_inf.src_U1,(const unsigned char*)mt_data_inf.src_U2,
-				(unsigned char*)mt_data_inf.dst_U2,mt_data_inf.src_pitch_U1,mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_U1,
-				mt_data_inf.row_size_U1 >> 1,mt_data_inf.dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
-				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			warp2_u16_MT((const unsigned char*)mt_data_inf->src_U1,(const unsigned char*)mt_data_inf->src_U2,
+				(unsigned char*)mt_data_inf->dst_U2,mt_data_inf->src_pitch_U1,mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U1,
+				mt_data_inf->row_size_U1 >> 1,mt_data_inf->dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
+				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 14 :
-			warp2_u16_MT((const unsigned char*)mt_data_inf.src_V1,(const unsigned char*)mt_data_inf.src_U2,
-				(unsigned char*)mt_data_inf.dst_V1,mt_data_inf.src_pitch_V1,mt_data_inf.src_pitch_U2,mt_data_inf.dst_pitch_V1,
-				mt_data_inf.row_size_V1 >> 1,mt_data_inf.dst_V_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
-				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			warp2_u16_MT((const unsigned char*)mt_data_inf->src_V1,(const unsigned char*)mt_data_inf->src_U2,
+				(unsigned char*)mt_data_inf->dst_V1,mt_data_inf->src_pitch_V1,mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_V1,
+				mt_data_inf->row_size_V1 >> 1,mt_data_inf->dst_V_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
+				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 15 :
-			warp2_u16_MT((const unsigned char*)mt_data_inf.src_U1,(const unsigned char*)mt_data_inf.src_Y2,
-				(unsigned char*)mt_data_inf.dst_U2,mt_data_inf.src_pitch_U1,mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_U1,
-				mt_data_inf.row_size_U1 >> 1,mt_data_inf.dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
-				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			warp2_u16_MT((const unsigned char*)mt_data_inf->src_U1,(const unsigned char*)mt_data_inf->src_Y2,
+				(unsigned char*)mt_data_inf->dst_U2,mt_data_inf->src_pitch_U1,mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_U1,
+				mt_data_inf->row_size_U1 >> 1,mt_data_inf->dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
+				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 16 :
-			warp2_u16_MT((const unsigned char*)mt_data_inf.src_V1,(const unsigned char*)mt_data_inf.src_Y2,
-				(unsigned char*)mt_data_inf.dst_V1,mt_data_inf.src_pitch_V1,mt_data_inf.src_pitch_Y2,mt_data_inf.dst_pitch_V1,
-				mt_data_inf.row_size_V1 >> 1,mt_data_inf.dst_V_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
-				mt_data_inf.src_UV_h_min,mt_data_inf.src_UV_h_max);
+			warp2_u16_MT((const unsigned char*)mt_data_inf->src_V1,(const unsigned char*)mt_data_inf->src_Y2,
+				(unsigned char*)mt_data_inf->dst_V1,mt_data_inf->src_pitch_V1,mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_V1,
+				mt_data_inf->row_size_V1 >> 1,mt_data_inf->dst_V_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
+				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		default : ;
 	}
@@ -6534,7 +6528,8 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
   memcpy(MT_ThreadGF,MT_Thread,sizeof(MT_Thread));
   memcpy(MT_DataGF,MT_Data,sizeof(MT_Data));
 
-  MT_ThreadGF->pData=MT_DataGF;
+  for(uint8_t i=0; i<threads_number; i++)
+	MT_ThreadGF[i].pData=MT_DataGF;
 
   if (threads_number>1)
   {
