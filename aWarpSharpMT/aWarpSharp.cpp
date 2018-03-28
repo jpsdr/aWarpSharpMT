@@ -26,7 +26,7 @@
 #define _mm_undefined_si128 _mm_setzero_si128
 #endif
 
-static int aWarpSharp_g_cpuid;
+static bool aWarpSharp_Enable_SSE2,aWarpSharp_Enable_SSE41,aWarpSharp_Enable_AVX;
 
 static ThreadPoolInterface *poolInterface;
 
@@ -1060,7 +1060,7 @@ static void warp0_u16(const unsigned char *srcp8,const unsigned char *edgep8,uns
   const int32_t edge_pitch_,const int32_t dst_pitch_,const int32_t width,const int32_t height,int depth,int depthV,
   const uint8_t bits_per_sample)
 {
-  if ((aWarpSharp_g_cpuid & CPUF_SSE4_1)!=0)
+  if (aWarpSharp_Enable_SSE41)
   {
     if (bits_per_sample<16)
       warp_u16_sse41_core<0,true>(srcp8,edgep8,dstp8,src_pitch_,edge_pitch_,dst_pitch_,width,height,depth,depthV,bits_per_sample);
@@ -1078,7 +1078,7 @@ static void warp2_u16(const unsigned char *srcp8,const unsigned char *edgep8,uns
   const int32_t edge_pitch_,const int32_t dst_pitch_,const int32_t width,const int32_t height,int depth,int depthV,
   const uint8_t bits_per_sample)
 {
-  if ((aWarpSharp_g_cpuid & CPUF_SSE4_1)!=0)
+  if (aWarpSharp_Enable_SSE41)
   {
     if (bits_per_sample<16)
       warp_u16_sse41_core<2,true>(srcp8,edgep8,dstp8,src_pitch_,edge_pitch_,dst_pitch_,width,height,depth,depthV,bits_per_sample);
@@ -1098,7 +1098,7 @@ static void warp0_u16_MT(const unsigned char *srcp8,const unsigned char *edgep8,
   const int32_t edge_pitch_,const int32_t dst_pitch_,const int32_t width,const int32_t height,int depth,int depthV,
   const uint8_t bits_per_sample,const int32_t ymin,const int32_t ymax)
 {
-  if ((aWarpSharp_g_cpuid & CPUF_SSE4_1)!=0)
+  if (aWarpSharp_Enable_SSE41)
   {
     if (bits_per_sample<16)
       warp_u16_sse41_core_MT<0,true>(srcp8,edgep8,dstp8,src_pitch_,edge_pitch_,dst_pitch_,width,height,depth,depthV,bits_per_sample,
@@ -1119,7 +1119,7 @@ static void warp2_u16_MT(const unsigned char *srcp8,const unsigned char *edgep8,
   const int32_t edge_pitch_,const int32_t dst_pitch_,const int32_t width,const int32_t height,int depth,int depthV,
   const uint8_t bits_per_sample,const int32_t ymin,const int32_t ymax)
 {
-  if ((aWarpSharp_g_cpuid & CPUF_SSE4_1)!=0)
+  if (aWarpSharp_Enable_SSE41)
   {
     if (bits_per_sample<16)
       warp_u16_sse41_core_MT<2,true>(srcp8,edgep8,dstp8,src_pitch_,edge_pitch_,dst_pitch_,width,height,depth,depthV,bits_per_sample,
@@ -1156,7 +1156,7 @@ static void Warp0_8(const unsigned char *psrc,const unsigned char *pedg,unsigned
 	const short x_limit_max[8] = {(short)c,(short)(c-1),(short)(c-2),(short)(c-3),(short)(c-4),(short)(c-5),(short)(c-6),
 		(short)(c-7)};
 
-  if ((aWarpSharp_g_cpuid & CPUF_AVX)!=0)
+  if (aWarpSharp_Enable_AVX)
   {
     for (int32_t y=0; y<dst_height; y++)
     {
@@ -1216,7 +1216,7 @@ static void Warp0_8_MT(const unsigned char *psrc,const unsigned char *pedg,unsig
   pedg += edg_pitch*ymin;
   pdst += dst_pitch*ymin;
 
-  if ((aWarpSharp_g_cpuid & CPUF_AVX)!=0)
+  if (aWarpSharp_Enable_AVX)
   {
     for (int32_t y=ymin; y<ymax; y++)
     {
@@ -1273,7 +1273,7 @@ static void Warp2_8(const unsigned char *psrc,const unsigned char *pedg,unsigned
 	const short x_limit_max[8] = {(short)(c<<2),(short)((c-1)<<2),(short)((c-2)<<2),(short)((c-3)<<2),(short)((c-4)<<2),
 		(short)((c-5)<<2),(short)((c-6)<<2),(short)((c-7)<<2)};
 
-  if ((aWarpSharp_g_cpuid & CPUF_AVX)!=0)
+  if (aWarpSharp_Enable_AVX)
   {
     for (int32_t y=0; y<dst_height; y++)
     {
@@ -1334,7 +1334,7 @@ static void Warp2_8_MT(const unsigned char *psrc,const unsigned char *pedg,unsig
   pedg += edg_pitch*ymin;
   pdst += dst_pitch*ymin;
 
-  if ((aWarpSharp_g_cpuid & CPUF_AVX)!=0)
+  if (aWarpSharp_Enable_AVX)
   {
     for (int32_t y=ymin; y<ymax; y++)
     {
@@ -1379,7 +1379,7 @@ static void Sobel_8(const unsigned char *psrc,unsigned char *pdst,const int32_t 
 {
   const int32_t i = (dst_row_size + 3) >> 2;
 
-  if ((aWarpSharp_g_cpuid & CPUF_AVX)!=0)
+  if (aWarpSharp_Enable_AVX)
   {
 	for (int32_t y=0; y<src_height; y++)
     {
@@ -1412,7 +1412,7 @@ static void Sobel_16(const unsigned char *psrc,unsigned char *pdst,const int32_t
   dst_row_size >>= 1;
   thresh <<= (bit_pixel-8);
 
-  if ((aWarpSharp_g_cpuid & CPUF_AVX)!=0)
+  if (aWarpSharp_Enable_AVX)
   {
     for (int32_t y=0; y<src_height; y++)
     {
@@ -1451,7 +1451,7 @@ static void Sobel_8_MT(const unsigned char *psrc,unsigned char *pdst,const int32
   psrc += src_pitch*ymin;
   pdst += dst_pitch*ymin;
 
-  if ((aWarpSharp_g_cpuid & CPUF_AVX)!=0)
+  if (aWarpSharp_Enable_AVX)
   {
     for (int32_t y=ymin; y<ymax; y++)
     {
@@ -1486,7 +1486,7 @@ static void Sobel_16_MT(const unsigned char *psrc,unsigned char *pdst,const int3
   pdst += dst_pitch*ymin;
 
 
-  if ((aWarpSharp_g_cpuid & CPUF_AVX)!=0)
+  if (aWarpSharp_Enable_AVX)
   {
     for (int32_t y=ymin; y<ymax; y++)
     {
@@ -1532,7 +1532,7 @@ static void BlurR6_8(unsigned char *const psrc,unsigned char *const ptmp,const i
   // WxH min: 1x1, mul: 1x1 (write 16x1)
   if (processH)
   {
-	  if ((aWarpSharp_g_cpuid & CPUF_AVX)!=0)
+	  if (aWarpSharp_Enable_AVX)
 	  {
 	    for (int32_t y=0; y<src_height; y++)
 		{
@@ -1581,7 +1581,7 @@ static void BlurR6_8(unsigned char *const psrc,unsigned char *const ptmp,const i
     int32_t y;
 	const int32_t height_6=src_height-6;
 
-	  if ((aWarpSharp_g_cpuid & CPUF_AVX)!=0)
+	  if (aWarpSharp_Enable_AVX)
 	  {
     for (y=0; y<6; y++)
     {
@@ -1666,7 +1666,7 @@ static void BlurR6_16(unsigned char *const psrc,unsigned char *const ptmp,const 
 		const bool testw=(24+(src_row_size_16w << 4))>abs(src_pitch)?true:false;
 		if (testw) src_row_size_16w--;
 
-	  if ((aWarpSharp_g_cpuid & CPUF_AVX)!=0)
+	  if (aWarpSharp_Enable_AVX)
 	  {
 		for (int32_t y=0; y<src_height; y++)
 		{
@@ -1714,7 +1714,7 @@ static void BlurR6_16(unsigned char *const psrc,unsigned char *const ptmp,const 
     int32_t y;
 	const int32_t height_6=src_height-6;
 
-	  if ((aWarpSharp_g_cpuid & CPUF_AVX)!=0)
+	  if (aWarpSharp_Enable_AVX)
 	  {
     for (y=0; y<6; y++)
     {
@@ -1790,7 +1790,7 @@ static void BlurR6_8_MT_H(unsigned char *const psrc,unsigned char *const ptmp,co
   // WxH min: 1x1, mul: 1x1 (write 16x1)
   if (process)
   {
-	  if ((aWarpSharp_g_cpuid & CPUF_AVX)!=0)
+	  if (aWarpSharp_Enable_AVX)
 	  {
 	    for (int32_t y=ymin; y<ymax; y++)
 		{
@@ -1848,7 +1848,7 @@ static void BlurR6_16_MT_H(unsigned char *const psrc,unsigned char *const ptmp,c
 		const bool testw=(24+(src_row_size_16w << 4))>abs(src_pitch)?true:false;
 		if (testw) src_row_size_16w--;
 
-	  if ((aWarpSharp_g_cpuid & CPUF_AVX)!=0)
+	  if (aWarpSharp_Enable_AVX)
 	  {
 		for (int32_t y=ymin; y<ymax; y++)
 		{
@@ -1903,7 +1903,7 @@ static void BlurR6_8_MT_V(unsigned char *const psrc,unsigned char *const ptmp,co
     int32_t y;
 	const int32_t height_6=src_height-6;
 
-	  if ((aWarpSharp_g_cpuid & CPUF_AVX)!=0)
+	  if (aWarpSharp_Enable_AVX)
 	  {
 	if (ymin<6)
 	{
@@ -2024,7 +2024,7 @@ static void BlurR6_16_MT_V(unsigned char *const psrc,unsigned char *const ptmp,c
     int32_t y;
 	const int32_t height_6=src_height-6;
 
-	  if ((aWarpSharp_g_cpuid & CPUF_AVX)!=0)
+	  if (aWarpSharp_Enable_AVX)
 	  {
 	if (ymin<6)
 	{
@@ -2144,7 +2144,7 @@ static void BlurR2_8(unsigned char *const psrc,unsigned char *const ptmp,const i
   // WxH min: 1x1, mul: 1x1 (write 16x1)
   if (processH)
   {
-	  if ((aWarpSharp_g_cpuid & CPUF_AVX)!=0)
+	  if (aWarpSharp_Enable_AVX)
 	  {
 	    for (int32_t y=0; y<src_height; y++)
 		{
@@ -2222,7 +2222,7 @@ static void BlurR2_8(unsigned char *const psrc,unsigned char *const ptmp,const i
   {
 	const int32_t height_1=src_height-1,height_2=src_height-2;
 
-	  if ((aWarpSharp_g_cpuid & CPUF_AVX)!=0)
+	  if (aWarpSharp_Enable_AVX)
 	  {
     for (int32_t y=0; y<src_height; y++)
     {
@@ -2288,7 +2288,7 @@ static void BlurR2_16(unsigned char *const psrc,unsigned char *const ptmp,const 
 		const int32_t width=src_row_size >> 1;
 		const int32_t wm1=width-1,wm2=width-2,wm3=width-3,wm4=width-4;
 
-	  if ((aWarpSharp_g_cpuid & CPUF_AVX)!=0)
+	  if (aWarpSharp_Enable_AVX)
 	  {
 		for (int32_t y=0; y<src_height; y++)
 		{
@@ -2396,7 +2396,7 @@ static void BlurR2_16(unsigned char *const psrc,unsigned char *const ptmp,const 
   {
 	const int32_t height_1=src_height-1,height_2=src_height-2;
 
-	  if ((aWarpSharp_g_cpuid & CPUF_AVX)!=0)
+	  if (aWarpSharp_Enable_AVX)
 	  {
     for (int32_t y=0; y<src_height; y++)
     {
@@ -2455,7 +2455,7 @@ static void BlurR2_8_MT_H(unsigned char *const psrc,unsigned char *const ptmp,co
   // WxH min: 1x1, mul: 1x1 (write 16x1)
   if (process)
   {
-	  if ((aWarpSharp_g_cpuid & CPUF_AVX)!=0)
+	  if (aWarpSharp_Enable_AVX)
 	  {
 	    for (int32_t y=ymin; y<ymax; y++)
 		{
@@ -2546,7 +2546,7 @@ static void BlurR2_16_MT_H(unsigned char *const psrc,unsigned char *const ptmp,c
 		const int32_t width=src_row_size >> 1;
 		const int32_t wm1=width-1,wm2=width-2,wm3=width-3,wm4=width-4;
 
-	  if ((aWarpSharp_g_cpuid & CPUF_AVX)!=0)
+	  if (aWarpSharp_Enable_AVX)
 	  {
 		for (int32_t y=ymin; y<ymax; y++)
 		{
@@ -2666,7 +2666,7 @@ static void BlurR2_8_MT_V(unsigned char *const psrc,unsigned char *const ptmp,co
   {
 	const int32_t height_1=src_height-1,height_2=src_height-2;
 
-	  if ((aWarpSharp_g_cpuid & CPUF_AVX)!=0)
+	  if (aWarpSharp_Enable_AVX)
 	  {
     for (int32_t y=ymin; y<ymax; y++)
     {
@@ -2728,7 +2728,7 @@ static void BlurR2_16_MT_V(unsigned char *const psrc,unsigned char *const ptmp,c
   {
 	const int32_t height_1=src_height-1,height_2=src_height-2;
 
-	  if ((aWarpSharp_g_cpuid & CPUF_AVX)!=0)
+	  if (aWarpSharp_Enable_AVX)
 	  {
     for (int32_t y=ymin; y<ymax; y++)
     {
@@ -2806,7 +2806,7 @@ static bool GuideChroma_8(const unsigned char *py,unsigned char *pu,const int32_
     // MPEG-1
     else
     {
-		if ((aWarpSharp_g_cpuid & CPUF_AVX)!=0)
+		if (aWarpSharp_Enable_AVX)
 		{
 			for (int32_t y=0; y<dst_height_uv; y++)
 	        {
@@ -2859,7 +2859,7 @@ static bool GuideChroma_8(const unsigned char *py,unsigned char *pu,const int32_
     // MPEG-1
     else
     {
-		if ((aWarpSharp_g_cpuid & CPUF_AVX)!=0)
+		if (aWarpSharp_Enable_AVX)
 		{
 			for (int32_t y=0; y<dst_height_uv; y++)
 			{
@@ -2939,7 +2939,7 @@ static bool GuideChroma_16(const unsigned char *py_,unsigned char *pu_,const int
     // MPEG-1
     else
     {
-		if ((aWarpSharp_g_cpuid & CPUF_AVX)!=0)
+		if (aWarpSharp_Enable_AVX)
 		{
 			for (int32_t y=0; y<dst_height_uv; y++)
 	        {
@@ -2996,7 +2996,7 @@ static bool GuideChroma_16(const unsigned char *py_,unsigned char *pu_,const int
     // MPEG-1
     else
     {
-		if ((aWarpSharp_g_cpuid & CPUF_AVX)!=0)
+		if (aWarpSharp_Enable_AVX)
 		{
 			for (int32_t y=0; y<dst_height_uv; y++)
 			{
@@ -3076,7 +3076,7 @@ void GuideChroma_8_MT(const unsigned char *py,unsigned char *pu,const int32_t sr
     // MPEG-1
     else
     {
-		if ((aWarpSharp_g_cpuid & CPUF_AVX)!=0)
+		if (aWarpSharp_Enable_AVX)
 		{
 		    for (int32_t y=ymin; y<ymax; y++)
 			{
@@ -3130,7 +3130,7 @@ void GuideChroma_8_MT(const unsigned char *py,unsigned char *pu,const int32_t sr
     // MPEG-1
     else
     {
-		if ((aWarpSharp_g_cpuid & CPUF_AVX)!=0)
+		if (aWarpSharp_Enable_AVX)
 		{
 			for (int32_t y=ymin; y<ymax; y++)
 			{
@@ -3212,7 +3212,7 @@ void GuideChroma_16_MT(const unsigned char *py_,unsigned char *pu_,const int32_t
     // MPEG-1
     else
     {
-		if ((aWarpSharp_g_cpuid & CPUF_AVX)!=0)
+		if (aWarpSharp_Enable_AVX)
 		{
 			for (int32_t y=0; y<dst_height_uv; y++)
 	        {
@@ -3271,7 +3271,7 @@ void GuideChroma_16_MT(const unsigned char *py_,unsigned char *pu_,const int32_t
     // MPEG-1
     else
     {
-		if ((aWarpSharp_g_cpuid & CPUF_AVX)!=0)
+		if (aWarpSharp_Enable_AVX)
 		{
 			for (int32_t y=0; y<dst_height_uv; y++)
 			{
@@ -6838,7 +6838,7 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
   {
   case 0 :
 	  {
-	  if ((aWarpSharp_g_cpuid & CPUF_SSE2)==0) env->ThrowError("aWarpSharp2: SSE2 capable CPU is required");
+	  if (!aWarpSharp_Enable_SSE2) env->ThrowError("aWarpSharp2: SSE2 capable CPU is required");
 
 	  threads=args[14].AsInt(0);
 	  LogicalCores=args[15].AsBool(true);
@@ -6886,7 +6886,7 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 	  }
   case 1 :
 	  {
-	  if ((aWarpSharp_g_cpuid & CPUF_SSE2)==0) env->ThrowError("aWarpSharp: SSE2 capable CPU is required");
+	  if (!aWarpSharp_Enable_SSE2) env->ThrowError("aWarpSharp: SSE2 capable CPU is required");
 
     blurt = (args[5].AsInt(2)!=2)?1:0;
     const int blurlevel = args[2].AsInt(2);
@@ -6946,7 +6946,7 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 	  sleep = args[8].AsBool(false);
 	  prefetch=args[9].AsInt(0);
 
-	  if ((aWarpSharp_g_cpuid & CPUF_SSE2)==0) env->ThrowError("aSobel: SSE2 capable CPU is required");
+	  if (!aWarpSharp_Enable_SSE2) env->ThrowError("aSobel: SSE2 capable CPU is required");
 
 	  if ((threads<0) || (threads>MAX_MT_THREADS))
 		  env->ThrowError("aSobel: [threads] must be between 0 and %ld.",MAX_MT_THREADS);
@@ -6985,7 +6985,7 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 	  sleep = args[11].AsBool(false);
 	  prefetch=args[12].AsInt(0);
 
-	  if ((aWarpSharp_g_cpuid & CPUF_SSE2)==0) env->ThrowError("aBlur: SSE2 capable CPU is required");
+	  if (!aWarpSharp_Enable_SSE2) env->ThrowError("aBlur: SSE2 capable CPU is required");
 
 	  if ((threads<0) || (threads>MAX_MT_THREADS))
 		  env->ThrowError("aBlur: [threads] must be between 0 and %ld.",MAX_MT_THREADS);
@@ -7008,7 +7008,7 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 		  }
 	  }
 
-	  if ((aWarpSharp_g_cpuid & CPUF_SSE2)==0) env->ThrowError("aBlur: SSE2 capable CPU is required");
+	  if (!aWarpSharp_Enable_SSE2) env->ThrowError("aBlur: SSE2 capable CPU is required");
 
 	  blurt=args[2].AsInt(1);
 	  args[1].Defined() ? blur=args[1].AsInt(-1) : blur=((blurt==0) ? 2:3);
@@ -7029,7 +7029,7 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 	  sleep = args[12].AsBool(false);
 	  prefetch=args[13].AsInt(0);
 
-	  if ((aWarpSharp_g_cpuid & CPUF_SSE2)==0) env->ThrowError("aWarp: SSE2 capable CPU is required");
+	  if (!aWarpSharp_Enable_SSE2) env->ThrowError("aWarp: SSE2 capable CPU is required");
 
 	  if ((threads<0) || (threads>MAX_MT_THREADS))
 		  env->ThrowError("aWarp: [threads] must be between 0 and %ld.",MAX_MT_THREADS);
@@ -7052,7 +7052,7 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 		  }
 	  }
 
-	  if ((aWarpSharp_g_cpuid & CPUF_SSE2)==0) env->ThrowError("aWarp: SSE2 capable CPU is required");
+	  if (!aWarpSharp_Enable_SSE2) env->ThrowError("aWarp: SSE2 capable CPU is required");
 
 	  depth=args[2].AsInt(3);
 	  args[4].Defined() ? depthC=args[4].AsInt(128) : depthC=(vi.Is444() ? depth:(depth>>1));
@@ -7072,7 +7072,7 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 	  sleep = args[12].AsBool(false);
 	  prefetch=args[13].AsInt(0);
 
-	  if ((aWarpSharp_g_cpuid & CPUF_SSE2)==0) env->ThrowError("aWarp4: SSE2 capable CPU is required");
+	  if (!aWarpSharp_Enable_SSE2) env->ThrowError("aWarp4: SSE2 capable CPU is required");
 
 	  if ((threads<0) || (threads>MAX_MT_THREADS))
 		  env->ThrowError("aWarp4: [threads] must be between 0 and %ld.",MAX_MT_THREADS);
@@ -7137,7 +7137,9 @@ AvisynthPluginInit3(IScriptEnvironment* env, const AVS_Linkage* const vectors)
 
   poolInterface=ThreadPoolInterface::Init(0);
 
-  aWarpSharp_g_cpuid = env->GetCPUFlags(); // PF
+  aWarpSharp_Enable_SSE2=(env->GetCPUFlags() & CPUF_SSE2)!=0;
+  aWarpSharp_Enable_SSE41=(env->GetCPUFlags() & CPUF_SSE4_1)!=0;
+  aWarpSharp_Enable_AVX=(env->GetCPUFlags() & CPUF_AVX)!=0;
 
   env->AddFunction("aWarpSharp2", "c[thresh]i[blur]i[type]i[depth]i[chroma]i[depthC]i[cplace]s[blurV]i[depthV]i[depthVC]i" \
 	  "[blurC]i[blurVC]i[threshC]i[threads]i[logicalCores]b[MaxPhysCore]b[SetAffinity]b[sleep]b[prefetch]i", Create_aWarpSharp, (void*)0);
