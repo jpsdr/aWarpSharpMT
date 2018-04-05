@@ -6853,7 +6853,7 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 	  threads=args[14].AsInt(0);
 	  LogicalCores=args[15].AsBool(true);
 	  MaxPhysCores=args[16].AsBool(true);
-	  SetAffinity=args[17].AsBool(true);
+	  SetAffinity=args[17].AsBool(false);
 	  sleep = args[18].AsBool(false);
 	  prefetch=args[19].AsInt(0);
 
@@ -6937,7 +6937,7 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 	  threads=args[7].AsInt(0);
 	  LogicalCores=args[8].AsBool(true);
 	  MaxPhysCores=args[9].AsBool(true);
-	  SetAffinity=args[10].AsBool(true);
+	  SetAffinity=args[10].AsBool(false);
 	  sleep = args[11].AsBool(false);
 	  prefetch=args[12].AsInt(0);
 
@@ -7014,7 +7014,7 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 	  threads=args[4].AsInt(0);
 	  LogicalCores=args[5].AsBool(true);
 	  MaxPhysCores=args[6].AsBool(true);
-	  SetAffinity=args[7].AsBool(true);
+	  SetAffinity=args[7].AsBool(false);
 	  sleep = args[8].AsBool(false);
 	  prefetch=args[9].AsInt(0);
 
@@ -7084,7 +7084,7 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 	  threads=args[7].AsInt(0);
 	  LogicalCores=args[8].AsBool(true);
 	  MaxPhysCores=args[9].AsBool(true);
-	  SetAffinity=args[10].AsBool(true);
+	  SetAffinity=args[10].AsBool(false);
 	  sleep = args[11].AsBool(false);
 	  prefetch=args[12].AsInt(0);
 
@@ -7157,7 +7157,7 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 	  threads=args[8].AsInt(0);
 	  LogicalCores=args[9].AsBool(true);
 	  MaxPhysCores=args[10].AsBool(true);
-	  SetAffinity=args[11].AsBool(true);
+	  SetAffinity=args[11].AsBool(false);
 	  sleep = args[12].AsBool(false);
 	  prefetch=args[13].AsInt(0);
 
@@ -7229,7 +7229,7 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 	  threads=args[8].AsInt(0);
 	  LogicalCores=args[9].AsBool(true);
 	  MaxPhysCores=args[10].AsBool(true);
-	  SetAffinity=args[11].AsBool(true);
+	  SetAffinity=args[11].AsBool(false);
 	  sleep = args[12].AsBool(false);
 	  prefetch=args[13].AsInt(0);
 

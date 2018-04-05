@@ -123,7 +123,7 @@ Syntax:
       according MaxPhysCore parameter. If set to false, it's leaved to the OS.
       If prefecth>number of physical cores, it's automaticaly set to false.
 
-      Default: true (bool)
+      Default: false (bool)
 
   sleep -
       If this parameter is set to true, once the filter has finished one frame, the threads of the
