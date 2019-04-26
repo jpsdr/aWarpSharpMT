@@ -1,3 +1,19 @@
+; aWarpSharp package 2016.06.23 for Avisynth+ and Avisynth 2.6
+; based on Firesledge's 2015.12.30 for Avisynth 2.5
+; aWarpSharp package 2012.03.28 for Avisynth 2.5
+; Copyright (C) 2003 MarcFD, 2012 Skakov Pavel
+; 2015 Firesledge
+; 2016 pinterf
+; This program is free software; you can redistribute it and/or modify
+; it under the terms of the GNU General Public License as published by
+; the Free Software Foundation; either version 2 of the License, or
+; (at your option) any later version.
+;
+; This program is distributed in the hope that it will be useful,
+; but WITHOUT ANY WARRANTY; without even the implied warranty of
+; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+; GNU General Public License for more details.
+
 .586
 .model flat,c
 
