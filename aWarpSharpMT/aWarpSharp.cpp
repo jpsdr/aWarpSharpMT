@@ -4177,7 +4177,7 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 
   if (threads_number>1)
   {
-	  if ((!poolInterface->RequestThreadPool(UserId,threads_number,MT_ThreadGF,nPool,false,true)) || (nPool==-1))
+	  if ((!poolInterface->RequestThreadPool(UserId,threads_number,MT_ThreadGF,NoneThreadLevel,nPool,false,true)) || (nPool==-1))
 		  env->ThrowError("aWarpSharp: Error with the TheadPool while requesting threadpool!");
   }
 
@@ -4835,7 +4835,7 @@ PVideoFrame __stdcall aSobel::GetFrame(int n, IScriptEnvironment *env)
 
   if (threads_number>1)
   {
-	  if ((!poolInterface->RequestThreadPool(UserId,threads_number,MT_ThreadGF,nPool,false,true)) || (nPool==-1))
+	  if ((!poolInterface->RequestThreadPool(UserId,threads_number,MT_ThreadGF,NoneThreadLevel,nPool,false,true)) || (nPool==-1))
 		  env->ThrowError("aSobel: Error with the TheadPool while requesting threadpool!");
   }
 
@@ -5392,7 +5392,7 @@ PVideoFrame __stdcall aBlur::GetFrame(int n, IScriptEnvironment *env)
 
   if (threads_number>1)
   {
-	  if ((!poolInterface->RequestThreadPool(UserId,threads_number,MT_ThreadGF,nPool,false,true)) || (nPool==-1))
+	  if ((!poolInterface->RequestThreadPool(UserId,threads_number,MT_ThreadGF,NoneThreadLevel,nPool,false,true)) || (nPool==-1))
 		  env->ThrowError("aBlur: Error with the TheadPool while requesting threadpool!");
   }
 
@@ -5936,7 +5936,7 @@ PVideoFrame __stdcall aWarp::GetFrame(int n, IScriptEnvironment *env)
 
   if (threads_number>1)
   {
-	  if ((!poolInterface->RequestThreadPool(UserId,threads_number,MT_ThreadGF,nPool,false,true)) || (nPool==-1))
+	  if ((!poolInterface->RequestThreadPool(UserId,threads_number,MT_ThreadGF,NoneThreadLevel,nPool,false,true)) || (nPool==-1))
 		  env->ThrowError("aWarp: Error with the TheadPool while requesting threadpool!");
   }
 
@@ -6543,7 +6543,7 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
 
   if (threads_number>1)
   {
-	  if ((!poolInterface->RequestThreadPool(UserId,threads_number,MT_ThreadGF,nPool,false,true)) || (nPool==-1))
+	  if ((!poolInterface->RequestThreadPool(UserId,threads_number,MT_ThreadGF,NoneThreadLevel,nPool,false,true)) || (nPool==-1))
 		  env->ThrowError("aWarp4: Error with the TheadPool while requesting threadpool!");
   }
 
@@ -6832,7 +6832,7 @@ static bool is_cplace_mpeg2(const AVSValue &args, int pos)
 
 AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnvironment *env)
 {
-	int threads,prefetch;
+	int threads,prefetch,thread_level;
 	bool LogicalCores,MaxPhysCores,SetAffinity,sleep;
 
 	uint8_t threads_number=1;
@@ -6843,6 +6843,9 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 	const bool avsp=env->FunctionExists("ConvertBits");
 
 	int thresh,blur,blurt,depth,depthC,blurV,depthV,depthVC,blurC,blurVC,threshC;
+
+	const ThreadLevelName TabLevel[8]={NoneThreadLevel,IdleThreadLevel,LowestThreadLevel,
+		BelowThreadLevel,NormalThreadLevel,AboveThreadLevel,HighestThreadLevel,CriticalThreadLevel};
 
   switch ((int)(size_t)user_data)
   {
@@ -6856,12 +6859,15 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 	  SetAffinity=args[17].AsBool(false);
 	  sleep = args[18].AsBool(false);
 	  prefetch=args[19].AsInt(0);
+	  thread_level=args[20].AsInt(6);
 
 	  if ((threads<0) || (threads>MAX_MT_THREADS))
 		  env->ThrowError("aWarpSharp2: [threads] must be between 0 and %ld.",MAX_MT_THREADS);
 	  if (prefetch==0) prefetch=1;
 	  if ((prefetch<0) || (prefetch>MAX_THREAD_POOL))
 		  env->ThrowError("aWarpSharp2: [prefetch] must be between 0 and %d.",MAX_THREAD_POOL);
+	if ((thread_level<1) || (thread_level>7))
+		env->ThrowError("aWarpSharp2: [ThreadLevel] must be between 1 and 7.");
 
 	  if (threads!=1)
 	  {
@@ -6881,7 +6887,8 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 
 					  for(uint8_t i=0; i<prefetch; i++)
 					  {
-						  if (!poolInterface->AllocateThreads(threads_number,(uint8_t)ceil(Offset),0,MaxPhysCores,true,true,i))
+						  if (!poolInterface->AllocateThreads(threads_number,(uint8_t)ceil(Offset),0,
+							  MaxPhysCores,true,true,TabLevel[thread_level],i))
 						  {
 							  poolInterface->DeAllocateAllThreads(true);
 							  env->ThrowError("aWarpSharp2: Error with the TheadPool while allocating threadpool!");
@@ -6891,7 +6898,7 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 				  }
 				  else
 				  {
-					  if (!poolInterface->AllocateThreads(threads_number,0,0,MaxPhysCores,false,true,-1))
+					  if (!poolInterface->AllocateThreads(threads_number,0,0,MaxPhysCores,false,true,TabLevel[thread_level],-1))
 					  {
 						  poolInterface->DeAllocateAllThreads(true);
 						  env->ThrowError("aWarpSharp2: Error with the TheadPool while allocating threadpool!");
@@ -6900,7 +6907,7 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 			  }
 			  else
 			  {
-				  if (!poolInterface->AllocateThreads(threads_number,0,0,MaxPhysCores,SetAffinity,true,-1))
+				  if (!poolInterface->AllocateThreads(threads_number,0,0,MaxPhysCores,SetAffinity,true,TabLevel[thread_level],-1))
 				  {
 					  poolInterface->DeAllocateAllThreads(true);
 					  env->ThrowError("aWarpSharp2: Error with the TheadPool while allocating threadpool!");
@@ -6940,12 +6947,15 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 	  SetAffinity=args[10].AsBool(false);
 	  sleep = args[11].AsBool(false);
 	  prefetch=args[12].AsInt(0);
+	  thread_level=args[13].AsInt(6);
 
 	  if ((threads<0) || (threads>MAX_MT_THREADS))
 		  env->ThrowError("aWarpSharp: [threads] must be between 0 and %ld.",MAX_MT_THREADS);
 	  if (prefetch==0) prefetch=1;
 	  if ((prefetch<0) || (prefetch>MAX_THREAD_POOL))
 		  env->ThrowError("aWarpSharp: [prefetch] must be between 0 and %d.",MAX_THREAD_POOL);
+	if ((thread_level<1) || (thread_level>7))
+		env->ThrowError("aWarpSharp: [ThreadLevel] must be between 1 and 7.");
 
 	  if (threads!=1)
 	  {
@@ -6965,7 +6975,8 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 
 					  for(uint8_t i=0; i<prefetch; i++)
 					  {
-						  if (!poolInterface->AllocateThreads(threads_number,(uint8_t)ceil(Offset),0,MaxPhysCores,true,true,i))
+						  if (!poolInterface->AllocateThreads(threads_number,(uint8_t)ceil(Offset),0,
+							  MaxPhysCores,true,true,TabLevel[thread_level],i))
 						  {
 							  poolInterface->DeAllocateAllThreads(true);
 							  env->ThrowError("aWarpSharp: Error with the TheadPool while allocating threadpool!");
@@ -6975,7 +6986,7 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 				  }
 				  else
 				  {
-					  if (!poolInterface->AllocateThreads(threads_number,0,0,MaxPhysCores,false,true,-1))
+					  if (!poolInterface->AllocateThreads(threads_number,0,0,MaxPhysCores,false,true,TabLevel[thread_level],-1))
 					  {
 						  poolInterface->DeAllocateAllThreads(true);
 						  env->ThrowError("aWarpSharp: Error with the TheadPool while allocating threadpool!");
@@ -6984,7 +6995,7 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 			  }
 			  else
 			  {
-				  if (!poolInterface->AllocateThreads(threads_number,0,0,MaxPhysCores,SetAffinity,true,-1))
+				  if (!poolInterface->AllocateThreads(threads_number,0,0,MaxPhysCores,SetAffinity,true,TabLevel[thread_level],-1))
 				  {
 					  poolInterface->DeAllocateAllThreads(true);
 					  env->ThrowError("aWarpSharp: Error with the TheadPool while allocating threadpool!");
@@ -7017,6 +7028,7 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 	  SetAffinity=args[7].AsBool(false);
 	  sleep = args[8].AsBool(false);
 	  prefetch=args[9].AsInt(0);
+	  thread_level=args[10].AsInt(6);
 
 	  if (!aWarpSharp_Enable_SSE2) env->ThrowError("aSobel: SSE2 capable CPU is required");
 
@@ -7025,6 +7037,8 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 	  if (prefetch==0) prefetch=1;
 	  if ((prefetch<0) || (prefetch>MAX_THREAD_POOL))
 		  env->ThrowError("aSobel: [prefetch] must be between 0 and %d.",MAX_THREAD_POOL);
+	if ((thread_level<1) || (thread_level>7))
+		env->ThrowError("aSobel: [ThreadLevel] must be between 1 and 7.");
 
 	  if (threads!=1)
 	  {
@@ -7044,7 +7058,8 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 
 					  for(uint8_t i=0; i<prefetch; i++)
 					  {
-						  if (!poolInterface->AllocateThreads(threads_number,(uint8_t)ceil(Offset),0,MaxPhysCores,true,true,i))
+						  if (!poolInterface->AllocateThreads(threads_number,(uint8_t)ceil(Offset),0,
+							  MaxPhysCores,true,true,TabLevel[thread_level],i))
 						  {
 							  poolInterface->DeAllocateAllThreads(true);
 							  env->ThrowError("aSobel: Error with the TheadPool while allocating threadpool!");
@@ -7054,7 +7069,7 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 				  }
 				  else
 				  {
-					  if (!poolInterface->AllocateThreads(threads_number,0,0,MaxPhysCores,false,true,-1))
+					  if (!poolInterface->AllocateThreads(threads_number,0,0,MaxPhysCores,false,true,TabLevel[thread_level],-1))
 					  {
 						  poolInterface->DeAllocateAllThreads(true);
 						  env->ThrowError("aSobel: Error with the TheadPool while allocating threadpool!");
@@ -7063,7 +7078,7 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 			  }
 			  else
 			  {
-				  if (!poolInterface->AllocateThreads(threads_number,0,0,MaxPhysCores,SetAffinity,true,-1))
+				  if (!poolInterface->AllocateThreads(threads_number,0,0,MaxPhysCores,SetAffinity,true,TabLevel[thread_level],-1))
 				  {
 					  poolInterface->DeAllocateAllThreads(true);
 					  env->ThrowError("aSobel: Error with the TheadPool while allocating threadpool!");
@@ -7087,6 +7102,7 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 	  SetAffinity=args[10].AsBool(false);
 	  sleep = args[11].AsBool(false);
 	  prefetch=args[12].AsInt(0);
+	  thread_level=args[13].AsInt(6);
 
 	  if (!aWarpSharp_Enable_SSE2) env->ThrowError("aBlur: SSE2 capable CPU is required");
 
@@ -7095,6 +7111,8 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 	  if (prefetch==0) prefetch=1;
 	  if ((prefetch<0) || (prefetch>MAX_THREAD_POOL))
 		  env->ThrowError("aBlur: [prefetch] must be between 0 and %d.",MAX_THREAD_POOL);
+	if ((thread_level<1) || (thread_level>7))
+		env->ThrowError("aBlur: [ThreadLevel] must be between 1 and 7.");
 
 	  if (threads!=1)
 	  {
@@ -7114,7 +7132,8 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 
 					  for(uint8_t i=0; i<prefetch; i++)
 					  {
-						  if (!poolInterface->AllocateThreads(threads_number,(uint8_t)ceil(Offset),0,MaxPhysCores,true,true,i))
+						  if (!poolInterface->AllocateThreads(threads_number,(uint8_t)ceil(Offset),0,
+							  MaxPhysCores,true,true,TabLevel[thread_level],i))
 						  {
 							  poolInterface->DeAllocateAllThreads(true);
 							  env->ThrowError("aBlur: Error with the TheadPool while allocating threadpool!");
@@ -7124,7 +7143,7 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 				  }
 				  else
 				  {
-					  if (!poolInterface->AllocateThreads(threads_number,0,0,MaxPhysCores,false,true,-1))
+					  if (!poolInterface->AllocateThreads(threads_number,0,0,MaxPhysCores,false,true,TabLevel[thread_level],-1))
 					  {
 						  poolInterface->DeAllocateAllThreads(true);
 						  env->ThrowError("aBlur: Error with the TheadPool while allocating threadpool!");
@@ -7133,7 +7152,7 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 			  }
 			  else
 			  {
-				  if (!poolInterface->AllocateThreads(threads_number,0,0,MaxPhysCores,SetAffinity,true,-1))
+				  if (!poolInterface->AllocateThreads(threads_number,0,0,MaxPhysCores,SetAffinity,true,TabLevel[thread_level],-1))
 				  {
 					  poolInterface->DeAllocateAllThreads(true);
 					  env->ThrowError("aBlur: Error with the TheadPool while allocating threadpool!");
@@ -7160,6 +7179,7 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 	  SetAffinity=args[11].AsBool(false);
 	  sleep = args[12].AsBool(false);
 	  prefetch=args[13].AsInt(0);
+	  thread_level=args[14].AsInt(6);
 
 	  if (!aWarpSharp_Enable_SSE2) env->ThrowError("aWarp: SSE2 capable CPU is required");
 
@@ -7168,6 +7188,8 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 	  if (prefetch==0) prefetch=1;
 	  if ((prefetch<0) || (prefetch>MAX_THREAD_POOL))
 		  env->ThrowError("aWarp: [prefetch] must be between 0 and %d.",MAX_THREAD_POOL);
+	if ((thread_level<1) || (thread_level>7))
+		env->ThrowError("aWarp: [ThreadLevel] must be between 1 and 7.");
 
 	  if (threads!=1)
 	  {
@@ -7187,7 +7209,8 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 
 					  for(uint8_t i=0; i<prefetch; i++)
 					  {
-						  if (!poolInterface->AllocateThreads(threads_number,(uint8_t)ceil(Offset),0,MaxPhysCores,true,true,i))
+						  if (!poolInterface->AllocateThreads(threads_number,(uint8_t)ceil(Offset),0,
+							  MaxPhysCores,true,true,TabLevel[thread_level],i))
 						  {
 							  poolInterface->DeAllocateAllThreads(true);
 							  env->ThrowError("aWarp: Error with the TheadPool while allocating threadpool!");
@@ -7197,7 +7220,7 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 				  }
 				  else
 				  {
-					  if (!poolInterface->AllocateThreads(threads_number,0,0,MaxPhysCores,false,true,-1))
+					  if (!poolInterface->AllocateThreads(threads_number,0,0,MaxPhysCores,false,true,TabLevel[thread_level],-1))
 					  {
 						  poolInterface->DeAllocateAllThreads(true);
 						  env->ThrowError("aWarp: Error with the TheadPool while allocating threadpool!");
@@ -7206,7 +7229,7 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 			  }
 			  else
 			  {
-				  if (!poolInterface->AllocateThreads(threads_number,0,0,MaxPhysCores,SetAffinity,true,-1))
+				  if (!poolInterface->AllocateThreads(threads_number,0,0,MaxPhysCores,SetAffinity,true,TabLevel[thread_level],-1))
 				  {
 					  poolInterface->DeAllocateAllThreads(true);
 					  env->ThrowError("aWarp: Error with the TheadPool while allocating threadpool!");
@@ -7232,6 +7255,7 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 	  SetAffinity=args[11].AsBool(false);
 	  sleep = args[12].AsBool(false);
 	  prefetch=args[13].AsInt(0);
+	  thread_level=args[14].AsInt(6);
 
 	  if (!aWarpSharp_Enable_SSE2) env->ThrowError("aWarp4: SSE2 capable CPU is required");
 
@@ -7240,6 +7264,8 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 	  if (prefetch==0) prefetch=1;
 	  if ((prefetch<0) || (prefetch>MAX_THREAD_POOL))
 		  env->ThrowError("aWarp4: [prefetch] must be between 0 and %d.",MAX_THREAD_POOL);
+	if ((thread_level<1) || (thread_level>7))
+		env->ThrowError("aWarp4: [ThreadLevel] must be between 1 and 7.");
 
 	  if (threads!=1)
 	  {
@@ -7259,7 +7285,8 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 
 					  for(uint8_t i=0; i<prefetch; i++)
 					  {
-						  if (!poolInterface->AllocateThreads(threads_number,(uint8_t)ceil(Offset),0,MaxPhysCores,true,true,i))
+						  if (!poolInterface->AllocateThreads(threads_number,(uint8_t)ceil(Offset),0,
+							  MaxPhysCores,true,true,TabLevel[thread_level],i))
 						  {
 							  poolInterface->DeAllocateAllThreads(true);
 							  env->ThrowError("aWarp4: Error with the TheadPool while allocating threadpool!");
@@ -7269,7 +7296,7 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 				  }
 				  else
 				  {
-					  if (!poolInterface->AllocateThreads(threads_number,0,0,MaxPhysCores,false,true,-1))
+					  if (!poolInterface->AllocateThreads(threads_number,0,0,MaxPhysCores,false,true,TabLevel[thread_level],-1))
 					  {
 						  poolInterface->DeAllocateAllThreads(true);
 						  env->ThrowError("aWarp4: Error with the TheadPool while allocating threadpool!");
@@ -7278,7 +7305,7 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 			  }
 			  else
 			  {
-				  if (!poolInterface->AllocateThreads(threads_number,0,0,MaxPhysCores,SetAffinity,true,-1))
+				  if (!poolInterface->AllocateThreads(threads_number,0,0,MaxPhysCores,SetAffinity,true,TabLevel[thread_level],-1))
 				  {
 					  poolInterface->DeAllocateAllThreads(true);
 					  env->ThrowError("aWarp4: Error with the TheadPool while allocating threadpool!");
@@ -7334,17 +7361,17 @@ AvisynthPluginInit3(IScriptEnvironment* env, const AVS_Linkage* const vectors)
   aWarpSharp_Enable_AVX=(env->GetCPUFlags() & CPUF_AVX)!=0;
 
   env->AddFunction("aWarpSharp2", "c[thresh]i[blur]i[type]i[depth]i[chroma]i[depthC]i[cplace]s[blurV]i[depthV]i[depthVC]i" \
-	  "[blurC]i[blurVC]i[threshC]i[threads]i[logicalCores]b[MaxPhysCore]b[SetAffinity]b[sleep]b[prefetch]i", Create_aWarpSharp, (void*)0);
+	  "[blurC]i[blurVC]i[threshC]i[threads]i[logicalCores]b[MaxPhysCore]b[SetAffinity]b[sleep]b[prefetch]i[ThreadLevel]i", Create_aWarpSharp, (void*)0);
   env->AddFunction("aWarpSharp", "c[depth]f[blurlevel]i[thresh]f[cm]i[bm]i[show]b" \
-	  "[threads]i[logicalCores]b[MaxPhysCore]b[SetAffinity]b[sleep]b[prefetch]i", Create_aWarpSharp, (void*)1);
+	  "[threads]i[logicalCores]b[MaxPhysCore]b[SetAffinity]b[sleep]b[prefetch]i[ThreadLevel]i", Create_aWarpSharp, (void*)1);
   env->AddFunction("aSobel", "c[thresh]i[chroma]i[threshC]i" \
-	  "[threads]i[logicalCores]b[MaxPhysCore]b[SetAffinity]b[sleep]b[prefetch]i", Create_aWarpSharp, (void*)2);
+	  "[threads]i[logicalCores]b[MaxPhysCore]b[SetAffinity]b[sleep]b[prefetch]i[ThreadLevel]i", Create_aWarpSharp, (void*)2);
   env->AddFunction("aBlur", "c[blur]i[type]i[chroma]i[blurV]i[blurC]i[blurVC]i" \
-	  "[threads]i[logicalCores]b[MaxPhysCore]b[SetAffinity]b[sleep]b[prefetch]i", Create_aWarpSharp, (void*)3);
+	  "[threads]i[logicalCores]b[MaxPhysCore]b[SetAffinity]b[sleep]b[prefetch]i[ThreadLevel]i", Create_aWarpSharp, (void*)3);
   env->AddFunction("aWarp", "cc[depth]i[chroma]i[depthC]i[cplace]s[depthV]i[depthVC]i" \
-	  "[threads]i[logicalCores]b[MaxPhysCore]b[SetAffinity]b[sleep]b[prefetch]i", Create_aWarpSharp, (void*)4);
+	  "[threads]i[logicalCores]b[MaxPhysCore]b[SetAffinity]b[sleep]b[prefetch]i[ThreadLevel]i", Create_aWarpSharp, (void*)4);
   env->AddFunction("aWarp4", "cc[depth]i[chroma]i[depthC]i[cplace]s[depthV]i[depthVC]i" \
-	  "[threads]i[logicalCores]b[MaxPhysCore]b[SetAffinity]b[sleep]b[prefetch]i", Create_aWarpSharp, (void*)5);
+	  "[threads]i[logicalCores]b[MaxPhysCore]b[SetAffinity]b[sleep]b[prefetch]i[ThreadLevel]i", Create_aWarpSharp, (void*)5);
 
   return AWARPSHARP_VERSION;
 }

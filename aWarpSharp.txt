@@ -29,15 +29,20 @@ aWarpSharp package 2016.06.23 - a WarpSharpening filter for Avisynth+ and AviSyn
 Syntax:
   aWarpSharp2(int "thresh", int "blur", int "type", int "depth", int "chroma", int "depthC", string "cplace",
   int "blurV", int "depthV", int "depthVC", int "blurC", int "blurVC", int "threshC",
-  int "threads",bool "logicalCores", bool "MaxPhysCore", bool "SetAffinity",bool "sleep", int "prefetch")
+  int "threads",bool "logicalCores", bool "MaxPhysCore", bool "SetAffinity",bool "sleep",
+  int "prefetch", int "ThreadLevel")
   aSobel(int "thresh", int "chroma", int "threshC",
-  int "threads",bool "logicalCores", bool "MaxPhysCore", bool "SetAffinity",bool "sleep", int "prefetch")
+  int "threads",bool "logicalCores", bool "MaxPhysCore", bool "SetAffinity",bool "sleep",
+  int "prefetch", int "ThreadLevel")
   aBlur(int "blur", int "type", int "chroma",int "blurV", int "blurC", int "blurVC",
-  int "threads",bool "logicalCores", bool "MaxPhysCore", bool "SetAffinity",bool "sleep", int "prefetch")
+  int "threads",bool "logicalCores", bool "MaxPhysCore", bool "SetAffinity",bool "sleep",
+  int "prefetch", int "ThreadLevel")
   aWarp(edge_mask_clip, int "depth", int "chroma", int "depthC", string "cplace", int "depthV", int "depthVC",
-  int "threads",bool "logicalCores", bool "MaxPhysCore", bool "SetAffinity",bool "sleep", int "prefetch")
+  int "threads",bool "logicalCores", bool "MaxPhysCore", bool "SetAffinity",bool "sleep",
+  int "prefetch", int "ThreadLevel")
   aWarp4(edge_mask_clip, int "depth", int "chroma", int "depthC", string "cplace", int "depthV", int "depthVC",
-  int "threads",bool "logicalCores", bool "MaxPhysCore", bool "SetAffinity",bool "sleep", int "prefetch")
+  int "threads",bool "logicalCores", bool "MaxPhysCore", bool "SetAffinity",bool "sleep",
+  int "prefetch", int "ThreadLevel")
 
   aWarpSharp2() is the same as aWarp(aSobel().aBlur()) but a bit faster.
 
@@ -142,6 +147,19 @@ Syntax:
           value on this parameter.
 
       Default: 0
+
+  ThreadLevel -
+      This parameter will set the priority level of the threads created for the processing (internal
+      multithreading). No effect if threads=1.
+      1 : Idle level.
+      2 : Lowest level.
+      3 : Below level.
+      4 : Normal level.
+      5 : Above level.
+      6 : Highest level.
+      7 : Time critical level (WARNING !!! use this level at your own risk)
+
+      Default : 6
 
 
 Original aWarpSharp compatibility:
