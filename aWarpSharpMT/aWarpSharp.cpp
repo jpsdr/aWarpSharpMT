@@ -4177,7 +4177,7 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 
   if (threads_number>1)
   {
-	  if ((!poolInterface->RequestThreadPool(UserId,threads_number,MT_ThreadGF,NoneThreadLevel,nPool,false,true)) || (nPool==-1))
+	  if ((!poolInterface->RequestThreadPool(UserId,threads_number,MT_ThreadGF,nPool,false,true)) || (nPool==-1))
 		  env->ThrowError("aWarpSharp: Error with the TheadPool while requesting threadpool!");
   }
 
@@ -4835,7 +4835,7 @@ PVideoFrame __stdcall aSobel::GetFrame(int n, IScriptEnvironment *env)
 
   if (threads_number>1)
   {
-	  if ((!poolInterface->RequestThreadPool(UserId,threads_number,MT_ThreadGF,NoneThreadLevel,nPool,false,true)) || (nPool==-1))
+	  if ((!poolInterface->RequestThreadPool(UserId,threads_number,MT_ThreadGF,nPool,false,true)) || (nPool==-1))
 		  env->ThrowError("aSobel: Error with the TheadPool while requesting threadpool!");
   }
 
@@ -5392,7 +5392,7 @@ PVideoFrame __stdcall aBlur::GetFrame(int n, IScriptEnvironment *env)
 
   if (threads_number>1)
   {
-	  if ((!poolInterface->RequestThreadPool(UserId,threads_number,MT_ThreadGF,NoneThreadLevel,nPool,false,true)) || (nPool==-1))
+	  if ((!poolInterface->RequestThreadPool(UserId,threads_number,MT_ThreadGF,nPool,false,true)) || (nPool==-1))
 		  env->ThrowError("aBlur: Error with the TheadPool while requesting threadpool!");
   }
 
@@ -5936,7 +5936,7 @@ PVideoFrame __stdcall aWarp::GetFrame(int n, IScriptEnvironment *env)
 
   if (threads_number>1)
   {
-	  if ((!poolInterface->RequestThreadPool(UserId,threads_number,MT_ThreadGF,NoneThreadLevel,nPool,false,true)) || (nPool==-1))
+	  if ((!poolInterface->RequestThreadPool(UserId,threads_number,MT_ThreadGF,nPool,false,true)) || (nPool==-1))
 		  env->ThrowError("aWarp: Error with the TheadPool while requesting threadpool!");
   }
 
@@ -6543,7 +6543,7 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
 
   if (threads_number>1)
   {
-	  if ((!poolInterface->RequestThreadPool(UserId,threads_number,MT_ThreadGF,NoneThreadLevel,nPool,false,true)) || (nPool==-1))
+	  if ((!poolInterface->RequestThreadPool(UserId,threads_number,MT_ThreadGF,nPool,false,true)) || (nPool==-1))
 		  env->ThrowError("aWarp4: Error with the TheadPool while requesting threadpool!");
   }
 
