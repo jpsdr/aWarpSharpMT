@@ -3429,7 +3429,7 @@ static uint8_t CreateMTData(MT_Data_Info_WarpSharp MT_Data[],uint8_t threads_num
 
 	int32_t src_dh_Y,src_dh_UV,dst_dh_Y,dst_dh_UV;
 	int32_t h_y;
-	uint8_t i,max=0;
+	uint8_t i,max=1;
 
 	dst_dh_Y=(size_y+(uint32_t)max_threads-1)/(uint32_t)max_threads;
 	if (dst_dh_Y<16) dst_dh_Y=16;
@@ -3440,7 +3440,7 @@ static uint8_t CreateMTData(MT_Data_Info_WarpSharp MT_Data[],uint8_t threads_num
 	_y_min=size_y;
 	_dh=dst_dh_Y;
 
-	h_y=0;
+	h_y=_dh;
 	while (h_y<(_y_min-16))
 	{
 		max++;
