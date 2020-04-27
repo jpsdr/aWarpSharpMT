@@ -76,7 +76,7 @@ private:
   int blur_type;
   bool cplace_mpeg2_flag;
 
-  bool grey,avsp,isRGBPfamily,isAlphaChannel;
+  bool grey,avsp,isRGBPfamily,isAlphaChannel,has_at_least_v8;
   uint8_t pixelsize; // AVS16
   uint8_t bits_per_pixel;
 
@@ -105,7 +105,7 @@ private:
   int thresh,threshC;
   int chroma;
 
-  bool grey,avsp,isRGBPfamily,isAlphaChannel;
+  bool grey,avsp,isRGBPfamily,isAlphaChannel,has_at_least_v8;
   uint8_t pixelsize; // AVS16
   uint8_t bits_per_pixel;
 
@@ -137,7 +137,7 @@ private:
   int blur_type;
   int chroma;
 
-  bool grey,avsp,isRGBPfamily,isAlphaChannel;
+  bool grey,avsp,isRGBPfamily,isAlphaChannel,has_at_least_v8;
   uint8_t pixelsize; // AVS16
   uint8_t bits_per_pixel;
 
@@ -170,7 +170,7 @@ private:
   int chroma;
   bool cplace_mpeg2_flag;
 
-  bool grey,avsp,isRGBPfamily,isAlphaChannel;
+  bool grey,avsp,isRGBPfamily,isAlphaChannel,has_at_least_v8;
   uint8_t pixelsize; // AVS16
   uint8_t bits_per_pixel;
 
@@ -203,7 +203,7 @@ private:
   int chroma;
   bool cplace_mpeg2_flag;
 
-  bool grey,avsp,isRGBPfamily,isAlphaChannel;
+  bool grey,avsp,isRGBPfamily,isAlphaChannel,has_at_least_v8;
   uint8_t pixelsize; // AVS16
   uint8_t bits_per_pixel;
 

@@ -3661,6 +3661,9 @@ aWarpSharp::aWarpSharp(PClip _child, int _thresh, int _blur_level, int _blur_typ
 			env->ThrowError("aWarpSharp: Error with the TheadPool while getting UserId!");
 		}
 	}
+
+	has_at_least_v8=true;
+	try { env->CheckVersion(8); } catch (const AvisynthError&) { has_at_least_v8=false; }
 }
 
 
@@ -4093,7 +4096,7 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 {
   PVideoFrame src = child->GetFrame(n, env);
   PVideoFrame tmp = env->NewVideoFrame(vi,64);
-  PVideoFrame dst = env->NewVideoFrame(vi,64);
+  PVideoFrame dst = (has_at_least_v8)?env->NewVideoFrameP(vi,&src):env->NewVideoFrame(vi,64);
 
   const int32_t src_pitch_Y = src->GetPitch(PLANAR_Y);
   const int32_t tmp_pitch_Y = tmp->GetPitch(PLANAR_Y);
@@ -4647,8 +4650,6 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 }
 
 
-
-
 aSobel::aSobel(PClip _child, int _thresh, int _chroma, int _threshC,uint8_t _threads,bool _sleep,bool _avsp, IScriptEnvironment *env) :
     GenericVideoFilter(_child), thresh(_thresh), chroma(_chroma),threshC(_threshC),sleep(_sleep),threads(_threads),avsp(_avsp)
 {
@@ -4715,6 +4716,9 @@ aSobel::aSobel(PClip _child, int _thresh, int _chroma, int _threshC,uint8_t _thr
 			env->ThrowError("aSobel: Error with the TheadPool while getting UserId!");
 		}
 	}
+
+	has_at_least_v8=true;
+	try { env->CheckVersion(8); } catch (const AvisynthError&) { has_at_least_v8=false; }
 }
 
 
@@ -4786,7 +4790,7 @@ void aSobel::StaticThreadpool(void *ptr)
 PVideoFrame __stdcall aSobel::GetFrame(int n, IScriptEnvironment *env)
 {
   PVideoFrame src = child->GetFrame(n, env);
-  PVideoFrame dst = env->NewVideoFrame(vi,64);
+  PVideoFrame dst = (has_at_least_v8)?env->NewVideoFrameP(vi,&src):env->NewVideoFrame(vi,64);
 
   const int32_t src_pitch_Y = src->GetPitch(PLANAR_Y);
   const int32_t dst_pitch_Y = dst->GetPitch(PLANAR_Y);
@@ -4961,7 +4965,6 @@ PVideoFrame __stdcall aSobel::GetFrame(int n, IScriptEnvironment *env)
 }
 
 
-
 aBlur::aBlur(PClip _child, int _blur_level, int _blur_type, int _chroma, int _blur_levelV,
 	int _blur_levelC, int _blur_levelVC,uint8_t _threads,bool _sleep,bool _avsp, IScriptEnvironment *env) :
     GenericVideoFilter(_child), blur_level(_blur_level), blur_type(_blur_type), chroma(_chroma),blur_levelV(_blur_levelV),
@@ -5045,6 +5048,9 @@ aBlur::aBlur(PClip _child, int _blur_level, int _blur_type, int _chroma, int _bl
 			env->ThrowError("aBlur: Error with the TheadPool while getting UserId!");
 		}
 	}
+
+	has_at_least_v8=true;
+	try { env->CheckVersion(8); } catch (const AvisynthError&) { has_at_least_v8=false; }
 }
 
 
@@ -5325,7 +5331,7 @@ void aBlur::StaticThreadpool(void *ptr)
 PVideoFrame __stdcall aBlur::GetFrame(int n, IScriptEnvironment *env)
 {
   PVideoFrame src = child->GetFrame(n,env);
-  PVideoFrame tmp = env->NewVideoFrame(vi,64);
+  PVideoFrame tmp = (has_at_least_v8)?env->NewVideoFrameP(vi,&src):env->NewVideoFrame(vi,64);
   env->MakeWritable(&src);
 
   const int32_t src_pitch_Y = src->GetPitch(PLANAR_Y);
@@ -5630,7 +5636,6 @@ PVideoFrame __stdcall aBlur::GetFrame(int n, IScriptEnvironment *env)
 }
 
 
-
 aWarp::aWarp(PClip _child, PClip _edges, int _depth, int _chroma, int _depthC, bool _cplace_mpeg2_flag,
 	int _depthV, int _depthVC,uint8_t _threads,bool _sleep,bool _avsp, IScriptEnvironment *env) :
     GenericVideoFilter(_child), edges(_edges), depth(_depth), chroma(_chroma), depthC(_depthC), cplace_mpeg2_flag(_cplace_mpeg2_flag),
@@ -5722,6 +5727,9 @@ aWarp::aWarp(PClip _child, PClip _edges, int _depth, int _chroma, int _depthC, b
 			env->ThrowError("aWarp: Error with the TheadPool while getting UserId!");
 		}
 	}
+
+	has_at_least_v8=true;
+	try { env->CheckVersion(8); } catch (const AvisynthError&) { has_at_least_v8=false; }
 }
 
 
@@ -5860,7 +5868,7 @@ PVideoFrame __stdcall aWarp::GetFrame(int n, IScriptEnvironment *env)
 {
   PVideoFrame src = child->GetFrame(n, env);
   PVideoFrame edg = edges->GetFrame(n, env);
-  PVideoFrame dst = env->NewVideoFrame(vi,64);
+  PVideoFrame dst = (has_at_least_v8)?env->NewVideoFrameP(vi,&src):env->NewVideoFrame(vi,64);
 
   const int32_t src_pitch_Y = src->GetPitch(PLANAR_Y);
   const int32_t edg_pitch_Y = edg->GetPitch(PLANAR_Y);
@@ -6229,7 +6237,6 @@ PVideoFrame __stdcall aWarp::GetFrame(int n, IScriptEnvironment *env)
 }
 
 
-
 aWarp4::aWarp4(PClip _child, PClip _edges, int _depth, int _chroma, int _depthC, bool _cplace_mpeg2_flag,
 	int _depthV, int _depthVC,uint8_t _threads,bool _sleep,bool _avsp, IScriptEnvironment *env) :
     GenericVideoFilter(_child), edges(_edges), depth(_depth), chroma(_chroma), depthC(_depthC), cplace_mpeg2_flag(_cplace_mpeg2_flag),
@@ -6323,6 +6330,9 @@ aWarp4::aWarp4(PClip _child, PClip _edges, int _depth, int _chroma, int _depthC,
 			env->ThrowError("aWarp4: Error with the TheadPool while getting UserId!");
 		}
 	}
+
+	has_at_least_v8=true;
+	try { env->CheckVersion(8); } catch (const AvisynthError&) { has_at_least_v8=false; }
 }
 
 
@@ -6460,7 +6470,7 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
 {
   PVideoFrame src = child->GetFrame(n, env);
   PVideoFrame edg = edges->GetFrame(n, env);
-  PVideoFrame dst = env->NewVideoFrame(vi,64);
+  PVideoFrame dst = (has_at_least_v8)?env->NewVideoFrameP(vi,&src):env->NewVideoFrame(vi,64);
 
   const int32_t src_pitch_Y = src->GetPitch(PLANAR_Y);
   const int32_t edg_pitch_Y = edg->GetPitch(PLANAR_Y);
