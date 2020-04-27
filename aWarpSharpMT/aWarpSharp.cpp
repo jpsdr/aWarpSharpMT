@@ -19,7 +19,7 @@
 #include <emmintrin.h>
 #include <smmintrin.h>
 #include <immintrin.h> // _mm_undefined
-#include "aWarpSharp.h"
+#include "./aWarpSharp.h"
 
 // For VS2010
 #ifndef _mm_undefined_si128

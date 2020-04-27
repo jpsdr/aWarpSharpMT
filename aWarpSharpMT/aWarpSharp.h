@@ -14,8 +14,8 @@
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU General Public License for more details.
 
-#include "avisynth.h"
-#include "ThreadPoolInterface.h"
+#include "./avisynth.h"
+#include "./ThreadPoolInterface.h"
 
 #define AWARPSHARP_VERSION "aWarpSharpMT 2.1.3 JPSDR"
 
