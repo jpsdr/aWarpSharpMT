@@ -485,6 +485,9 @@ static void warp_c_MT(const unsigned char *srcp8,const unsigned char *edgep8,uns
 // warp2: SMAGL is 2, call with warp called from aWarp4
 // uint8_t or uint16_t
 template<int SMAGL, bool lessthan16bits>
+#if defined(CLANG)
+__attribute__((__target__("sse4.1")))
+#endif
 static void warp_u16_sse41_core(const unsigned char *srcp8,const unsigned char *edgep8,unsigned char *dstp8,const int32_t src_pitch_,
   const int32_t edge_pitch_,const int32_t dst_pitch_,const int32_t width,const int32_t height,int depth,int depthV,
   const uint8_t bits_per_sample)
@@ -772,6 +775,9 @@ static void warp_u16_sse41_core(const unsigned char *srcp8,const unsigned char *
 // warp2: SMAGL is 2, call with warp called from aWarp4
 // uint8_t or uint16_t
 template<int SMAGL,bool lessthan16bits>
+#if defined(CLANG)
+__attribute__((__target__("sse4.1")))
+#endif
 static void warp_u16_sse41_core_MT(const unsigned char *srcp8,const unsigned char *edgep8,unsigned char *dstp8,const int32_t src_pitch_,
   const int32_t edge_pitch_,const int32_t dst_pitch_,const int32_t width,const int32_t height,int depth,int depthV,
   const uint8_t bits_per_sample,const int32_t ymin,const int32_t ymax)
@@ -1136,7 +1142,6 @@ static void warp2_u16_MT(const unsigned char *srcp8,const unsigned char *edgep8,
 }
 
 
-
 static void Warp0_8(const unsigned char *psrc,const unsigned char *pedg,unsigned char *pdst,const int32_t src_pitch,
 	const int32_t edg_pitch,const int32_t dst_pitch,const int32_t dst_row_size,const int32_t dst_height,int32_t depthH,
 	int32_t depthV)
@@ -1475,6 +1480,7 @@ static void Sobel_8_MT(const unsigned char *psrc,unsigned char *pdst,const int32
   }
 }
 
+
 static void Sobel_16_MT(const unsigned char *psrc,unsigned char *pdst,const int32_t src_pitch, const int32_t dst_pitch,
 	const int32_t src_height,int32_t dst_row_size, int32_t thresh,uint8_t bit_pixel,const int32_t ymin,const int32_t ymax)
 {
@@ -1484,7 +1490,6 @@ static void Sobel_16_MT(const unsigned char *psrc,unsigned char *pdst,const int3
   thresh <<= (bit_pixel-8);
   psrc += src_pitch*ymin;
   pdst += dst_pitch*ymin;
-
 
   if (aWarpSharp_Enable_AVX)
   {
