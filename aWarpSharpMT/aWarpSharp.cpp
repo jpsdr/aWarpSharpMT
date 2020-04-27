@@ -1780,7 +1780,6 @@ static void BlurR6_16(unsigned char *const psrc,unsigned char *const ptmp,const 
 static void BlurR6_8_MT_H(unsigned char *const psrc,unsigned char *const ptmp,const int32_t src_pitch,const int32_t tmp_pitch,
 	const int32_t src_height,const int32_t src_row_size,bool process,const int32_t ymin,const int32_t ymax)
 {
-  const int32_t src_row_size_16 = (src_row_size + 15) >> 4;
   unsigned char *psrc2,*ptmp2;
 
   psrc2 = psrc+ymin*src_pitch;
@@ -2911,7 +2910,7 @@ static bool GuideChroma_16(const unsigned char *py_,unsigned char *pu_,const int
   const int32_t dst_width_uv2 = dst_width_uv << 1;
   const uint16_t *py=(const uint16_t *)py_;
   uint16_t *pu=(uint16_t *)pu_;
-  const int32_t width_uv_8 = -((dst_width_uv + 7) & ~7);
+  const int32_t width_uv_8 = -((dst_width_uv2 + 7) & ~7);
 
   // 4:2:0
   if ((subspl_dst_h_l2==1) && (subspl_dst_v_l2==1))
@@ -3181,7 +3180,7 @@ void GuideChroma_16_MT(const unsigned char *py_,unsigned char *pu_,const int32_t
   const int32_t dst_width_uv2 = dst_width_uv << 1;
   const uint16_t *py=(const uint16_t *)py_;
   uint16_t *pu=(uint16_t *)pu_;
-  const int32_t width_uv_8 = -((dst_width_uv + 7) & ~7);
+  const int32_t width_uv_8 = -((dst_width_uv2 + 7) & ~7);
   
   // 4:2:0
   if ((subspl_dst_h_l2==1) && (subspl_dst_v_l2==1))
@@ -3214,7 +3213,7 @@ void GuideChroma_16_MT(const unsigned char *py_,unsigned char *pu_,const int32_t
     {
 		if (aWarpSharp_Enable_AVX)
 		{
-			for (int32_t y=0; y<dst_height_uv; y++)
+			for (int32_t y=ymin; y<ymax; y++)
 	        {
 				JPSDR_GuideChroma1_16_AVX(py,pu,src_pitch_y,width_uv_8);
 
@@ -3273,7 +3272,7 @@ void GuideChroma_16_MT(const unsigned char *py_,unsigned char *pu_,const int32_t
     {
 		if (aWarpSharp_Enable_AVX)
 		{
-			for (int32_t y=0; y<dst_height_uv; y++)
+			for (int32_t y=ymin; y<ymax; y++)
 			{
 				JPSDR_GuideChroma2_16_AVX(py,pu,width_uv_8);
 
@@ -3343,8 +3342,8 @@ static void SetPlane(PVideoFrame &dst,const int plane,const uint16_t value, cons
 {
   const int dst_pitch = dst->GetPitch(plane);
   unsigned char *pdst = dst->GetWritePtr(plane);
-  const int dst_row_size = dst->GetRowSize() >> dst_vi.GetPlaneWidthSubsampling(plane);
-  int height = dst->GetHeight() >> dst_vi.GetPlaneHeightSubsampling(plane);
+  const int dst_row_size = dst->GetRowSize(plane);
+  int height = dst->GetHeight(plane);
 
   if (dst_pitch == dst_row_size)
     memset(pdst, value, dst_pitch*height);
@@ -3358,8 +3357,8 @@ static void SetPlane_16(PVideoFrame &dst, int plane,const uint16_t value, const 
 {
   const int dst_pitch = dst->GetPitch(plane);
   unsigned char *pdst = dst->GetWritePtr(plane);
-  const int width = (dst->GetRowSize() >> dst_vi.GetPlaneWidthSubsampling(plane)) >> 1;
-  int height = dst->GetHeight() >> dst_vi.GetPlaneHeightSubsampling(plane);
+  const int width = dst->GetRowSize(plane) >> 1;
+  int height = dst->GetHeight(plane);
 
     for (; height--; pdst += dst_pitch)
 	{
@@ -3377,8 +3376,8 @@ static void CopyPlane(PVideoFrame &src, PVideoFrame &dst, int plane, const Video
   const int dst_pitch = dst->GetPitch(plane);
   const unsigned char *psrc = src->GetReadPtr(plane);
   unsigned char *pdst = dst->GetWritePtr(plane);
-  const int dst_row_size = dst->GetRowSize() >> dst_vi.GetPlaneWidthSubsampling(plane);
-  int height = dst->GetHeight() >> dst_vi.GetPlaneHeightSubsampling(plane);
+  const int dst_row_size = dst->GetRowSize(plane);
+  int height = dst->GetHeight(plane);
 
   if ((dst_pitch==src_pitch) && (dst_pitch==dst_row_size))
     memcpy(pdst, psrc, dst_pitch*height);
@@ -4127,34 +4126,30 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
   unsigned char *const wpdst_V = dst->GetWritePtr(PLANAR_V);
   unsigned char *pdst_V = dst->GetWritePtr(PLANAR_V);
 
-  const int SubH_Y = vi.GetPlaneHeightSubsampling(PLANAR_Y);
   const int SubH_U = vi.IsY() ? 0:vi.GetPlaneHeightSubsampling(PLANAR_U);
-  const int SubH_V = vi.IsY() ? 0:vi.GetPlaneHeightSubsampling(PLANAR_V);
-  const int SubW_Y = vi.GetPlaneWidthSubsampling(PLANAR_Y);
   const int SubW_U = vi.IsY() ? 0:vi.GetPlaneWidthSubsampling(PLANAR_U);
-  const int SubW_V = vi.IsY() ? 0:vi.GetPlaneWidthSubsampling(PLANAR_V);
 
-  const int32_t src_height_Y = src->GetHeight() >> SubH_Y;
-  const int32_t tmp_height_Y = tmp->GetHeight() >> SubH_Y;
-  const int32_t dst_height_Y = dst->GetHeight() >> SubH_Y;
+  const int32_t src_height_Y = src->GetHeight(PLANAR_Y);
+  const int32_t tmp_height_Y = tmp->GetHeight(PLANAR_Y);
+  const int32_t dst_height_Y = dst->GetHeight(PLANAR_Y);
 
-  const int32_t src_height_U = src->GetHeight() >> SubH_U;
-  const int32_t tmp_height_U = tmp->GetHeight() >> SubH_U;
-  const int32_t dst_height_U = dst->GetHeight() >> SubH_U;
+  const int32_t src_height_U = src->GetHeight(PLANAR_U);
+  const int32_t tmp_height_U = tmp->GetHeight(PLANAR_U);
+  const int32_t dst_height_U = dst->GetHeight(PLANAR_U);
 
-  const int32_t src_height_V = src->GetHeight() >> SubH_V;
-  const int32_t tmp_height_V = tmp->GetHeight() >> SubH_V;
-  const int32_t dst_height_V = dst->GetHeight() >> SubH_V;
+  const int32_t src_height_V = src->GetHeight(PLANAR_V);
+  const int32_t tmp_height_V = tmp->GetHeight(PLANAR_V);
+  const int32_t dst_height_V = dst->GetHeight(PLANAR_V);
 
-  const int32_t src_row_size_Y = src->GetRowSize() >> SubW_Y;
-  const int32_t tmp_row_size_Y = tmp->GetRowSize() >> SubW_Y;
-  const int32_t dst_row_size_Y = dst->GetRowSize() >> SubW_Y;
+  const int32_t src_row_size_Y = src->GetRowSize(PLANAR_Y);
+  const int32_t tmp_row_size_Y = tmp->GetRowSize(PLANAR_Y);
+  const int32_t dst_row_size_Y = dst->GetRowSize(PLANAR_Y);
 
-  const int32_t tmp_row_size_U = tmp->GetRowSize() >> SubW_U;
-  const int32_t dst_row_size_U = dst->GetRowSize() >> SubW_U;
+  const int32_t tmp_row_size_U = tmp->GetRowSize(PLANAR_U);
+  const int32_t dst_row_size_U = dst->GetRowSize(PLANAR_U);
 
-  const int32_t tmp_row_size_V = tmp->GetRowSize() >> SubW_V;
-  const int32_t dst_row_size_V = dst->GetRowSize() >> SubW_V;
+  const int32_t tmp_row_size_V = tmp->GetRowSize(PLANAR_V);
+  const int32_t dst_row_size_V = dst->GetRowSize(PLANAR_V);
 
   const int blurL=std::min(blur_level,blur_levelV);
   const int blurLr=std::max(blur_level,blur_levelV)-blurL;
@@ -4193,8 +4188,8 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 		MT_DataGF[i].row_size_Y1=src_row_size_Y;
 		MT_DataGF[i].row_size_Y2=tmp_row_size_Y;
 		MT_DataGF[i].row_size_Y3=dst_row_size_Y;
-		MT_DataGF[i].dst_Y1=dptmp_Y;
-		MT_DataGF[i].dst_Y2=pdst_Y;
+		MT_DataGF[i].dst_Y1=(void *)dptmp_Y;
+		MT_DataGF[i].dst_Y2=(void *)pdst_Y;
 		MT_DataGF[i].dst_pitch_Y1=tmp_pitch_Y;
 		MT_DataGF[i].dst_pitch_Y2=dst_pitch_Y;
 
@@ -4204,8 +4199,8 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 		MT_DataGF[i].src_pitch_U2=tmp_pitch_U;
 		MT_DataGF[i].row_size_U1=tmp_row_size_U;
 		MT_DataGF[i].row_size_U2=dst_row_size_U;
-		MT_DataGF[i].dst_U1=dptmp_U;
-		MT_DataGF[i].dst_U2=pdst_U;
+		MT_DataGF[i].dst_U1=(void *)dptmp_U;
+		MT_DataGF[i].dst_U2=(void *)pdst_U;
 		MT_DataGF[i].dst_pitch_U1=tmp_pitch_U;
 		MT_DataGF[i].dst_pitch_U2=dst_pitch_U;
 
@@ -4215,8 +4210,8 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 		MT_DataGF[i].src_pitch_V2=tmp_pitch_V;
 		MT_DataGF[i].row_size_V1=tmp_row_size_V;
 		MT_DataGF[i].row_size_V2=dst_row_size_V;
-		MT_DataGF[i].dst_V1=dptmp_V;
-		MT_DataGF[i].dst_V2=pdst_V;
+		MT_DataGF[i].dst_V1=(void *)dptmp_V;
+		MT_DataGF[i].dst_V2=(void *)pdst_V;
 		MT_DataGF[i].dst_pitch_V1=tmp_pitch_V;
 		MT_DataGF[i].dst_pitch_V2=dst_pitch_V;
 
@@ -4807,20 +4802,13 @@ PVideoFrame __stdcall aSobel::GetFrame(int n, IScriptEnvironment *env)
   const unsigned char *psrc_V = src->GetReadPtr(PLANAR_V);
   unsigned char *pdst_V = dst->GetWritePtr(PLANAR_V);
 
-  const int SubH_Y = vi.GetPlaneHeightSubsampling(PLANAR_Y);
-  const int SubH_U = vi.IsY() ? 0:vi.GetPlaneHeightSubsampling(PLANAR_U);
-  const int SubH_V = vi.IsY() ? 0:vi.GetPlaneHeightSubsampling(PLANAR_V);
-  const int SubW_Y = vi.GetPlaneWidthSubsampling(PLANAR_Y);
-  const int SubW_U = vi.IsY() ? 0:vi.GetPlaneWidthSubsampling(PLANAR_U);
-  const int SubW_V = vi.IsY() ? 0:vi.GetPlaneWidthSubsampling(PLANAR_V);
+  const int32_t src_height_Y = src->GetHeight(PLANAR_Y);
+  const int32_t src_height_U = src->GetHeight(PLANAR_U);
+  const int32_t src_height_V = src->GetHeight(PLANAR_V);
 
-  const int32_t src_height_Y = src->GetHeight() >> SubH_Y;
-  const int32_t src_height_U = src->GetHeight() >> SubH_U;
-  const int32_t src_height_V = src->GetHeight() >> SubH_V;
-
-  const int32_t dst_row_size_Y = dst->GetRowSize() >> SubW_Y;
-  const int32_t dst_row_size_U = dst->GetRowSize() >> SubW_U;
-  const int32_t dst_row_size_V = dst->GetRowSize() >> SubW_V;
+  const int32_t dst_row_size_Y = dst->GetRowSize(PLANAR_Y);
+  const int32_t dst_row_size_U = dst->GetRowSize(PLANAR_U);
+  const int32_t dst_row_size_V = dst->GetRowSize(PLANAR_V);
 
   Public_MT_Data_Thread MT_ThreadGF[MAX_MT_THREADS];
   MT_Data_Info_WarpSharp MT_DataGF[MAX_MT_THREADS];
@@ -4847,19 +4835,19 @@ PVideoFrame __stdcall aSobel::GetFrame(int n, IScriptEnvironment *env)
 		MT_DataGF[i].src_Y1=(void *)psrc_Y;
 		MT_DataGF[i].src_pitch_Y1=src_pitch_Y;
 		MT_DataGF[i].row_size_Y1=dst_row_size_Y;
-		MT_DataGF[i].dst_Y1=pdst_Y;
+		MT_DataGF[i].dst_Y1=(void *)pdst_Y;
 		MT_DataGF[i].dst_pitch_Y1=dst_pitch_Y;
 
 		MT_DataGF[i].src_U1=(void *)psrc_U;
 		MT_DataGF[i].src_pitch_U1=src_pitch_U;
 		MT_DataGF[i].row_size_U1=dst_row_size_U;
-		MT_DataGF[i].dst_U1=pdst_U;
+		MT_DataGF[i].dst_U1=(void *)pdst_U;
 		MT_DataGF[i].dst_pitch_U1=dst_pitch_U;
 
 		MT_DataGF[i].src_V1=(void *)psrc_V;
 		MT_DataGF[i].src_pitch_V1=src_pitch_V;
 		MT_DataGF[i].row_size_V1=dst_row_size_V;
-		MT_DataGF[i].dst_V1=pdst_V;
+		MT_DataGF[i].dst_V1=(void *)pdst_V;
 		MT_DataGF[i].dst_pitch_V1=dst_pitch_V;
 
 		MT_DataGF[i].src_Y_h=src_height_Y;
@@ -5083,7 +5071,6 @@ int __stdcall aBlur::SetCacheHints(int cachehints,int frame_range)
 void aBlur::StaticThreadpool(void *ptr)
 {
 	Public_MT_Data_Thread *data=(Public_MT_Data_Thread *)ptr;
-	aBlur *ptrClass=(aBlur *)data->pClass;
 
 	MT_Data_Info_WarpSharp *mt_data_inf=((MT_Data_Info_WarpSharp *)data->pData)+data->thread_Id;
 	
@@ -5355,21 +5342,13 @@ PVideoFrame __stdcall aBlur::GetFrame(int n, IScriptEnvironment *env)
   unsigned char *const wpsrc_V = src->GetWritePtr(PLANAR_V);
   unsigned char *const wptmp_V= tmp->GetWritePtr(PLANAR_V);
 
-  const int SubH_Y = vi.GetPlaneHeightSubsampling(PLANAR_Y);
-  const int SubH_U = vi.IsY() ? 0:vi.GetPlaneHeightSubsampling(PLANAR_U);
-  const int SubH_V = vi.IsY() ? 0:vi.GetPlaneHeightSubsampling(PLANAR_V);
-  const int SubW_Y = vi.GetPlaneWidthSubsampling(PLANAR_Y);
-  const int SubW_U = vi.IsY() ? 0:vi.GetPlaneWidthSubsampling(PLANAR_U);
-  const int SubW_V = vi.IsY() ? 0:vi.GetPlaneWidthSubsampling(PLANAR_V);
+  const int32_t src_height_Y = src->GetHeight(PLANAR_Y);
+  const int32_t src_height_U = src->GetHeight(PLANAR_U);
+  const int32_t src_height_V = src->GetHeight(PLANAR_V);
 
-  const int32_t src_height_Y = src->GetHeight() >> SubH_Y;
-  const int32_t src_height_U = src->GetHeight() >> SubH_U;
-  const int32_t src_height_V = src->GetHeight() >> SubH_V;
-
-  const int32_t src_row_size_Y = src->GetRowSize() >> SubW_Y;
-  const int32_t src_row_size_U = src->GetRowSize() >> SubW_U;
-  const int32_t src_row_size_V = src->GetRowSize() >> SubW_V;
-
+  const int32_t src_row_size_Y = src->GetRowSize(PLANAR_Y);
+  const int32_t src_row_size_U = src->GetRowSize(PLANAR_U);
+  const int32_t src_row_size_V = src->GetRowSize(PLANAR_V);
  
   const int blurL=std::min(blur_level,blur_levelV);
   const int blurLr=std::max(blur_level,blur_levelV)-blurL;
@@ -5401,22 +5380,22 @@ PVideoFrame __stdcall aBlur::GetFrame(int n, IScriptEnvironment *env)
 
 	for(uint8_t i=0; i<threads_number; i++)
 	{
-		MT_DataGF[i].src_Y1=wpsrc_Y;
+		MT_DataGF[i].src_Y1=(void *)wpsrc_Y;
 		MT_DataGF[i].src_pitch_Y1=src_pitch_Y;
 		MT_DataGF[i].row_size_Y1=src_row_size_Y;
-		MT_DataGF[i].dst_Y1=wptmp_Y;
+		MT_DataGF[i].dst_Y1=(void *)wptmp_Y;
 		MT_DataGF[i].dst_pitch_Y1=tmp_pitch_Y;
 
-		MT_DataGF[i].src_U1=wpsrc_U;
+		MT_DataGF[i].src_U1=(void *)wpsrc_U;
 		MT_DataGF[i].src_pitch_U1=src_pitch_U;
 		MT_DataGF[i].row_size_U1=src_row_size_U;
-		MT_DataGF[i].dst_U1=wptmp_U;
+		MT_DataGF[i].dst_U1=(void *)wptmp_U;
 		MT_DataGF[i].dst_pitch_U1=tmp_pitch_U;
 
-		MT_DataGF[i].src_V1=wpsrc_V;
+		MT_DataGF[i].src_V1=(void *)wpsrc_V;
 		MT_DataGF[i].src_pitch_V1=src_pitch_V;
 		MT_DataGF[i].row_size_V1=src_row_size_V;
-		MT_DataGF[i].dst_V1=wptmp_V;
+		MT_DataGF[i].dst_V1=(void *)wptmp_V;
 		MT_DataGF[i].dst_pitch_V1=tmp_pitch_V;
 
 		MT_DataGF[i].src_Y_h=src_height_Y;
@@ -5582,8 +5561,8 @@ PVideoFrame __stdcall aBlur::GetFrame(int n, IScriptEnvironment *env)
 	  }
 	  else
 	  {
-		  SetPlane(src,PLANAR_U,0x80 << (bits_per_pixel-8),vi);
-		  SetPlane(src,PLANAR_V,0x80 << (bits_per_pixel-8),vi);
+		  SetPlane_16(src,PLANAR_U,0x80 << (bits_per_pixel-8),vi);
+		  SetPlane_16(src,PLANAR_V,0x80 << (bits_per_pixel-8),vi);
 	  }
     break;
   case 1 :
@@ -5906,22 +5885,18 @@ PVideoFrame __stdcall aWarp::GetFrame(int n, IScriptEnvironment *env)
   const unsigned char *pedg_V = edg->GetReadPtr(PLANAR_V);
   unsigned char *pdst_V = dst->GetWritePtr(PLANAR_V);
 
-  const int SubH_Y = vi.GetPlaneHeightSubsampling(PLANAR_Y);
   const int SubH_U = vi.IsY() ? 0:vi.GetPlaneHeightSubsampling(PLANAR_U);
-  const int SubH_V = vi.IsY() ? 0:vi.GetPlaneHeightSubsampling(PLANAR_V);
-  const int SubW_Y = vi.GetPlaneWidthSubsampling(PLANAR_Y);
   const int SubW_U = vi.IsY() ? 0:vi.GetPlaneWidthSubsampling(PLANAR_U);
-  const int SubW_V = vi.IsY() ? 0:vi.GetPlaneWidthSubsampling(PLANAR_V);
 
-  const int32_t dst_height_Y = dst->GetHeight() >> SubH_Y;
-  const int32_t dst_height_U = dst->GetHeight() >> SubH_U;
-  const int32_t dst_height_V = dst->GetHeight() >> SubH_V;
-  const int32_t dst_row_size_Y = dst->GetRowSize() >> SubW_Y;
-  const int32_t dst_row_size_U = dst->GetRowSize() >> SubW_U;
-  const int32_t dst_row_size_V = dst->GetRowSize() >> SubW_V;
+  const int32_t dst_height_Y = dst->GetHeight(PLANAR_Y);
+  const int32_t dst_height_U = dst->GetHeight(PLANAR_U);
+  const int32_t dst_height_V = dst->GetHeight(PLANAR_V);
+  const int32_t dst_row_size_Y = dst->GetRowSize(PLANAR_Y);
+  const int32_t dst_row_size_U = dst->GetRowSize(PLANAR_U);
+  const int32_t dst_row_size_V = dst->GetRowSize(PLANAR_V);
 
-  const int32_t edg_height_UV = edg->GetHeight() >> SubH_U;
-  const int32_t edg_width_UV = edg->GetRowSize() >> SubW_U;
+  const int32_t edg_height_UV = edg->GetHeight(PLANAR_U);
+  const int32_t edg_width_UV = edg->GetRowSize(PLANAR_U);
 
   Public_MT_Data_Thread MT_ThreadGF[MAX_MT_THREADS];
   MT_Data_Info_WarpSharp MT_DataGF[MAX_MT_THREADS];
@@ -5940,7 +5915,6 @@ PVideoFrame __stdcall aWarp::GetFrame(int n, IScriptEnvironment *env)
 		  env->ThrowError("aWarp: Error with the TheadPool while requesting threadpool!");
   }
 
-
   if (threads_number>1)
   {
 
@@ -5951,7 +5925,7 @@ PVideoFrame __stdcall aWarp::GetFrame(int n, IScriptEnvironment *env)
 		MT_DataGF[i].src_pitch_Y1=src_pitch_Y;
 		MT_DataGF[i].src_pitch_Y2=edg_pitch_Y;
 		MT_DataGF[i].row_size_Y1=dst_row_size_Y;
-		MT_DataGF[i].dst_Y1=pdst_Y;
+		MT_DataGF[i].dst_Y1=(void *)pdst_Y;
 		MT_DataGF[i].dst_pitch_Y1=dst_pitch_Y;
 
 		MT_DataGF[i].src_U1=(void *)psrc_U;
@@ -5960,8 +5934,8 @@ PVideoFrame __stdcall aWarp::GetFrame(int n, IScriptEnvironment *env)
 		MT_DataGF[i].src_pitch_U2=edg_pitch_U;
 		MT_DataGF[i].row_size_U1=dst_row_size_U;
 		MT_DataGF[i].row_size_U2=edg_width_UV;
-		MT_DataGF[i].dst_U1=dpedg_U;
-		MT_DataGF[i].dst_U2=pdst_U;
+		MT_DataGF[i].dst_U1=(void *)dpedg_U;
+		MT_DataGF[i].dst_U2=(void *)pdst_U;
 		MT_DataGF[i].dst_pitch_U1=dst_pitch_U;
 
 		MT_DataGF[i].src_V1=(void *)psrc_V;
@@ -5969,7 +5943,7 @@ PVideoFrame __stdcall aWarp::GetFrame(int n, IScriptEnvironment *env)
 		MT_DataGF[i].src_pitch_V1=src_pitch_V;
 		MT_DataGF[i].src_pitch_V2=edg_pitch_V;
 		MT_DataGF[i].row_size_V1=dst_row_size_V;
-		MT_DataGF[i].dst_V1=pdst_V;
+		MT_DataGF[i].dst_V1=(void *)pdst_V;
 		MT_DataGF[i].dst_pitch_V1=dst_pitch_V;
 
 		MT_DataGF[i].src_U_h=edg_height_UV;
@@ -6071,7 +6045,7 @@ PVideoFrame __stdcall aWarp::GetFrame(int n, IScriptEnvironment *env)
 		{
 			MT_ThreadGF[i].f_process=f_proc;
 
-			MT_DataGF[i].dst_U1=dptmp_U;
+			MT_DataGF[i].dst_U1=(void *)dptmp_U;
 			MT_DataGF[i].src_U2=(void *)pedg_U;
 			MT_DataGF[i].src_pitch_U2=edg_pitch_U;
 		}
@@ -6199,8 +6173,8 @@ PVideoFrame __stdcall aWarp::GetFrame(int n, IScriptEnvironment *env)
 
 		const int32_t tmp_pitch_U = tmp->GetPitch(PLANAR_U);
 		unsigned char *dptmp_U = tmp->GetWritePtr(PLANAR_U);
-		const int32_t tmp_height_UV = tmp->GetHeight() >> SubH_U;
-		const int32_t tmp_width_UV = tmp->GetRowSize() >> SubW_U;
+		const int32_t tmp_height_UV = tmp->GetHeight(PLANAR_U);
+		const int32_t tmp_width_UV = tmp->GetRowSize(PLANAR_U);
 
 		const bool TestC = (pixelsize==1) ? GuideChroma_8(pedg_Y,dptmp_U,edg_pitch_Y,tmp_pitch_U,tmp_height_UV,tmp_width_UV,SubW_U,
 			SubH_U,cplace_mpeg2_flag):GuideChroma_16(pedg_Y,dptmp_U,edg_pitch_Y,tmp_pitch_U,tmp_height_UV,tmp_width_UV >> 1,SubW_U,
@@ -6350,7 +6324,6 @@ aWarp4::aWarp4(PClip _child, PClip _edges, int _depth, int _chroma, int _depthC,
 		}
 	}
 }
-
 
 
 aWarp4::~aWarp4()
@@ -6512,23 +6485,19 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
   const unsigned char *pedg_V = edg->GetReadPtr(PLANAR_V);
   unsigned char *pdst_V = dst->GetWritePtr(PLANAR_V);
 
-  const int SubH_Y = vi.GetPlaneHeightSubsampling(PLANAR_Y);
   const int SubH_U = vi.IsY() ? 0:vi.GetPlaneHeightSubsampling(PLANAR_U);
-  const int SubH_V = vi.IsY() ? 0:vi.GetPlaneHeightSubsampling(PLANAR_V);
-  const int SubW_Y = vi.GetPlaneWidthSubsampling(PLANAR_Y);
   const int SubW_U = vi.IsY() ? 0:vi.GetPlaneWidthSubsampling(PLANAR_U);
-  const int SubW_V = vi.IsY() ? 0:vi.GetPlaneWidthSubsampling(PLANAR_V);
 
-  const int32_t dst_height_Y = dst->GetHeight() >> SubH_Y;
-  const int32_t dst_height_U = dst->GetHeight() >> SubH_U;
-  const int32_t dst_height_V = dst->GetHeight() >> SubH_V;
+  const int32_t dst_height_Y = dst->GetHeight(PLANAR_Y);
+  const int32_t dst_height_U = dst->GetHeight(PLANAR_U);
+  const int32_t dst_height_V = dst->GetHeight(PLANAR_V);
 
-  const int32_t dst_row_size_Y = dst->GetRowSize() >> SubW_Y;
-  const int32_t dst_row_size_U = dst->GetRowSize() >> SubW_U;
-  const int32_t dst_row_size_V = dst->GetRowSize() >> SubW_V;
+  const int32_t dst_row_size_Y = dst->GetRowSize(PLANAR_Y);
+  const int32_t dst_row_size_U = dst->GetRowSize(PLANAR_U);
+  const int32_t dst_row_size_V = dst->GetRowSize(PLANAR_V);
 
-  const int32_t edg_height_UV = edg->GetHeight() >> SubH_U;
-  const int32_t edg_width_UV = edg->GetRowSize() >> SubW_U;
+  const int32_t edg_height_UV = edg->GetHeight(PLANAR_U);
+  const int32_t edg_width_UV = edg->GetRowSize(PLANAR_U);
 
   Public_MT_Data_Thread MT_ThreadGF[MAX_MT_THREADS];
   MT_Data_Info_WarpSharp MT_DataGF[MAX_MT_THREADS];
@@ -6557,7 +6526,7 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
 		MT_DataGF[i].src_pitch_Y1=src_pitch_Y;
 		MT_DataGF[i].src_pitch_Y2=edg_pitch_Y;
 		MT_DataGF[i].row_size_Y1=dst_row_size_Y;
-		MT_DataGF[i].dst_Y1=pdst_Y;
+		MT_DataGF[i].dst_Y1=(void *)pdst_Y;
 		MT_DataGF[i].dst_pitch_Y1=dst_pitch_Y;
 
 		MT_DataGF[i].src_U1=(void *)psrc_U;
@@ -6566,8 +6535,8 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
 		MT_DataGF[i].src_pitch_U2=edg_pitch_U;
 		MT_DataGF[i].row_size_U1=dst_row_size_U;
 		MT_DataGF[i].row_size_U2=edg_width_UV;
-		MT_DataGF[i].dst_U1=dpedg_U;
-		MT_DataGF[i].dst_U2=pdst_U;
+		MT_DataGF[i].dst_U1=(void *)dpedg_U;
+		MT_DataGF[i].dst_U2=(void *)pdst_U;
 		MT_DataGF[i].dst_pitch_U1=dst_pitch_U;
 
 		MT_DataGF[i].src_V1=(void *)psrc_V;
@@ -6575,7 +6544,7 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
 		MT_DataGF[i].src_pitch_V1=src_pitch_V;
 		MT_DataGF[i].src_pitch_V2=edg_pitch_V;
 		MT_DataGF[i].row_size_V1=dst_row_size_V;
-		MT_DataGF[i].dst_V1=pdst_V;
+		MT_DataGF[i].dst_V1=(void *)pdst_V;
 		MT_DataGF[i].dst_pitch_V1=dst_pitch_V;
 
 		MT_DataGF[i].src_U_h=edg_height_UV;
@@ -6772,8 +6741,8 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
 
 		const int32_t tmp_pitch_U = tmp->GetPitch(PLANAR_U);
 		unsigned char *dptmp_U = tmp->GetWritePtr(PLANAR_U);
-		const int32_t tmp_height_UV = tmp->GetHeight() >> SubH_U;
-		const int32_t tmp_width_UV = tmp->GetRowSize() >> SubW_U;
+		const int32_t tmp_height_UV = tmp->GetHeight(PLANAR_U);
+		const int32_t tmp_width_UV = tmp->GetRowSize(PLANAR_U);
 
 		const bool TestC = (pixelsize==1) ? GuideChroma_8(pedg_Y,dptmp_U,edg_pitch_Y,tmp_pitch_U,tmp_height_UV,tmp_width_UV,SubW_U,
 			SubH_U,cplace_mpeg2_flag):GuideChroma_16(pedg_Y,dptmp_U,edg_pitch_Y,tmp_pitch_U,tmp_height_UV,tmp_width_UV >> 1,SubW_U,
