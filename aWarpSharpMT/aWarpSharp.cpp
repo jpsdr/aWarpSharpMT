@@ -757,8 +757,8 @@ static void warp_u16_sse41_core(const unsigned char *srcp8,const unsigned char *
       // preload next 8 pixels
       if (x<wmod8)
 	  { // prevent overread
-        edge_left = _mm_load_si128(reinterpret_cast<const __m128i *>(edgeptr+x+8-1));
-        edge_right = _mm_load_si128(reinterpret_cast<const __m128i *>(edgeptr+x+8+1));
+        edge_left = _mm_loadu_si128(reinterpret_cast<const __m128i *>(edgeptr+x+8-1));
+        edge_right = _mm_loadu_si128(reinterpret_cast<const __m128i *>(edgeptr+x+8+1));
       }
     }
 
@@ -1047,8 +1047,8 @@ static void warp_u16_sse41_core_MT(const unsigned char *srcp8,const unsigned cha
       // preload next 8 pixels
       if (x<wmod8)
 	  { // prevent overread
-        edge_left = _mm_load_si128(reinterpret_cast<const __m128i *>(edgeptr+x+8-1));
-        edge_right = _mm_load_si128(reinterpret_cast<const __m128i *>(edgeptr+x+8+1));
+        edge_left = _mm_loadu_si128(reinterpret_cast<const __m128i *>(edgeptr+x+8-1));
+        edge_right = _mm_loadu_si128(reinterpret_cast<const __m128i *>(edgeptr+x+8+1));
       }
     }
 
