@@ -306,16 +306,16 @@ static void warp_c_MT(const unsigned char *srcp8,const unsigned char *edgep8,uns
   const int32_t edge_pitch_,const int32_t dst_pitch_,const int32_t width,const int32_t height,int depth,int depthV,
   const uint8_t bits_per_sample,const int32_t ymin,const int32_t ymax)
 {
-  const pixel_t *srcp = (const pixel_t *)(srcp8+(ymin*src_pitch_));
-  const pixel_t *srcp2 = (const pixel_t *)(srcp8+((ymin+1)*src_pitch_));
+  const int SMAG = 1 << SMAGL; // 180313
+
+  const pixel_t *srcp = (const pixel_t *)(srcp8+(ymin*SMAG*src_pitch_));
+  const pixel_t *srcp2 = (const pixel_t *)(srcp8+((ymin*SMAG+1)*src_pitch_));
   const pixel_t *edgeptr = (const pixel_t *)(edgep8+(ymin*edge_pitch_));
   pixel_t *dstp = (pixel_t *)(dstp8+(ymin*dst_pitch_));
 
   const int32_t src_pitch = src_pitch_/sizeof(pixel_t);
   const int32_t edge_pitch = edge_pitch_/sizeof(pixel_t);
   const int32_t dst_pitch = dst_pitch_/sizeof(pixel_t);
-
-  const int SMAG = 1 << SMAGL; // 180313
 
   const int wmod8 = (width >> 3) << 3;
 
@@ -782,16 +782,17 @@ static void warp_u16_sse41_core_MT(const unsigned char *srcp8,const unsigned cha
   const int32_t edge_pitch_,const int32_t dst_pitch_,const int32_t width,const int32_t height,int depth,int depthV,
   const uint8_t bits_per_sample,const int32_t ymin,const int32_t ymax)
 {
-  const uint16_t *srcp = (const uint16_t *)(srcp8+(ymin*src_pitch_));
-  const uint16_t *srcp2 = (const uint16_t *)(srcp8+((ymin+1)*src_pitch_));
+
+  const int SMAG = 1 << SMAGL; // 180313
+
+  const uint16_t *srcp = (const uint16_t *)(srcp8+(ymin*SMAG*src_pitch_));
+  const uint16_t *srcp2 = (const uint16_t *)(srcp8+((ymin*SMAG+1)*src_pitch_));
   const uint16_t *edgeptr = (const uint16_t *)(edgep8+(ymin*edge_pitch_));
   uint16_t *dstp = (uint16_t *)(dstp8+(ymin*dst_pitch_));
 
   const int32_t src_pitch = src_pitch_ >> 1;
   const int32_t edge_pitch = edge_pitch_ >> 1;
   const int32_t dst_pitch = dst_pitch_ >> 1;
-
-  const int SMAG = 1 << SMAGL; // 180313
 
   const int wmod8 = (width >> 3) << 3;
 
