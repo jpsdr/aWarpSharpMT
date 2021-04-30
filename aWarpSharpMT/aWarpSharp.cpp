@@ -242,7 +242,7 @@ static void warp_c(const unsigned char *srcp8,const unsigned char *edgep8,unsign
       for (uint8_t i=0; i<8; i++)
       {
         // combine vertical and horizontal offset things
-        const int32_t offs=vert[i]*src_pitch+horiz_offset_x1[i]+i;
+        const int32_t offs=vert[i]*src_pitch+horiz_offset_x1[i]+i*SMAG;
         // for 8 bit: _mm_insert_epi16 is split to 00FF (offs) and FF00 (offs)
         // for 16 bit: _mm_insert_epi32 is split to 0000FFFF (offs) and FFFF0000 (offs+1)
         curr_0[i] = (int32_t)srcp[offs];       // lo FFFF from 
@@ -423,7 +423,7 @@ static void warp_c_MT(const unsigned char *srcp8,const unsigned char *edgep8,uns
       for (uint8_t i=0; i<8; i++)
       {
         // combine vertical and horizontal offset things
-        const int32_t offs=vert[i]*src_pitch+horiz_offset_x1[i]+i;
+        const int32_t offs=vert[i]*src_pitch+horiz_offset_x1[i]+i*SMAG;
         // for 8 bit: _mm_insert_epi16 is split to 00FF (offs) and FF00 (offs)
         // for 16 bit: _mm_insert_epi32 is split to 0000FFFF (offs) and FFFF0000 (offs+1)
         curr_0[i] = (int32_t)srcp[offs];       // lo FFFF from 
@@ -653,39 +653,39 @@ static void warp_u16_sse41_core(const unsigned char *srcp8,const unsigned char *
       // #1
       offs = _mm_cvtsi128_si32(offs_lo);
       offs_lo = _mm_srli_si128(offs_lo,4);
-      curr_01_lo = _mm_insert_epi32(curr_01_lo,*(uint32_t *)&srcp[offs+1],1);
-      bottom_01_lo = _mm_insert_epi32(bottom_01_lo,*(uint32_t *)&srcp2[offs+1],1);
+      curr_01_lo = _mm_insert_epi32(curr_01_lo,*(uint32_t *)&srcp[offs+1*SMAG],1);
+      bottom_01_lo = _mm_insert_epi32(bottom_01_lo,*(uint32_t *)&srcp2[offs+1*SMAG],1);
       // #2
       offs = _mm_cvtsi128_si32(offs_lo);
       offs_lo = _mm_srli_si128(offs_lo,4);
-      curr_01_lo = _mm_insert_epi32(curr_01_lo,*(uint32_t *)&srcp[offs+2],2);
-      bottom_01_lo = _mm_insert_epi32(bottom_01_lo,*(uint32_t *)&srcp2[offs+2],2);
+      curr_01_lo = _mm_insert_epi32(curr_01_lo,*(uint32_t *)&srcp[offs+2*SMAG],2);
+      bottom_01_lo = _mm_insert_epi32(bottom_01_lo,*(uint32_t *)&srcp2[offs+2*SMAG],2);
       // #3
       offs = _mm_cvtsi128_si32(offs_lo);
       // not used anymore // offs_lo = _mm_srli_si128(offs_lo,4);
-      curr_01_lo = _mm_insert_epi32(curr_01_lo,*(uint32_t *)&srcp[offs+ 3],3);
-      bottom_01_lo = _mm_insert_epi32(bottom_01_lo,*(uint32_t *)&srcp2[offs+3],3);
+      curr_01_lo = _mm_insert_epi32(curr_01_lo,*(uint32_t *)&srcp[offs+3*SMAG],3);
+      bottom_01_lo = _mm_insert_epi32(bottom_01_lo,*(uint32_t *)&srcp2[offs+3*SMAG],3);
       // high part, source offset is 4-7, target offset is 0-3 again
       // #4
       offs = _mm_cvtsi128_si32(offs_hi);
       offs_hi = _mm_srli_si128(offs_hi,4);
-      curr_01_hi = _mm_insert_epi32(curr_01_hi,*(uint32_t *)&srcp[offs+4],0);
-      bottom_01_hi = _mm_insert_epi32(bottom_01_hi,*(uint32_t *)&srcp2[offs+4],0);
+      curr_01_hi = _mm_insert_epi32(curr_01_hi,*(uint32_t *)&srcp[offs+4*SMAG],0);
+      bottom_01_hi = _mm_insert_epi32(bottom_01_hi,*(uint32_t *)&srcp2[offs+4*SMAG],0);
       // #5
       offs = _mm_cvtsi128_si32(offs_hi);
       offs_hi = _mm_srli_si128(offs_hi,4);
-      curr_01_hi = _mm_insert_epi32(curr_01_hi,*(uint32_t *)&srcp[offs+5],1);
-      bottom_01_hi = _mm_insert_epi32(bottom_01_hi,*(uint32_t *)&srcp2[offs+5],1);
+      curr_01_hi = _mm_insert_epi32(curr_01_hi,*(uint32_t *)&srcp[offs+5*SMAG],1);
+      bottom_01_hi = _mm_insert_epi32(bottom_01_hi,*(uint32_t *)&srcp2[offs+5*SMAG],1);
       // #6
       offs = _mm_cvtsi128_si32(offs_hi);
       offs_hi = _mm_srli_si128(offs_hi,4);
-      curr_01_hi = _mm_insert_epi32(curr_01_hi,*(uint32_t *)&srcp[offs+6],2);
-      bottom_01_hi = _mm_insert_epi32(bottom_01_hi,*(uint32_t *)&srcp2[offs+6],2);
+      curr_01_hi = _mm_insert_epi32(curr_01_hi,*(uint32_t *)&srcp[offs+6*SMAG],2);
+      bottom_01_hi = _mm_insert_epi32(bottom_01_hi,*(uint32_t *)&srcp2[offs+6*SMAG],2);
       // #7
       offs = _mm_cvtsi128_si32(offs_hi);
       // not used anymore // offs_hi = _mm_srli_si128(offs_hi, 4);
-      curr_01_hi = _mm_insert_epi32(curr_01_hi,*(uint32_t *)&srcp[offs+7],3);
-      bottom_01_hi = _mm_insert_epi32(bottom_01_hi,*(uint32_t *)&srcp2[offs+7],3);
+      curr_01_hi = _mm_insert_epi32(curr_01_hi,*(uint32_t *)&srcp[offs+7*SMAG],3);
+      bottom_01_hi = _mm_insert_epi32(bottom_01_hi,*(uint32_t *)&srcp2[offs+7*SMAG],3);
 
       // combine even and odds together
       __m128i mask0000FFFF = _mm_set1_epi32(0xFFFF);
@@ -944,39 +944,39 @@ static void warp_u16_sse41_core_MT(const unsigned char *srcp8,const unsigned cha
       // #1
       offs = _mm_cvtsi128_si32(offs_lo);
       offs_lo = _mm_srli_si128(offs_lo,4);
-      curr_01_lo = _mm_insert_epi32(curr_01_lo,*(uint32_t *)&srcp[offs+1],1);
-      bottom_01_lo = _mm_insert_epi32(bottom_01_lo,*(uint32_t *)&srcp2[offs+1],1);
+      curr_01_lo = _mm_insert_epi32(curr_01_lo,*(uint32_t *)&srcp[offs+1*SMAG],1);
+      bottom_01_lo = _mm_insert_epi32(bottom_01_lo,*(uint32_t *)&srcp2[offs+1*SMAG],1);
       // #2
       offs = _mm_cvtsi128_si32(offs_lo);
       offs_lo = _mm_srli_si128(offs_lo,4);
-      curr_01_lo = _mm_insert_epi32(curr_01_lo,*(uint32_t *)&srcp[offs+2],2);
-      bottom_01_lo = _mm_insert_epi32(bottom_01_lo,*(uint32_t *)&srcp2[offs+2],2);
+      curr_01_lo = _mm_insert_epi32(curr_01_lo,*(uint32_t *)&srcp[offs+2*SMAG],2);
+      bottom_01_lo = _mm_insert_epi32(bottom_01_lo,*(uint32_t *)&srcp2[offs+2*SMAG],2);
       // #3
       offs = _mm_cvtsi128_si32(offs_lo);
       // not used anymore // offs_lo = _mm_srli_si128(offs_lo,4);
-      curr_01_lo = _mm_insert_epi32(curr_01_lo,*(uint32_t *)&srcp[offs+ 3],3);
-      bottom_01_lo = _mm_insert_epi32(bottom_01_lo,*(uint32_t *)&srcp2[offs+3],3);
+      curr_01_lo = _mm_insert_epi32(curr_01_lo,*(uint32_t *)&srcp[offs+3*SMAG],3);
+      bottom_01_lo = _mm_insert_epi32(bottom_01_lo,*(uint32_t *)&srcp2[offs+3*SMAG],3);
       // high part, source offset is 4-7, target offset is 0-3 again
       // #4
       offs = _mm_cvtsi128_si32(offs_hi);
       offs_hi = _mm_srli_si128(offs_hi,4);
-      curr_01_hi = _mm_insert_epi32(curr_01_hi,*(uint32_t *)&srcp[offs+4],0);
-      bottom_01_hi = _mm_insert_epi32(bottom_01_hi,*(uint32_t *)&srcp2[offs+4],0);
+      curr_01_hi = _mm_insert_epi32(curr_01_hi,*(uint32_t *)&srcp[offs+4*SMAG],0);
+      bottom_01_hi = _mm_insert_epi32(bottom_01_hi,*(uint32_t *)&srcp2[offs+4*SMAG],0);
       // #5
       offs = _mm_cvtsi128_si32(offs_hi);
       offs_hi = _mm_srli_si128(offs_hi,4);
-      curr_01_hi = _mm_insert_epi32(curr_01_hi,*(uint32_t *)&srcp[offs+5],1);
-      bottom_01_hi = _mm_insert_epi32(bottom_01_hi,*(uint32_t *)&srcp2[offs+5],1);
+      curr_01_hi = _mm_insert_epi32(curr_01_hi,*(uint32_t *)&srcp[offs+5*SMAG],1);
+      bottom_01_hi = _mm_insert_epi32(bottom_01_hi,*(uint32_t *)&srcp2[offs+5*SMAG],1);
       // #6
       offs = _mm_cvtsi128_si32(offs_hi);
       offs_hi = _mm_srli_si128(offs_hi,4);
-      curr_01_hi = _mm_insert_epi32(curr_01_hi,*(uint32_t *)&srcp[offs+6],2);
-      bottom_01_hi = _mm_insert_epi32(bottom_01_hi,*(uint32_t *)&srcp2[offs+6],2);
+      curr_01_hi = _mm_insert_epi32(curr_01_hi,*(uint32_t *)&srcp[offs+6*SMAG],2);
+      bottom_01_hi = _mm_insert_epi32(bottom_01_hi,*(uint32_t *)&srcp2[offs+6*SMAG],2);
       // #7
       offs = _mm_cvtsi128_si32(offs_hi);
       // not used anymore // offs_hi = _mm_srli_si128(offs_hi, 4);
-      curr_01_hi = _mm_insert_epi32(curr_01_hi,*(uint32_t *)&srcp[offs+7],3);
-      bottom_01_hi = _mm_insert_epi32(bottom_01_hi,*(uint32_t *)&srcp2[offs+7],3);
+      curr_01_hi = _mm_insert_epi32(curr_01_hi,*(uint32_t *)&srcp[offs+7*SMAG],3);
+      bottom_01_hi = _mm_insert_epi32(bottom_01_hi,*(uint32_t *)&srcp2[offs+7*SMAG],3);
 
       // combine even and odds together
       __m128i mask0000FFFF = _mm_set1_epi32(0xFFFF);
