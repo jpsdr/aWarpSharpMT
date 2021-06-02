@@ -1125,8 +1125,8 @@ JPSDR_Sobel_8_SSE2_1:
     sub	rcx,r9
     jb short JPSDR_Sobel_8_SSE2_2
     movntdq XMMWORD ptr[rsi+rdi],xmm2
-    jnz JPSDR_Sobel_8_SSE2_1
-    jmp short JPSDR_Sobel_8_SSE2_Fin
+    jz short JPSDR_Sobel_8_SSE2_Fin
+    jmp JPSDR_Sobel_8_SSE2_1
 
 JPSDR_Sobel_8_SSE2_2:
     test rcx,2
@@ -1151,6 +1151,350 @@ JPSDR_Sobel_8_SSE2_Fin:
 
 	ret
 JPSDR_Sobel_8_SSE2 endp
+
+
+;JPSDR_Sobel_8_SSE2_a proc psrc:dword,pdst:dword,src_pitch:dword,y_:dword,height:dword,i_:dword,thresh:dword
+; psrc = rcx
+; pdst = rdx
+; src_pitch = r8d
+; y_ = r9d
+JPSDR_Sobel_8_SSE2_a proc public frame
+
+height equ dword ptr[rbp+48]
+i_ equ dword ptr[rbp+56]
+thresh equ dword ptr[rbp+64]
+
+	push rbp
+	.pushreg rbp
+	mov rbp,rsp
+	push rsi
+	.pushreg rsi
+	push rdi
+	.pushreg rdi
+	sub rsp,32
+	.allocstack 32
+	movdqa XMMWORD ptr[rsp],xmm6
+	.savexmm128 xmm6,0
+	movdqa XMMWORD ptr[rsp+16],xmm7
+	.savexmm128 xmm7,16
+	.endprolog
+
+    mov rsi,rcx
+    mov rdi,rdx
+    movsxd rdx,r8d
+    xor	rax,rax
+    movsxd rcx,r9d
+    test rcx,rcx
+    cmovnz rax,rdx
+    inc	rcx
+    add	rdx,rax
+    cmp	ecx,height     ;32 bit O.K.
+    cmovz rdx,rax
+    sub rsi,rax
+	mov r8,16
+	mov r9,4
+	movsxd rcx,i_
+    sub	rdi,r8
+    sub	rdi,rsi
+    movd xmm0,thresh
+    pshufd xmm0,xmm0,0
+    packssdw xmm0,xmm0
+    packuswb xmm0,xmm0
+	
+	; First pixel
+    movdqu xmm2,XMMWORD ptr[rsi]
+    movdqu xmm3,xmm2
+    movdqu xmm4,XMMWORD ptr[rsi+1]
+    movdqu xmm5,XMMWORD ptr[rsi+rdx-1]
+    movdqu xmm6,XMMWORD ptr[rsi+rdx]
+    movdqu xmm7,XMMWORD ptr[rsi+rdx+1]
+
+    movdqa xmm1,xmm2
+    pavgb xmm1,xmm4
+    pavgb xmm3,xmm1
+
+    movdqa xmm1,xmm5
+    pavgb xmm1,xmm7
+    pavgb xmm6,xmm1
+
+    movdqa xmm1,xmm3
+    psubusb xmm3,xmm6
+    psubusb xmm6,xmm1
+    por xmm6,xmm3
+
+    movdqu xmm1,XMMWORD ptr[rsi+rax-1]
+    movdqu xmm3,XMMWORD ptr[rsi+rax+1]
+    pavgb xmm5,xmm2
+    pavgb xmm7,xmm4
+    pavgb xmm1,xmm5
+    pavgb xmm3,xmm7
+    movdqa xmm5,xmm1
+    psubusb xmm1,xmm3
+    psubusb xmm3,xmm5
+    por xmm1,xmm3
+
+    movdqa xmm2,xmm6
+    paddusb xmm2,xmm1
+    pmaxub xmm1,xmm6
+    paddusb xmm2,xmm1
+
+    movdqa xmm3,xmm2
+    paddusb xmm2,xmm2
+    paddusb xmm2,xmm3
+    paddusb xmm2,xmm2
+    pminub xmm2,xmm0  ;thresh
+    add	rsi,r8
+    sub	rcx,r9
+    jb JPSDR_Sobel_8_SSE2_2_a
+    movntdq XMMWORD ptr[rsi+rdi],xmm2
+    jz JPSDR_Sobel_8_SSE2_a_Fin
+	
+JPSDR_Sobel_8_SSE2_1_a:
+    movdqu xmm2,XMMWORD ptr[rsi-1]
+    movdqu xmm3,XMMWORD ptr[rsi]
+    movdqu xmm4,XMMWORD ptr[rsi+1]
+    movdqu xmm5,XMMWORD ptr[rsi+rdx-1]
+    movdqu xmm6,XMMWORD ptr[rsi+rdx]
+    movdqu xmm7,XMMWORD ptr[rsi+rdx+1]
+
+    movdqa xmm1,xmm2
+    pavgb xmm1,xmm4
+    pavgb xmm3,xmm1
+
+    movdqa xmm1,xmm5
+    pavgb xmm1,xmm7
+    pavgb xmm6,xmm1
+
+    movdqa xmm1,xmm3
+    psubusb xmm3,xmm6
+    psubusb xmm6,xmm1
+    por xmm6,xmm3
+
+    movdqu xmm1,XMMWORD ptr[rsi+rax-1]
+    movdqu xmm3,XMMWORD ptr[rsi+rax+1]
+    pavgb xmm5,xmm2
+    pavgb xmm7,xmm4
+    pavgb xmm1,xmm5
+    pavgb xmm3,xmm7
+    movdqa xmm5,xmm1
+    psubusb xmm1,xmm3
+    psubusb xmm3,xmm5
+    por xmm1,xmm3
+
+    movdqa xmm2,xmm6
+    paddusb xmm2,xmm1
+    pmaxub xmm1,xmm6
+    paddusb xmm2,xmm1
+
+    movdqa xmm3,xmm2
+    paddusb xmm2,xmm2
+    paddusb xmm2,xmm3
+    paddusb xmm2,xmm2
+    pminub xmm2,xmm0  ;thresh
+    add	rsi,r8
+    sub	rcx,r9
+    jb short JPSDR_Sobel_8_SSE2_2_a
+    movntdq XMMWORD ptr[rsi+rdi],xmm2
+    jz short JPSDR_Sobel_8_SSE2_a_Fin
+    jmp JPSDR_Sobel_8_SSE2_1_a
+
+JPSDR_Sobel_8_SSE2_2_a:
+    test rcx,2
+    jz short JPSDR_Sobel_8_SSE2_3_a
+    movq qword ptr[rsi+rdi],xmm2
+    test rcx,1
+    jz short JPSDR_Sobel_8_SSE2_a_Fin
+    add rsi,8
+    psrldq xmm2,8
+
+JPSDR_Sobel_8_SSE2_3_a:
+    movd dword ptr[rsi+rdi],xmm2
+
+JPSDR_Sobel_8_SSE2_a_Fin:
+	movdqa xmm7,XMMWORD ptr[rsp+16]
+	movdqa xmm6,XMMWORD ptr[rsp]
+	add rsp,32
+
+	pop rdi
+	pop rsi
+	pop rbp
+
+	ret
+JPSDR_Sobel_8_SSE2_a endp
+
+
+;JPSDR_Sobel_8_SSE2_b proc psrc:dword,pdst:dword,src_pitch:dword,y_:dword,height:dword,i_:dword,thresh:dword
+; psrc = rcx
+; pdst = rdx
+; src_pitch = r8d
+; y_ = r9d
+JPSDR_Sobel_8_SSE2_b proc public frame
+
+height equ dword ptr[rbp+48]
+i_ equ dword ptr[rbp+56]
+thresh equ dword ptr[rbp+64]
+
+	push rbp
+	.pushreg rbp
+	mov rbp,rsp
+	push rsi
+	.pushreg rsi
+	push rdi
+	.pushreg rdi
+	sub rsp,32
+	.allocstack 32
+	movdqa XMMWORD ptr[rsp],xmm6
+	.savexmm128 xmm6,0
+	movdqa XMMWORD ptr[rsp+16],xmm7
+	.savexmm128 xmm7,16
+	.endprolog
+
+    mov rsi,rcx
+    mov rdi,rdx
+    movsxd rdx,r8d
+    xor	rax,rax
+    movsxd rcx,r9d
+    test rcx,rcx
+    cmovnz rax,rdx
+    inc	rcx
+    add	rdx,rax
+    cmp	ecx,height     ;32 bit O.K.
+    cmovz rdx,rax
+    sub rsi,rax
+	mov r8,16
+	mov r9,4
+	movsxd rcx,i_
+    sub	rdi,r8
+    sub	rdi,rsi
+    movd xmm0,thresh
+    pshufd xmm0,xmm0,0
+    packssdw xmm0,xmm0
+    packuswb xmm0,xmm0
+	
+    sub	rcx,r9
+    jbe JPSDR_Sobel_8_SSE2_4_b
+	
+JPSDR_Sobel_8_SSE2_1_b:
+    movdqu xmm2,XMMWORD ptr[rsi-1]
+    movdqu xmm3,XMMWORD ptr[rsi]
+    movdqu xmm4,XMMWORD ptr[rsi+1]
+    movdqu xmm5,XMMWORD ptr[rsi+rdx-1]
+    movdqu xmm6,XMMWORD ptr[rsi+rdx]
+    movdqu xmm7,XMMWORD ptr[rsi+rdx+1]
+
+    movdqa xmm1,xmm2
+    pavgb xmm1,xmm4
+    pavgb xmm3,xmm1
+
+    movdqa xmm1,xmm5
+    pavgb xmm1,xmm7
+    pavgb xmm6,xmm1
+
+    movdqa xmm1,xmm3
+    psubusb xmm3,xmm6
+    psubusb xmm6,xmm1
+    por xmm6,xmm3
+
+    movdqu xmm1,XMMWORD ptr[rsi+rax-1]
+    movdqu xmm3,XMMWORD ptr[rsi+rax+1]
+    pavgb xmm5,xmm2
+    pavgb xmm7,xmm4
+    pavgb xmm1,xmm5
+    pavgb xmm3,xmm7
+    movdqa xmm5,xmm1
+    psubusb xmm1,xmm3
+    psubusb xmm3,xmm5
+    por xmm1,xmm3
+
+    movdqa xmm2,xmm6
+    paddusb xmm2,xmm1
+    pmaxub xmm1,xmm6
+    paddusb xmm2,xmm1
+
+    movdqa xmm3,xmm2
+    paddusb xmm2,xmm2
+    paddusb xmm2,xmm3
+    paddusb xmm2,xmm2
+    pminub xmm2,xmm0  ;thresh
+    add	rsi,r8
+    sub	rcx,r9
+    movntdq XMMWORD ptr[rsi+rdi],xmm2
+    ja JPSDR_Sobel_8_SSE2_1_b
+	
+	; Last pixel
+JPSDR_Sobel_8_SSE2_4_b:
+	add rcx,r9
+	
+    movdqu xmm2,XMMWORD ptr[rsi-1]
+    movdqu xmm3,XMMWORD ptr[rsi]
+    movdqu xmm4,XMMWORD ptr[rsi+1]
+    movdqu xmm5,XMMWORD ptr[rsi+rdx-1]
+    movdqu xmm6,XMMWORD ptr[rsi+rdx]
+    movdqu xmm7,xmm6
+
+    movdqa xmm1,xmm2
+    pavgb xmm1,xmm4
+    pavgb xmm3,xmm1
+
+    movdqa xmm1,xmm5
+    pavgb xmm1,xmm7
+    pavgb xmm6,xmm1
+
+    movdqa xmm1,xmm3
+    psubusb xmm3,xmm6
+    psubusb xmm6,xmm1
+    por xmm6,xmm3
+
+    movdqu xmm1,XMMWORD ptr[rsi+rax-1]
+    movdqu xmm3,XMMWORD ptr[rsi+rax+1]
+    pavgb xmm5,xmm2
+    pavgb xmm7,xmm4
+    pavgb xmm1,xmm5
+    pavgb xmm3,xmm7
+    movdqa xmm5,xmm1
+    psubusb xmm1,xmm3
+    psubusb xmm3,xmm5
+    por xmm1,xmm3
+
+    movdqa xmm2,xmm6
+    paddusb xmm2,xmm1
+    pmaxub xmm1,xmm6
+    paddusb xmm2,xmm1
+
+    movdqa xmm3,xmm2
+    paddusb xmm2,xmm2
+    paddusb xmm2,xmm3
+    paddusb xmm2,xmm2
+    pminub xmm2,xmm0  ;thresh
+    add	rsi,r8
+    sub	rcx,r9
+    jb short JPSDR_Sobel_8_SSE2_2_b
+    movntdq XMMWORD ptr[rsi+rdi],xmm2
+    jmp short JPSDR_Sobel_8_SSE2_b_Fin
+
+JPSDR_Sobel_8_SSE2_2_b:
+    test rcx,2
+    jz short JPSDR_Sobel_8_SSE2_3_b
+    movq qword ptr[rsi+rdi],xmm2
+    test rcx,1
+    jz short JPSDR_Sobel_8_SSE2_b_Fin
+    add rsi,8
+    psrldq xmm2,8
+
+JPSDR_Sobel_8_SSE2_3_b:
+    movd dword ptr[rsi+rdi],xmm2
+
+JPSDR_Sobel_8_SSE2_b_Fin:
+	movdqa xmm7,XMMWORD ptr[rsp+16]
+	movdqa xmm6,XMMWORD ptr[rsp]
+	add rsp,32
+
+	pop rdi
+	pop rsi
+	pop rbp
+
+	ret
+JPSDR_Sobel_8_SSE2_b endp
 
 
 ;JPSDR_Sobel_8_AVX proc psrc:dword,pdst:dword,src_pitch:dword,y_:dword,height:dword,i_:dword,thresh:dword
@@ -1241,8 +1585,8 @@ JPSDR_Sobel_8_AVX_1:
     sub	rcx,r9
     jb short JPSDR_Sobel_8_AVX_2
     vmovntdq XMMWORD ptr[rsi+rdi],xmm1
-    jnz JPSDR_Sobel_8_AVX_1
-    jmp short JPSDR_Sobel_8_AVX_Fin
+	jz short JPSDR_Sobel_8_AVX_Fin
+    jmp JPSDR_Sobel_8_AVX_1
 
 JPSDR_Sobel_8_AVX_2:
     test rcx,2
@@ -1267,6 +1611,326 @@ JPSDR_Sobel_8_AVX_Fin:
 
 	ret
 JPSDR_Sobel_8_AVX endp
+
+
+;JPSDR_Sobel_8_AVX_a proc psrc:dword,pdst:dword,src_pitch:dword,y_:dword,height:dword,i_:dword,thresh:dword
+; psrc = rcx
+; pdst = rdx
+; src_pitch = r8d
+; y_ = r9d
+JPSDR_Sobel_8_AVX_a proc public frame
+
+height equ dword ptr[rbp+48]
+i_ equ dword ptr[rbp+56]
+thresh equ dword ptr[rbp+64]
+
+	push rbp
+	.pushreg rbp
+	mov rbp,rsp
+	push rsi
+	.pushreg rsi
+	push rdi
+	.pushreg rdi
+	sub rsp,32
+	.allocstack 32
+	vmovdqa XMMWORD ptr[rsp],xmm6
+	.savexmm128 xmm6,0
+	vmovdqa XMMWORD ptr[rsp+16],xmm7
+	.savexmm128 xmm7,16
+	.endprolog
+
+    mov rsi,rcx
+    mov rdi,rdx
+    movsxd rdx,r8d
+    xor	rax,rax
+    movsxd rcx,r9d
+    test rcx,rcx
+    cmovnz rax,rdx
+    inc	rcx
+    add	rdx,rax
+    cmp	ecx,height     ;32 bit O.K.
+    cmovz rdx,rax
+    sub rsi,rax
+	mov r8,16
+	mov r9,4
+	movsxd rcx,i_
+    sub	rdi,r8
+    sub	rdi,rsi
+    vmovd xmm0,thresh
+    vpshufd xmm0,xmm0,0
+    vpackssdw xmm0,xmm0,xmm0
+    vpackuswb xmm0,xmm0,xmm0
+	
+	; First pixel
+    vmovdqu xmm2,XMMWORD ptr[rsi]
+    vmovdqu xmm3,xmm2
+    vmovdqu xmm4,XMMWORD ptr[rsi+1]
+    vmovdqu xmm5,XMMWORD ptr[rsi+rdx-1]
+    vmovdqu xmm6,XMMWORD ptr[rsi+rdx]
+    vmovdqu xmm7,XMMWORD ptr[rsi+rdx+1]
+
+    vpavgb xmm1,xmm2,xmm4
+    vpavgb xmm3,xmm3,xmm1
+
+    vpavgb xmm1,xmm5,xmm7
+    vpavgb xmm6,xmm6,xmm1
+
+    vpsubusb xmm1,xmm3,xmm6
+    vpsubusb xmm6,xmm6,xmm3
+    vpor xmm6,xmm6,xmm1
+
+    vmovdqu xmm1,XMMWORD ptr[rsi+rax-1]
+    vmovdqu xmm3,XMMWORD ptr[rsi+rax+1]
+    vpavgb xmm5,xmm5,xmm2
+    vpavgb xmm7,xmm7,xmm4
+    vpavgb xmm1,xmm1,xmm5
+    vpavgb xmm3,xmm3,xmm7
+    vpsubusb xmm5,xmm1,xmm3
+    vpsubusb xmm1,xmm3,xmm1
+    vpor xmm1,xmm1,xmm5
+
+    vpaddusb xmm2,xmm6,xmm1
+    vpmaxub xmm1,xmm1,xmm6
+    vpaddusb xmm2,xmm2,xmm1
+
+    vpaddusb xmm1,xmm2,xmm2
+    vpaddusb xmm1,xmm1,xmm2
+    vpaddusb xmm1,xmm1,xmm1
+    vpminub xmm1,xmm1,xmm0  ;thresh
+    add	rsi,r8
+    sub	rcx,r9
+    jb JPSDR_Sobel_8_AVX_2_a
+    vmovntdq XMMWORD ptr[rsi+rdi],xmm1
+	jz JPSDR_Sobel_8_AVX_a_Fin
+	
+JPSDR_Sobel_8_AVX_1_a:
+    vmovdqu xmm2,XMMWORD ptr[rsi-1]
+    vmovdqu xmm3,XMMWORD ptr[rsi]
+    vmovdqu xmm4,XMMWORD ptr[rsi+1]
+    vmovdqu xmm5,XMMWORD ptr[rsi+rdx-1]
+    vmovdqu xmm6,XMMWORD ptr[rsi+rdx]
+    vmovdqu xmm7,XMMWORD ptr[rsi+rdx+1]
+
+    vpavgb xmm1,xmm2,xmm4
+    vpavgb xmm3,xmm3,xmm1
+
+    vpavgb xmm1,xmm5,xmm7
+    vpavgb xmm6,xmm6,xmm1
+
+    vpsubusb xmm1,xmm3,xmm6
+    vpsubusb xmm6,xmm6,xmm3
+    vpor xmm6,xmm6,xmm1
+
+    vmovdqu xmm1,XMMWORD ptr[rsi+rax-1]
+    vmovdqu xmm3,XMMWORD ptr[rsi+rax+1]
+    vpavgb xmm5,xmm5,xmm2
+    vpavgb xmm7,xmm7,xmm4
+    vpavgb xmm1,xmm1,xmm5
+    vpavgb xmm3,xmm3,xmm7
+    vpsubusb xmm5,xmm1,xmm3
+    vpsubusb xmm1,xmm3,xmm1
+    vpor xmm1,xmm1,xmm5
+
+    vpaddusb xmm2,xmm6,xmm1
+    vpmaxub xmm1,xmm1,xmm6
+    vpaddusb xmm2,xmm2,xmm1
+
+    vpaddusb xmm1,xmm2,xmm2
+    vpaddusb xmm1,xmm1,xmm2
+    vpaddusb xmm1,xmm1,xmm1
+    vpminub xmm1,xmm1,xmm0  ;thresh
+    add	rsi,r8
+    sub	rcx,r9
+    jb short JPSDR_Sobel_8_AVX_2_a
+    vmovntdq XMMWORD ptr[rsi+rdi],xmm1
+	jz short JPSDR_Sobel_8_AVX_a_Fin
+    jmp JPSDR_Sobel_8_AVX_1_a
+
+JPSDR_Sobel_8_AVX_2_a:
+    test rcx,2
+    jz short JPSDR_Sobel_8_AVX_3_a
+    vmovq qword ptr[rsi+rdi],xmm1
+    test rcx,1
+    jz short JPSDR_Sobel_8_AVX_a_Fin
+    add rsi,8
+    vpsrldq xmm1,xmm1,8
+
+JPSDR_Sobel_8_AVX_3_a:
+    vmovd dword ptr[rsi+rdi],xmm1
+
+JPSDR_Sobel_8_AVX_a_Fin:
+	vmovdqa xmm7,XMMWORD ptr[rsp+16]
+	vmovdqa xmm6,XMMWORD ptr[rsp]
+	add rsp,32
+
+	pop rdi
+	pop rsi
+	pop rbp
+
+	ret
+JPSDR_Sobel_8_AVX_a endp
+
+
+;JPSDR_Sobel_8_AVX_b proc psrc:dword,pdst:dword,src_pitch:dword,y_:dword,height:dword,i_:dword,thresh:dword
+; psrc = rcx
+; pdst = rdx
+; src_pitch = r8d
+; y_ = r9d
+JPSDR_Sobel_8_AVX_b proc public frame
+
+height equ dword ptr[rbp+48]
+i_ equ dword ptr[rbp+56]
+thresh equ dword ptr[rbp+64]
+
+	push rbp
+	.pushreg rbp
+	mov rbp,rsp
+	push rsi
+	.pushreg rsi
+	push rdi
+	.pushreg rdi
+	sub rsp,32
+	.allocstack 32
+	vmovdqa XMMWORD ptr[rsp],xmm6
+	.savexmm128 xmm6,0
+	vmovdqa XMMWORD ptr[rsp+16],xmm7
+	.savexmm128 xmm7,16
+	.endprolog
+
+    mov rsi,rcx
+    mov rdi,rdx
+    movsxd rdx,r8d
+    xor	rax,rax
+    movsxd rcx,r9d
+    test rcx,rcx
+    cmovnz rax,rdx
+    inc	rcx
+    add	rdx,rax
+    cmp	ecx,height     ;32 bit O.K.
+    cmovz rdx,rax
+    sub rsi,rax
+	mov r8,16
+	mov r9,4
+	movsxd rcx,i_
+    sub	rdi,r8
+    sub	rdi,rsi
+    vmovd xmm0,thresh
+    vpshufd xmm0,xmm0,0
+    vpackssdw xmm0,xmm0,xmm0
+    vpackuswb xmm0,xmm0,xmm0
+	
+    sub	rcx,r9
+    jbe JPSDR_Sobel_8_AVX_4_b
+	
+JPSDR_Sobel_8_AVX_1_b:
+    vmovdqu xmm2,XMMWORD ptr[rsi-1]
+    vmovdqu xmm3,XMMWORD ptr[rsi]
+    vmovdqu xmm4,XMMWORD ptr[rsi+1]
+    vmovdqu xmm5,XMMWORD ptr[rsi+rdx-1]
+    vmovdqu xmm6,XMMWORD ptr[rsi+rdx]
+    vmovdqu xmm7,XMMWORD ptr[rsi+rdx+1]
+
+    vpavgb xmm1,xmm2,xmm4
+    vpavgb xmm3,xmm3,xmm1
+
+    vpavgb xmm1,xmm5,xmm7
+    vpavgb xmm6,xmm6,xmm1
+
+    vpsubusb xmm1,xmm3,xmm6
+    vpsubusb xmm6,xmm6,xmm3
+    vpor xmm6,xmm6,xmm1
+
+    vmovdqu xmm1,XMMWORD ptr[rsi+rax-1]
+    vmovdqu xmm3,XMMWORD ptr[rsi+rax+1]
+    vpavgb xmm5,xmm5,xmm2
+    vpavgb xmm7,xmm7,xmm4
+    vpavgb xmm1,xmm1,xmm5
+    vpavgb xmm3,xmm3,xmm7
+    vpsubusb xmm5,xmm1,xmm3
+    vpsubusb xmm1,xmm3,xmm1
+    vpor xmm1,xmm1,xmm5
+
+    vpaddusb xmm2,xmm6,xmm1
+    vpmaxub xmm1,xmm1,xmm6
+    vpaddusb xmm2,xmm2,xmm1
+
+    vpaddusb xmm1,xmm2,xmm2
+    vpaddusb xmm1,xmm1,xmm2
+    vpaddusb xmm1,xmm1,xmm1
+    vpminub xmm1,xmm1,xmm0  ;thresh
+    add	rsi,r8
+    sub	rcx,r9
+    vmovntdq XMMWORD ptr[rsi+rdi],xmm1
+    ja JPSDR_Sobel_8_AVX_1_b
+	
+	; Last pixel
+JPSDR_Sobel_8_AVX_4_b:
+	add rcx,r9
+	
+    vmovdqu xmm2,XMMWORD ptr[rsi-1]
+    vmovdqu xmm3,XMMWORD ptr[rsi]
+    vmovdqu xmm4,XMMWORD ptr[rsi+1]
+    vmovdqu xmm5,XMMWORD ptr[rsi+rdx-1]
+    vmovdqu xmm6,XMMWORD ptr[rsi+rdx]
+    vmovdqu xmm7,xmm6
+
+    vpavgb xmm1,xmm2,xmm4
+    vpavgb xmm3,xmm3,xmm1
+
+    vpavgb xmm1,xmm5,xmm7
+    vpavgb xmm6,xmm6,xmm1
+
+    vpsubusb xmm1,xmm3,xmm6
+    vpsubusb xmm6,xmm6,xmm3
+    vpor xmm6,xmm6,xmm1
+
+    vmovdqu xmm1,XMMWORD ptr[rsi+rax-1]
+    vmovdqu xmm3,XMMWORD ptr[rsi+rax+1]
+    vpavgb xmm5,xmm5,xmm2
+    vpavgb xmm7,xmm7,xmm4
+    vpavgb xmm1,xmm1,xmm5
+    vpavgb xmm3,xmm3,xmm7
+    vpsubusb xmm5,xmm1,xmm3
+    vpsubusb xmm1,xmm3,xmm1
+    vpor xmm1,xmm1,xmm5
+
+    vpaddusb xmm2,xmm6,xmm1
+    vpmaxub xmm1,xmm1,xmm6
+    vpaddusb xmm2,xmm2,xmm1
+
+    vpaddusb xmm1,xmm2,xmm2
+    vpaddusb xmm1,xmm1,xmm2
+    vpaddusb xmm1,xmm1,xmm1
+    vpminub xmm1,xmm1,xmm0  ;thresh
+    add	rsi,r8
+    sub	rcx,r9
+    jb short JPSDR_Sobel_8_AVX_2_b
+    vmovntdq XMMWORD ptr[rsi+rdi],xmm1
+	jmp JPSDR_Sobel_8_AVX_b_Fin
+
+JPSDR_Sobel_8_AVX_2_b:
+    test rcx,2
+    jz short JPSDR_Sobel_8_AVX_3_b
+    vmovq qword ptr[rsi+rdi],xmm1
+    test rcx,1
+    jz short JPSDR_Sobel_8_AVX_b_Fin
+    add rsi,8
+    vpsrldq xmm1,xmm1,8
+
+JPSDR_Sobel_8_AVX_3_b:
+    vmovd dword ptr[rsi+rdi],xmm1
+
+JPSDR_Sobel_8_AVX_b_Fin:
+	vmovdqa xmm7,XMMWORD ptr[rsp+16]
+	vmovdqa xmm6,XMMWORD ptr[rsp]
+	add rsp,32
+
+	pop rdi
+	pop rsi
+	pop rbp
+
+	ret
+JPSDR_Sobel_8_AVX_b endp
 
 
 ;JPSDR_Sobel_16_SSE2 proc psrc:dword,pdst:dword,src_pitch:dword,y_:dword,height:dword,i_:dword,thresh:dword
@@ -1374,8 +2038,8 @@ JPSDR_Sobel_16_SSE2_1:
     sub	rcx,r9
     jb short JPSDR_Sobel_16_SSE2_2
     movntdq XMMWORD ptr[rsi+rdi],xmm2
-    jnz JPSDR_Sobel_16_SSE2_1
-    jmp short JPSDR_Sobel_16_SSE2_Fin
+    jz short JPSDR_Sobel_16_SSE2_Fin
+    jmp JPSDR_Sobel_16_SSE2_1
 
 JPSDR_Sobel_16_SSE2_2:
     test rcx,2
@@ -1401,6 +2065,384 @@ JPSDR_Sobel_16_SSE2_Fin:
 
 	ret
 JPSDR_Sobel_16_SSE2 endp
+
+
+;JPSDR_Sobel_16_SSE2_a proc psrc:dword,pdst:dword,src_pitch:dword,y_:dword,height:dword,i_:dword,thresh:dword
+; psrc = rcx
+; pdst = rdx
+; src_pitch = r8d
+; y_ = r9d
+JPSDR_Sobel_16_SSE2_a proc public frame
+
+height equ dword ptr[rbp+48]
+i_ equ dword ptr[rbp+56]
+thresh equ dword ptr[rbp+64]
+
+	push rbp
+	.pushreg rbp
+	mov rbp,rsp
+	push rsi
+	.pushreg rsi
+	push rdi
+	.pushreg rdi
+	sub rsp,48
+	.allocstack 48
+	movdqa XMMWORD ptr[rsp],xmm6
+	.savexmm128 xmm6,0
+	movdqa XMMWORD ptr[rsp+16],xmm7
+	.savexmm128 xmm7,16
+	movdqa XMMWORD ptr[rsp+32],xmm8
+	.savexmm128 xmm8,32
+	.endprolog
+
+	pxor xmm0,xmm0
+    mov rsi,rcx
+    mov rdi,rdx
+    movsxd rdx,r8d
+    xor	rax,rax
+    movsxd rcx,r9d
+    test rcx,rcx
+    cmovnz rax,rdx
+    inc	rcx
+    add	rdx,rax
+    cmp	ecx,height     ;32 bit O.K.
+    cmovz rdx,rax
+    sub rsi,rax
+	mov r8,16
+	mov r9,4
+	movsxd rcx,i_
+    sub	rdi,r8
+    sub	rdi,rsi
+    movd xmm0,thresh
+	movdqa xmm8,XMMWORD ptr uw_8000
+    pshuflw xmm0,xmm0,0
+	movdqa xmm1,xmm0
+	pslldq xmm0,8
+	por xmm0,xmm1
+	psubw xmm0,xmm8
+	
+	; First pixel
+    movdqu xmm2,XMMWORD ptr[rsi]
+    movdqu xmm3,xmm2
+    movdqu xmm4,XMMWORD ptr[rsi+2]
+    movdqu xmm5,XMMWORD ptr[rsi+rdx-2]
+    movdqu xmm6,XMMWORD ptr[rsi+rdx]
+    movdqu xmm7,XMMWORD ptr[rsi+rdx+2]
+
+    movdqa xmm1,xmm2
+    pavgw xmm1,xmm4
+    pavgw xmm3,xmm1
+
+    movdqa xmm1,xmm5
+    pavgw xmm1,xmm7
+    pavgw xmm6,xmm1
+
+    movdqa xmm1,xmm3
+    psubusw xmm3,xmm6
+    psubusw xmm6,xmm1
+    por xmm6,xmm3
+
+    movdqu xmm1,XMMWORD ptr[rsi+rax-2]
+    movdqu xmm3,XMMWORD ptr[rsi+rax+2]
+    pavgw xmm5,xmm2
+    pavgw xmm7,xmm4
+    pavgw xmm1,xmm5
+    pavgw xmm3,xmm7
+    movdqa xmm5,xmm1
+    psubusw xmm1,xmm3
+    psubusw xmm3,xmm5
+    por xmm1,xmm3
+
+    movdqa xmm2,xmm6
+    paddusw xmm2,xmm1
+	psubw xmm6,xmm8
+	psubw xmm1,xmm8
+	pmaxsw xmm1,xmm6
+	paddw xmm1,xmm8
+    paddusw xmm2,xmm1
+
+    movdqa xmm3,xmm2
+    paddusw xmm2,xmm2
+    paddusw xmm2,xmm3
+    paddusw xmm2,xmm2
+	psubw xmm2,xmm8
+	pminsw xmm2,xmm0
+	paddw xmm2,xmm8
+    add	rsi,r8
+    sub	rcx,r9
+    jb JPSDR_Sobel_16_SSE2_2_a
+    movntdq XMMWORD ptr[rsi+rdi],xmm2
+    jz JPSDR_Sobel_16_SSE2_a_Fin
+	
+JPSDR_Sobel_16_SSE2_1_a:
+    movdqu xmm2,XMMWORD ptr[rsi-2]
+    movdqu xmm3,XMMWORD ptr[rsi]
+    movdqu xmm4,XMMWORD ptr[rsi+2]
+    movdqu xmm5,XMMWORD ptr[rsi+rdx-2]
+    movdqu xmm6,XMMWORD ptr[rsi+rdx]
+    movdqu xmm7,XMMWORD ptr[rsi+rdx+2]
+
+    movdqa xmm1,xmm2
+    pavgw xmm1,xmm4
+    pavgw xmm3,xmm1
+
+    movdqa xmm1,xmm5
+    pavgw xmm1,xmm7
+    pavgw xmm6,xmm1
+
+    movdqa xmm1,xmm3
+    psubusw xmm3,xmm6
+    psubusw xmm6,xmm1
+    por xmm6,xmm3
+
+    movdqu xmm1,XMMWORD ptr[rsi+rax-2]
+    movdqu xmm3,XMMWORD ptr[rsi+rax+2]
+    pavgw xmm5,xmm2
+    pavgw xmm7,xmm4
+    pavgw xmm1,xmm5
+    pavgw xmm3,xmm7
+    movdqa xmm5,xmm1
+    psubusw xmm1,xmm3
+    psubusw xmm3,xmm5
+    por xmm1,xmm3
+
+    movdqa xmm2,xmm6
+    paddusw xmm2,xmm1
+	psubw xmm6,xmm8
+	psubw xmm1,xmm8
+	pmaxsw xmm1,xmm6
+	paddw xmm1,xmm8
+    paddusw xmm2,xmm1
+
+    movdqa xmm3,xmm2
+    paddusw xmm2,xmm2
+    paddusw xmm2,xmm3
+    paddusw xmm2,xmm2
+	psubw xmm2,xmm8
+	pminsw xmm2,xmm0
+	paddw xmm2,xmm8
+    add	rsi,r8
+    sub	rcx,r9
+    jb short JPSDR_Sobel_16_SSE2_2_a
+    movntdq XMMWORD ptr[rsi+rdi],xmm2
+    jz short JPSDR_Sobel_16_SSE2_a_Fin
+    jmp JPSDR_Sobel_16_SSE2_1_a
+
+JPSDR_Sobel_16_SSE2_2_a:
+    test rcx,2
+    jz short JPSDR_Sobel_16_SSE2_3_a
+    movq qword ptr[rsi+rdi],xmm2
+    test rcx,1
+    jz short JPSDR_Sobel_16_SSE2_a_Fin
+    add rsi,8
+    psrldq xmm2,8
+
+JPSDR_Sobel_16_SSE2_3_a:
+    movd dword ptr[rsi+rdi],xmm2
+
+JPSDR_Sobel_16_SSE2_a_Fin:
+	movdqa xmm8,XMMWORD ptr[rsp+32]
+	movdqa xmm7,XMMWORD ptr[rsp+16]
+	movdqa xmm6,XMMWORD ptr[rsp]
+	add rsp,48
+
+	pop rdi
+	pop rsi
+	pop rbp
+
+	ret
+JPSDR_Sobel_16_SSE2_a endp
+
+
+;JPSDR_Sobel_16_SSE2_b proc psrc:dword,pdst:dword,src_pitch:dword,y_:dword,height:dword,i_:dword,thresh:dword
+; psrc = rcx
+; pdst = rdx
+; src_pitch = r8d
+; y_ = r9d
+JPSDR_Sobel_16_SSE2_b proc public frame
+
+height equ dword ptr[rbp+48]
+i_ equ dword ptr[rbp+56]
+thresh equ dword ptr[rbp+64]
+
+	push rbp
+	.pushreg rbp
+	mov rbp,rsp
+	push rsi
+	.pushreg rsi
+	push rdi
+	.pushreg rdi
+	sub rsp,48
+	.allocstack 48
+	movdqa XMMWORD ptr[rsp],xmm6
+	.savexmm128 xmm6,0
+	movdqa XMMWORD ptr[rsp+16],xmm7
+	.savexmm128 xmm7,16
+	movdqa XMMWORD ptr[rsp+32],xmm8
+	.savexmm128 xmm8,32
+	.endprolog
+
+	pxor xmm0,xmm0
+    mov rsi,rcx
+    mov rdi,rdx
+    movsxd rdx,r8d
+    xor	rax,rax
+    movsxd rcx,r9d
+    test rcx,rcx
+    cmovnz rax,rdx
+    inc	rcx
+    add	rdx,rax
+    cmp	ecx,height     ;32 bit O.K.
+    cmovz rdx,rax
+    sub rsi,rax
+	mov r8,16
+	mov r9,4
+	movsxd rcx,i_
+    sub	rdi,r8
+    sub	rdi,rsi
+    movd xmm0,thresh
+	movdqa xmm8,XMMWORD ptr uw_8000
+    pshuflw xmm0,xmm0,0
+	movdqa xmm1,xmm0
+	pslldq xmm0,8
+	por xmm0,xmm1
+	psubw xmm0,xmm8
+	
+    sub	rcx,r9
+    jbe JPSDR_Sobel_16_SSE2_4_b
+	
+JPSDR_Sobel_16_SSE2_1_b:
+    movdqu xmm2,XMMWORD ptr[rsi-2]
+    movdqu xmm3,XMMWORD ptr[rsi]
+    movdqu xmm4,XMMWORD ptr[rsi+2]
+    movdqu xmm5,XMMWORD ptr[rsi+rdx-2]
+    movdqu xmm6,XMMWORD ptr[rsi+rdx]
+    movdqu xmm7,XMMWORD ptr[rsi+rdx+2]
+
+    movdqa xmm1,xmm2
+    pavgw xmm1,xmm4
+    pavgw xmm3,xmm1
+
+    movdqa xmm1,xmm5
+    pavgw xmm1,xmm7
+    pavgw xmm6,xmm1
+
+    movdqa xmm1,xmm3
+    psubusw xmm3,xmm6
+    psubusw xmm6,xmm1
+    por xmm6,xmm3
+
+    movdqu xmm1,XMMWORD ptr[rsi+rax-2]
+    movdqu xmm3,XMMWORD ptr[rsi+rax+2]
+    pavgw xmm5,xmm2
+    pavgw xmm7,xmm4
+    pavgw xmm1,xmm5
+    pavgw xmm3,xmm7
+    movdqa xmm5,xmm1
+    psubusw xmm1,xmm3
+    psubusw xmm3,xmm5
+    por xmm1,xmm3
+
+    movdqa xmm2,xmm6
+    paddusw xmm2,xmm1
+	psubw xmm6,xmm8
+	psubw xmm1,xmm8
+	pmaxsw xmm1,xmm6
+	paddw xmm1,xmm8
+    paddusw xmm2,xmm1
+
+    movdqa xmm3,xmm2
+    paddusw xmm2,xmm2
+    paddusw xmm2,xmm3
+    paddusw xmm2,xmm2
+	psubw xmm2,xmm8
+	pminsw xmm2,xmm0
+	paddw xmm2,xmm8
+    add	rsi,r8
+    sub	rcx,r9
+    movntdq XMMWORD ptr[rsi+rdi],xmm2
+    ja JPSDR_Sobel_16_SSE2_1_b
+	
+	; Last pixel
+JPSDR_Sobel_16_SSE2_4_b:
+	add rcx,r9
+	
+    movdqu xmm2,XMMWORD ptr[rsi-2]
+    movdqu xmm3,XMMWORD ptr[rsi]
+    movdqu xmm4,XMMWORD ptr[rsi+2]
+    movdqu xmm5,XMMWORD ptr[rsi+rdx-2]
+    movdqu xmm6,XMMWORD ptr[rsi+rdx]
+    movdqu xmm7,xmm6
+
+    movdqa xmm1,xmm2
+    pavgw xmm1,xmm4
+    pavgw xmm3,xmm1
+
+    movdqa xmm1,xmm5
+    pavgw xmm1,xmm7
+    pavgw xmm6,xmm1
+
+    movdqa xmm1,xmm3
+    psubusw xmm3,xmm6
+    psubusw xmm6,xmm1
+    por xmm6,xmm3
+
+    movdqu xmm1,XMMWORD ptr[rsi+rax-2]
+    movdqu xmm3,XMMWORD ptr[rsi+rax+2]
+    pavgw xmm5,xmm2
+    pavgw xmm7,xmm4
+    pavgw xmm1,xmm5
+    pavgw xmm3,xmm7
+    movdqa xmm5,xmm1
+    psubusw xmm1,xmm3
+    psubusw xmm3,xmm5
+    por xmm1,xmm3
+
+    movdqa xmm2,xmm6
+    paddusw xmm2,xmm1
+	psubw xmm6,xmm8
+	psubw xmm1,xmm8
+	pmaxsw xmm1,xmm6
+	paddw xmm1,xmm8
+    paddusw xmm2,xmm1
+
+    movdqa xmm3,xmm2
+    paddusw xmm2,xmm2
+    paddusw xmm2,xmm3
+    paddusw xmm2,xmm2
+	psubw xmm2,xmm8
+	pminsw xmm2,xmm0
+	paddw xmm2,xmm8
+    add	rsi,r8
+    sub	rcx,r9
+    jb short JPSDR_Sobel_16_SSE2_2_b
+    movntdq XMMWORD ptr[rsi+rdi],xmm2
+    jmp short JPSDR_Sobel_16_SSE2_b_Fin
+
+JPSDR_Sobel_16_SSE2_2_b:
+    test rcx,2
+    jz short JPSDR_Sobel_16_SSE2_3_b
+    movq qword ptr[rsi+rdi],xmm2
+    test rcx,1
+    jz short JPSDR_Sobel_16_SSE2_b_Fin
+    add rsi,8
+    psrldq xmm2,8
+
+JPSDR_Sobel_16_SSE2_3_b:
+    movd dword ptr[rsi+rdi],xmm2
+
+JPSDR_Sobel_16_SSE2_b_Fin:
+	movdqa xmm8,XMMWORD ptr[rsp+32]
+	movdqa xmm7,XMMWORD ptr[rsp+16]
+	movdqa xmm6,XMMWORD ptr[rsp]
+	add rsp,48
+
+	pop rdi
+	pop rsi
+	pop rbp
+
+	ret
+JPSDR_Sobel_16_SSE2_b endp
 
 
 ;JPSDR_Sobel_16_AVX proc psrc:dword,pdst:dword,src_pitch:dword,y_:dword,height:dword,i_:dword,thresh:dword
@@ -1490,8 +2532,8 @@ JPSDR_Sobel_16_AVX_1:
     sub	rcx,r9
     jb short JPSDR_Sobel_16_AVX_2
     vmovntdq XMMWORD ptr[rsi+rdi],xmm1
-    jnz JPSDR_Sobel_16_AVX_1
-    jmp short JPSDR_Sobel_16_AVX_Fin
+    jz short JPSDR_Sobel_16_AVX_Fin
+    jmp JPSDR_Sobel_16_AVX_1
 
 JPSDR_Sobel_16_AVX_2:
     test rcx,2
@@ -1516,6 +2558,324 @@ JPSDR_Sobel_16_AVX_Fin:
 
 	ret
 JPSDR_Sobel_16_AVX endp
+
+
+;JPSDR_Sobel_16_AVX_a proc psrc:dword,pdst:dword,src_pitch:dword,y_:dword,height:dword,i_:dword,thresh:dword
+; psrc = rcx
+; pdst = rdx
+; src_pitch = r8d
+; y_ = r9d
+JPSDR_Sobel_16_AVX_a proc public frame
+
+height equ dword ptr[rbp+48]
+i_ equ dword ptr[rbp+56]
+thresh equ dword ptr[rbp+64]
+
+	push rbp
+	.pushreg rbp
+	mov rbp,rsp
+	push rsi
+	.pushreg rsi
+	push rdi
+	.pushreg rdi
+	sub rsp,32
+	.allocstack 32
+	vmovdqa XMMWORD ptr[rsp],xmm6
+	.savexmm128 xmm6,0
+	vmovdqa XMMWORD ptr[rsp+16],xmm7
+	.savexmm128 xmm7,16
+	.endprolog
+
+    mov rsi,rcx
+    mov rdi,rdx
+    movsxd rdx,r8d
+    xor	rax,rax
+    movsxd rcx,r9d
+    test rcx,rcx
+    cmovnz rax,rdx
+    inc	rcx
+    add	rdx,rax
+    cmp	ecx,height     ;32 bit O.K.
+    cmovz rdx,rax
+    sub rsi,rax
+	mov r8,16
+	mov r9,4
+	movsxd rcx,i_
+    sub	rdi,r8
+    sub	rdi,rsi
+    vmovd xmm0,thresh
+    vpshufd xmm0,xmm0,0
+	vpackusdw xmm0,xmm0,xmm0
+	
+	; First pixel
+    vmovdqu xmm2,XMMWORD ptr[rsi]
+    vmovdqu xmm3,xmm2
+    vmovdqu xmm4,XMMWORD ptr[rsi+2]
+    vmovdqu xmm5,XMMWORD ptr[rsi+rdx-2]
+    vmovdqu xmm6,XMMWORD ptr[rsi+rdx]
+    vmovdqu xmm7,XMMWORD ptr[rsi+rdx+2]
+
+    vpavgw	xmm1,xmm2,xmm4
+    vpavgw xmm3,xmm3,xmm1
+
+    vpavgw xmm1,xmm5,xmm7
+    vpavgw xmm6,xmm6,xmm1
+
+    vpsubusw xmm1,xmm3,xmm6
+    vpsubusw xmm6,xmm6,xmm3
+    vpor xmm6,xmm6,xmm1
+
+    vmovdqu xmm1,XMMWORD ptr[rsi+rax-2]
+    vmovdqu xmm3,XMMWORD ptr[rsi+rax+2]
+    vpavgw xmm5,xmm5,xmm2
+    vpavgw xmm7,xmm7,xmm4
+    vpavgw xmm1,xmm1,xmm5
+    vpavgw xmm3,xmm3,xmm7
+    vpsubusw xmm5,xmm1,xmm3
+    vpsubusw xmm1,xmm3,xmm1
+    vpor xmm1,xmm1,xmm5
+
+    vpaddusw xmm2,xmm6,xmm1
+    vpmaxuw xmm1,xmm1,xmm6
+    vpaddusw xmm2,xmm2,xmm1
+
+    vpaddusw xmm1,xmm2,xmm2
+    vpaddusw xmm1,xmm1,xmm2
+    vpaddusw xmm1,xmm1,xmm1
+    vpminuw xmm1,xmm1,xmm0  ;thresh
+    add	rsi,r8
+    sub	rcx,r9
+    jb JPSDR_Sobel_16_AVX_2_a
+    vmovntdq XMMWORD ptr[rsi+rdi],xmm1
+    jz JPSDR_Sobel_16_AVX_a_Fin
+	
+JPSDR_Sobel_16_AVX_1_a:
+    vmovdqu xmm2,XMMWORD ptr[rsi-2]
+    vmovdqu xmm3,XMMWORD ptr[rsi]
+    vmovdqu xmm4,XMMWORD ptr[rsi+2]
+    vmovdqu xmm5,XMMWORD ptr[rsi+rdx-2]
+    vmovdqu xmm6,XMMWORD ptr[rsi+rdx]
+    vmovdqu xmm7,XMMWORD ptr[rsi+rdx+2]
+
+    vpavgw	xmm1,xmm2,xmm4
+    vpavgw xmm3,xmm3,xmm1
+
+    vpavgw xmm1,xmm5,xmm7
+    vpavgw xmm6,xmm6,xmm1
+
+    vpsubusw xmm1,xmm3,xmm6
+    vpsubusw xmm6,xmm6,xmm3
+    vpor xmm6,xmm6,xmm1
+
+    vmovdqu xmm1,XMMWORD ptr[rsi+rax-2]
+    vmovdqu xmm3,XMMWORD ptr[rsi+rax+2]
+    vpavgw xmm5,xmm5,xmm2
+    vpavgw xmm7,xmm7,xmm4
+    vpavgw xmm1,xmm1,xmm5
+    vpavgw xmm3,xmm3,xmm7
+    vpsubusw xmm5,xmm1,xmm3
+    vpsubusw xmm1,xmm3,xmm1
+    vpor xmm1,xmm1,xmm5
+
+    vpaddusw xmm2,xmm6,xmm1
+    vpmaxuw xmm1,xmm1,xmm6
+    vpaddusw xmm2,xmm2,xmm1
+
+    vpaddusw xmm1,xmm2,xmm2
+    vpaddusw xmm1,xmm1,xmm2
+    vpaddusw xmm1,xmm1,xmm1
+    vpminuw xmm1,xmm1,xmm0  ;thresh
+    add	rsi,r8
+    sub	rcx,r9
+    jb short JPSDR_Sobel_16_AVX_2_a
+    vmovntdq XMMWORD ptr[rsi+rdi],xmm1
+    jz short JPSDR_Sobel_16_AVX_a_Fin
+    jmp JPSDR_Sobel_16_AVX_1_a
+
+JPSDR_Sobel_16_AVX_2_a:
+    test rcx,2
+    jz short JPSDR_Sobel_16_AVX_3_a
+    vmovq qword ptr[rsi+rdi],xmm1
+    test rcx,1
+    jz short JPSDR_Sobel_16_AVX_a_Fin
+    add rsi,8
+    vpsrldq xmm1,xmm1,8
+
+JPSDR_Sobel_16_AVX_3_a:
+    vmovd dword ptr[rsi+rdi],xmm1
+
+JPSDR_Sobel_16_AVX_a_Fin:
+	vmovdqa xmm7,XMMWORD ptr[rsp+16]
+	vmovdqa xmm6,XMMWORD ptr[rsp]
+	add rsp,32
+
+	pop rdi
+	pop rsi
+	pop rbp
+
+	ret
+JPSDR_Sobel_16_AVX_a endp
+
+
+;JPSDR_Sobel_16_AVX_b proc psrc:dword,pdst:dword,src_pitch:dword,y_:dword,height:dword,i_:dword,thresh:dword
+; psrc = rcx
+; pdst = rdx
+; src_pitch = r8d
+; y_ = r9d
+JPSDR_Sobel_16_AVX_b proc public frame
+
+height equ dword ptr[rbp+48]
+i_ equ dword ptr[rbp+56]
+thresh equ dword ptr[rbp+64]
+
+	push rbp
+	.pushreg rbp
+	mov rbp,rsp
+	push rsi
+	.pushreg rsi
+	push rdi
+	.pushreg rdi
+	sub rsp,32
+	.allocstack 32
+	vmovdqa XMMWORD ptr[rsp],xmm6
+	.savexmm128 xmm6,0
+	vmovdqa XMMWORD ptr[rsp+16],xmm7
+	.savexmm128 xmm7,16
+	.endprolog
+
+    mov rsi,rcx
+    mov rdi,rdx
+    movsxd rdx,r8d
+    xor	rax,rax
+    movsxd rcx,r9d
+    test rcx,rcx
+    cmovnz rax,rdx
+    inc	rcx
+    add	rdx,rax
+    cmp	ecx,height     ;32 bit O.K.
+    cmovz rdx,rax
+    sub rsi,rax
+	mov r8,16
+	mov r9,4
+	movsxd rcx,i_
+    sub	rdi,r8
+    sub	rdi,rsi
+    vmovd xmm0,thresh
+    vpshufd xmm0,xmm0,0
+	vpackusdw xmm0,xmm0,xmm0
+	
+    sub	rcx,r9
+    jbe JPSDR_Sobel_16_AVX_4_b
+	
+JPSDR_Sobel_16_AVX_1_b:
+    vmovdqu xmm2,XMMWORD ptr[rsi-2]
+    vmovdqu xmm3,XMMWORD ptr[rsi]
+    vmovdqu xmm4,XMMWORD ptr[rsi+2]
+    vmovdqu xmm5,XMMWORD ptr[rsi+rdx-2]
+    vmovdqu xmm6,XMMWORD ptr[rsi+rdx]
+    vmovdqu xmm7,XMMWORD ptr[rsi+rdx+2]
+
+    vpavgw	xmm1,xmm2,xmm4
+    vpavgw xmm3,xmm3,xmm1
+
+    vpavgw xmm1,xmm5,xmm7
+    vpavgw xmm6,xmm6,xmm1
+
+    vpsubusw xmm1,xmm3,xmm6
+    vpsubusw xmm6,xmm6,xmm3
+    vpor xmm6,xmm6,xmm1
+
+    vmovdqu xmm1,XMMWORD ptr[rsi+rax-2]
+    vmovdqu xmm3,XMMWORD ptr[rsi+rax+2]
+    vpavgw xmm5,xmm5,xmm2
+    vpavgw xmm7,xmm7,xmm4
+    vpavgw xmm1,xmm1,xmm5
+    vpavgw xmm3,xmm3,xmm7
+    vpsubusw xmm5,xmm1,xmm3
+    vpsubusw xmm1,xmm3,xmm1
+    vpor xmm1,xmm1,xmm5
+
+    vpaddusw xmm2,xmm6,xmm1
+    vpmaxuw xmm1,xmm1,xmm6
+    vpaddusw xmm2,xmm2,xmm1
+
+    vpaddusw xmm1,xmm2,xmm2
+    vpaddusw xmm1,xmm1,xmm2
+    vpaddusw xmm1,xmm1,xmm1
+    vpminuw xmm1,xmm1,xmm0  ;thresh
+    add	rsi,r8
+    sub	rcx,r9
+    vmovntdq XMMWORD ptr[rsi+rdi],xmm1
+    ja JPSDR_Sobel_16_AVX_1_b
+	
+	; Last pixel
+JPSDR_Sobel_16_AVX_4_b:
+	add rcx,r9
+	
+    vmovdqu xmm2,XMMWORD ptr[rsi-2]
+    vmovdqu xmm3,XMMWORD ptr[rsi]
+    vmovdqu xmm4,XMMWORD ptr[rsi+2]
+    vmovdqu xmm5,XMMWORD ptr[rsi+rdx-2]
+    vmovdqu xmm6,XMMWORD ptr[rsi+rdx]
+    vmovdqu xmm7,xmm6
+
+    vpavgw	xmm1,xmm2,xmm4
+    vpavgw xmm3,xmm3,xmm1
+
+    vpavgw xmm1,xmm5,xmm7
+    vpavgw xmm6,xmm6,xmm1
+
+    vpsubusw xmm1,xmm3,xmm6
+    vpsubusw xmm6,xmm6,xmm3
+    vpor xmm6,xmm6,xmm1
+
+    vmovdqu xmm1,XMMWORD ptr[rsi+rax-2]
+    vmovdqu xmm3,XMMWORD ptr[rsi+rax+2]
+    vpavgw xmm5,xmm5,xmm2
+    vpavgw xmm7,xmm7,xmm4
+    vpavgw xmm1,xmm1,xmm5
+    vpavgw xmm3,xmm3,xmm7
+    vpsubusw xmm5,xmm1,xmm3
+    vpsubusw xmm1,xmm3,xmm1
+    vpor xmm1,xmm1,xmm5
+
+    vpaddusw xmm2,xmm6,xmm1
+    vpmaxuw xmm1,xmm1,xmm6
+    vpaddusw xmm2,xmm2,xmm1
+
+    vpaddusw xmm1,xmm2,xmm2
+    vpaddusw xmm1,xmm1,xmm2
+    vpaddusw xmm1,xmm1,xmm1
+    vpminuw xmm1,xmm1,xmm0  ;thresh
+    add	rsi,r8
+    sub	rcx,r9
+    jb short JPSDR_Sobel_16_AVX_2_b
+    vmovntdq XMMWORD ptr[rsi+rdi],xmm1
+    jmp short JPSDR_Sobel_16_AVX_b_Fin
+
+JPSDR_Sobel_16_AVX_2_b:
+    test rcx,2
+    jz short JPSDR_Sobel_16_AVX_3_b
+    vmovq qword ptr[rsi+rdi],xmm1
+    test rcx,1
+    jz short JPSDR_Sobel_16_AVX_b_Fin
+    add rsi,8
+    vpsrldq xmm1,xmm1,8
+
+JPSDR_Sobel_16_AVX_3_b:
+    vmovd dword ptr[rsi+rdi],xmm1
+
+JPSDR_Sobel_16_AVX_b_Fin:
+	vmovdqa xmm7,XMMWORD ptr[rsp+16]
+	vmovdqa xmm6,XMMWORD ptr[rsp]
+	add rsp,32
+
+	pop rdi
+	pop rsi
+	pop rbp
+
+	ret
+JPSDR_Sobel_16_AVX_b endp
 
 
 ;JPSDR_H_BlurR6_8_AVX proc psrc2:dword,ptmp2:dword,src_row_size:dword,dq0toF:dword
