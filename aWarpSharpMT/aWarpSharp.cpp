@@ -1400,7 +1400,7 @@ static void Sobel_8(const unsigned char *psrc,unsigned char *pdst,const int32_t 
 	const int32_t src_height,const int32_t dst_row_size, int32_t thresh)
 {
   const int32_t i = (dst_row_size-1 + 3) >> 2;
-  const int32_t ym1 = src_height-1;
+  const int32_t ym2 = src_height-2;
 
   if (aWarpSharp_Enable_AVX)
   {
@@ -1410,7 +1410,13 @@ static void Sobel_8(const unsigned char *psrc,unsigned char *pdst,const int32_t 
 	psrc += src_pitch;
 	pdst += dst_pitch;
 
-	for (int32_t y=1; y<ym1; y++)
+	JPSDR_Sobel_8_AVX_a(psrc,pdst,src_pitch,1,src_height,i,thresh);
+	pdst[0] = pdst[1];
+	pdst[dst_row_size-1] = pdst[dst_row_size-2];
+	psrc += src_pitch;
+	pdst += dst_pitch;
+
+	for (int32_t y=2; y<ym2; y++)
     {
 		JPSDR_Sobel_8_AVX(psrc,pdst,src_pitch,y,src_height,i,thresh);
 		pdst[0] = pdst[1];
@@ -1419,7 +1425,13 @@ static void Sobel_8(const unsigned char *psrc,unsigned char *pdst,const int32_t 
 		pdst += dst_pitch;
     }
 
-	JPSDR_Sobel_8_AVX_b(psrc,pdst,src_pitch,ym1,src_height,i,thresh);
+	JPSDR_Sobel_8_AVX_b(psrc,pdst,src_pitch,ym2,src_height,i,thresh);
+	pdst[0] = pdst[1];
+	pdst[dst_row_size-1] = pdst[dst_row_size-2];
+	psrc += src_pitch;
+	pdst += dst_pitch;
+
+	JPSDR_Sobel_8_AVX_b(psrc,pdst,src_pitch,ym2+1,src_height,i,thresh);
 	pdst[0] = pdst[1];
 	pdst[dst_row_size-1] = pdst[dst_row_size-2];
   }
@@ -1431,7 +1443,13 @@ static void Sobel_8(const unsigned char *psrc,unsigned char *pdst,const int32_t 
 	psrc += src_pitch;
 	pdst += dst_pitch;
 
-	for (int32_t y=1; y<ym1; y++)
+	JPSDR_Sobel_8_SSE2_a(psrc,pdst,src_pitch,1,src_height,i,thresh);
+	pdst[0] = pdst[1];
+	pdst[dst_row_size-1] = pdst[dst_row_size-2];
+	psrc += src_pitch;
+	pdst += dst_pitch;
+
+	for (int32_t y=2; y<ym2; y++)
     {
 		JPSDR_Sobel_8_SSE2(psrc,pdst,src_pitch,y,src_height,i,thresh);
 		pdst[0] = pdst[1];
@@ -1440,7 +1458,13 @@ static void Sobel_8(const unsigned char *psrc,unsigned char *pdst,const int32_t 
 		pdst += dst_pitch;
     }
 
-	JPSDR_Sobel_8_SSE2_b(psrc,pdst,src_pitch,ym1,src_height,i,thresh);
+	JPSDR_Sobel_8_SSE2_b(psrc,pdst,src_pitch,ym2,src_height,i,thresh);
+	pdst[0] = pdst[1];
+	pdst[dst_row_size-1] = pdst[dst_row_size-2];
+	psrc += src_pitch;
+	pdst += dst_pitch;
+
+	JPSDR_Sobel_8_SSE2_b(psrc,pdst,src_pitch,ym2+1,src_height,i,thresh);
 	pdst[0] = pdst[1];
 	pdst[dst_row_size-1] = pdst[dst_row_size-2];
   }
@@ -1451,7 +1475,7 @@ static void Sobel_16(const unsigned char *psrc,unsigned char *pdst,const int32_t
 	const int32_t src_height,int32_t dst_row_size, int32_t thresh,uint8_t bit_pixel)
 {
   const int32_t i = (dst_row_size-4 + 3) >> 2;
-  const int32_t ym1 = src_height-1;
+  const int32_t ym2 = src_height-2;
   uint16_t *dst;
 
   dst_row_size >>= 1;
@@ -1466,7 +1490,14 @@ static void Sobel_16(const unsigned char *psrc,unsigned char *pdst,const int32_t
 	psrc += src_pitch;
 	pdst += dst_pitch;
 
-    for (int32_t y=1; y<ym1; y++)
+	dst=(uint16_t *)pdst;
+    JPSDR_Sobel_16_AVX_a(psrc,pdst,src_pitch,1,src_height,i,thresh);
+	dst[0]=dst[1];
+	dst[dst_row_size-1]=dst[dst_row_size-2];
+	psrc += src_pitch;
+	pdst += dst_pitch;
+
+    for (int32_t y=2; y<ym2; y++)
     {
 		dst=(uint16_t *)pdst;
 
@@ -1479,7 +1510,14 @@ static void Sobel_16(const unsigned char *psrc,unsigned char *pdst,const int32_t
     }
 
 	dst=(uint16_t *)pdst;
-    JPSDR_Sobel_16_AVX_b(psrc,pdst,src_pitch,ym1,src_height,i,thresh);
+    JPSDR_Sobel_16_AVX_b(psrc,pdst,src_pitch,ym2,src_height,i,thresh);
+	dst[0]=dst[1];
+	dst[dst_row_size-1]=dst[dst_row_size-2];
+	psrc += src_pitch;
+	pdst += dst_pitch;
+
+	dst=(uint16_t *)pdst;
+    JPSDR_Sobel_16_AVX_b(psrc,pdst,src_pitch,ym2+1,src_height,i,thresh);
 	dst[0]=dst[1];
 	dst[dst_row_size-1]=dst[dst_row_size-2];
   }
@@ -1492,7 +1530,14 @@ static void Sobel_16(const unsigned char *psrc,unsigned char *pdst,const int32_t
 	psrc += src_pitch;
 	pdst += dst_pitch;
 
-    for (int32_t y=1; y<ym1; y++)
+    dst=(uint16_t *)pdst;
+	JPSDR_Sobel_16_SSE2_a(psrc,pdst,src_pitch,1,src_height,i,thresh);
+	dst[0]=dst[1];
+	dst[dst_row_size-1]=dst[dst_row_size-2];
+	psrc += src_pitch;
+	pdst += dst_pitch;
+
+    for (int32_t y=2; y<ym2; y++)
     {
 		dst=(uint16_t *)pdst;
 
@@ -1505,7 +1550,14 @@ static void Sobel_16(const unsigned char *psrc,unsigned char *pdst,const int32_t
     }
 
     dst=(uint16_t *)pdst;
-	JPSDR_Sobel_16_SSE2_b(psrc,pdst,src_pitch,ym1,src_height,i,thresh);
+	JPSDR_Sobel_16_SSE2_b(psrc,pdst,src_pitch,ym2,src_height,i,thresh);
+	dst[0]=dst[1];
+	dst[dst_row_size-1]=dst[dst_row_size-2];
+	psrc += src_pitch;
+	pdst += dst_pitch;
+
+    dst=(uint16_t *)pdst;
+	JPSDR_Sobel_16_SSE2_b(psrc,pdst,src_pitch,ym2+1,src_height,i,thresh);
 	dst[0]=dst[1];
 	dst[dst_row_size-1]=dst[dst_row_size-2];
   }
@@ -1517,8 +1569,8 @@ static void Sobel_8_MT(const unsigned char *psrc,unsigned char *pdst,const int32
 	const bool top,const bool bottom)
 {
   const int32_t i = (dst_row_size + 3) >> 2;
-  const int32_t ymin0 = (top)?ymin+1:ymin;
-  const int32_t ymax0 = (bottom)?ymax-1:ymax;
+  const int32_t ymin0 = (top)?ymin+2:ymin;
+  const int32_t ymax0 = (bottom)?ymax-2:ymax;
 
   psrc += src_pitch*ymin;
   pdst += dst_pitch*ymin;
@@ -1528,6 +1580,12 @@ static void Sobel_8_MT(const unsigned char *psrc,unsigned char *pdst,const int32
     if (top)
 	{
 		JPSDR_Sobel_8_AVX_a(psrc,pdst,src_pitch,ymin,src_height,i,thresh);
+		pdst[0] = pdst[1];
+		pdst[dst_row_size-1] = pdst[dst_row_size-2];
+		psrc += src_pitch;
+		pdst += dst_pitch;
+
+		JPSDR_Sobel_8_AVX_a(psrc,pdst,src_pitch,ymin+1,src_height,i,thresh);
 		pdst[0] = pdst[1];
 		pdst[dst_row_size-1] = pdst[dst_row_size-2];
 		psrc += src_pitch;
@@ -1546,6 +1604,12 @@ static void Sobel_8_MT(const unsigned char *psrc,unsigned char *pdst,const int32
 		JPSDR_Sobel_8_AVX_b(psrc,pdst,src_pitch,ymax0,src_height,i,thresh);
 		pdst[0] = pdst[1];
 		pdst[dst_row_size-1] = pdst[dst_row_size-2];		
+		psrc += src_pitch;
+		pdst += dst_pitch;
+
+		JPSDR_Sobel_8_AVX_b(psrc,pdst,src_pitch,ymax0+1,src_height,i,thresh);
+		pdst[0] = pdst[1];
+		pdst[dst_row_size-1] = pdst[dst_row_size-2];		
 	}
   }
   else
@@ -1553,6 +1617,12 @@ static void Sobel_8_MT(const unsigned char *psrc,unsigned char *pdst,const int32
     if (top)
 	{
 		JPSDR_Sobel_8_SSE2_a(psrc,pdst,src_pitch,ymin,src_height,i,thresh);
+		pdst[0] = pdst[1];
+		pdst[dst_row_size-1] = pdst[dst_row_size-2];
+		psrc += src_pitch;
+		pdst += dst_pitch;	
+
+		JPSDR_Sobel_8_SSE2_a(psrc,pdst,src_pitch,ymin+1,src_height,i,thresh);
 		pdst[0] = pdst[1];
 		pdst[dst_row_size-1] = pdst[dst_row_size-2];
 		psrc += src_pitch;
@@ -1571,6 +1641,12 @@ static void Sobel_8_MT(const unsigned char *psrc,unsigned char *pdst,const int32
 		JPSDR_Sobel_8_SSE2_b(psrc,pdst,src_pitch,ymax0,src_height,i,thresh);
 		pdst[0] = pdst[1];
 		pdst[dst_row_size-1] = pdst[dst_row_size-2];
+		psrc += src_pitch;
+		pdst += dst_pitch;
+
+		JPSDR_Sobel_8_SSE2_b(psrc,pdst,src_pitch,ymax0+1,src_height,i,thresh);
+		pdst[0] = pdst[1];
+		pdst[dst_row_size-1] = pdst[dst_row_size-2];
 	}
   }
 }
@@ -1581,8 +1657,8 @@ static void Sobel_16_MT(const unsigned char *psrc,unsigned char *pdst,const int3
 	const bool top,const bool bottom)
 {
   const int32_t i = (dst_row_size-4 + 3) >> 2;
-  const int32_t ymin0 = (top)?ymin+1:ymin;
-  const int32_t ymax0 = (bottom)?ymax-1:ymax;
+  const int32_t ymin0 = (top)?ymin+2:ymin;
+  const int32_t ymax0 = (bottom)?ymax-2:ymax;
   uint16_t *dst;
 
   dst_row_size >>= 1;
@@ -1596,6 +1672,13 @@ static void Sobel_16_MT(const unsigned char *psrc,unsigned char *pdst,const int3
 	{
 		dst=(uint16_t *)pdst;
 		JPSDR_Sobel_16_AVX_a(psrc,pdst,src_pitch,ymin,src_height,i,thresh);
+		dst[0]=dst[1];
+		dst[dst_row_size-1]=dst[dst_row_size-2];
+		psrc += src_pitch;
+		pdst += dst_pitch;
+
+		dst=(uint16_t *)pdst;
+		JPSDR_Sobel_16_AVX_a(psrc,pdst,src_pitch,ymin+1,src_height,i,thresh);
 		dst[0]=dst[1];
 		dst[dst_row_size-1]=dst[dst_row_size-2];
 		psrc += src_pitch;
@@ -1618,6 +1701,13 @@ static void Sobel_16_MT(const unsigned char *psrc,unsigned char *pdst,const int3
 		JPSDR_Sobel_16_AVX_b(psrc,pdst,src_pitch,ymax0,src_height,i,thresh);
 		dst[0]=dst[1];
 		dst[dst_row_size-1]=dst[dst_row_size-2];
+		psrc += src_pitch;
+		pdst += dst_pitch;
+
+		dst=(uint16_t *)pdst;
+		JPSDR_Sobel_16_AVX_b(psrc,pdst,src_pitch,ymax0+1,src_height,i,thresh);
+		dst[0]=dst[1];
+		dst[dst_row_size-1]=dst[dst_row_size-2];
 	}
   }
   else
@@ -1626,6 +1716,13 @@ static void Sobel_16_MT(const unsigned char *psrc,unsigned char *pdst,const int3
 	{
 		dst=(uint16_t *)pdst;
 		JPSDR_Sobel_16_SSE2_a(psrc,pdst,src_pitch,ymin,src_height,i,thresh);
+		dst[0]=dst[1];
+		dst[dst_row_size-1]=dst[dst_row_size-2];
+		psrc += src_pitch;
+		pdst += dst_pitch;
+
+		dst=(uint16_t *)pdst;
+		JPSDR_Sobel_16_SSE2_a(psrc,pdst,src_pitch,ymin+1,src_height,i,thresh);
 		dst[0]=dst[1];
 		dst[dst_row_size-1]=dst[dst_row_size-2];
 		psrc += src_pitch;
@@ -1646,6 +1743,13 @@ static void Sobel_16_MT(const unsigned char *psrc,unsigned char *pdst,const int3
 	{
 		dst=(uint16_t *)pdst;
 		JPSDR_Sobel_16_SSE2_b(psrc,pdst,src_pitch,ymax0,src_height,i,thresh);
+		dst[0]=dst[1];
+		dst[dst_row_size-1]=dst[dst_row_size-2];
+		psrc += src_pitch;
+		pdst += dst_pitch;
+
+		dst=(uint16_t *)pdst;
+		JPSDR_Sobel_16_SSE2_b(psrc,pdst,src_pitch,ymax0+1,src_height,i,thresh);
 		dst[0]=dst[1];
 		dst[dst_row_size-1]=dst[dst_row_size-2];
 	}

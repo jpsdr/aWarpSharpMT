@@ -1222,7 +1222,7 @@ thresh equ dword ptr[rbp+64]
     psubusb xmm6,xmm1
     por xmm6,xmm3
 
-    movdqu xmm1,XMMWORD ptr[rsi+rax-1]
+    movdqu xmm1,XMMWORD ptr[rsi+rax]
     movdqu xmm3,XMMWORD ptr[rsi+rax+1]
     pavgb xmm5,xmm2
     pavgb xmm7,xmm4
@@ -1446,7 +1446,7 @@ JPSDR_Sobel_8_SSE2_4_b:
     por xmm6,xmm3
 
     movdqu xmm1,XMMWORD ptr[rsi+rax-1]
-    movdqu xmm3,XMMWORD ptr[rsi+rax+1]
+    movdqu xmm3,XMMWORD ptr[rsi+rax]
     pavgb xmm5,xmm2
     pavgb xmm7,xmm4
     pavgb xmm1,xmm5
@@ -1679,7 +1679,7 @@ thresh equ dword ptr[rbp+64]
     vpsubusb xmm6,xmm6,xmm3
     vpor xmm6,xmm6,xmm1
 
-    vmovdqu xmm1,XMMWORD ptr[rsi+rax-1]
+    vmovdqu xmm1,XMMWORD ptr[rsi+rax]
     vmovdqu xmm3,XMMWORD ptr[rsi+rax+1]
     vpavgb xmm5,xmm5,xmm2
     vpavgb xmm7,xmm7,xmm4
@@ -1885,7 +1885,7 @@ JPSDR_Sobel_8_AVX_4_b:
     vpor xmm6,xmm6,xmm1
 
     vmovdqu xmm1,XMMWORD ptr[rsi+rax-1]
-    vmovdqu xmm3,XMMWORD ptr[rsi+rax+1]
+    vmovdqu xmm3,XMMWORD ptr[rsi+rax]
     vpavgb xmm5,xmm5,xmm2
     vpavgb xmm7,xmm7,xmm4
     vpavgb xmm1,xmm1,xmm5
@@ -2142,7 +2142,7 @@ thresh equ dword ptr[rbp+64]
     psubusw xmm6,xmm1
     por xmm6,xmm3
 
-    movdqu xmm1,XMMWORD ptr[rsi+rax-2]
+    movdqu xmm1,XMMWORD ptr[rsi+rax]
     movdqu xmm3,XMMWORD ptr[rsi+rax+2]
     pavgw xmm5,xmm2
     pavgw xmm7,xmm4
@@ -2388,7 +2388,7 @@ JPSDR_Sobel_16_SSE2_4_b:
     por xmm6,xmm3
 
     movdqu xmm1,XMMWORD ptr[rsi+rax-2]
-    movdqu xmm3,XMMWORD ptr[rsi+rax+2]
+    movdqu xmm3,XMMWORD ptr[rsi+rax]
     pavgw xmm5,xmm2
     pavgw xmm7,xmm4
     pavgw xmm1,xmm5
@@ -2625,7 +2625,7 @@ thresh equ dword ptr[rbp+64]
     vpsubusw xmm6,xmm6,xmm3
     vpor xmm6,xmm6,xmm1
 
-    vmovdqu xmm1,XMMWORD ptr[rsi+rax-2]
+    vmovdqu xmm1,XMMWORD ptr[rsi+rax]
     vmovdqu xmm3,XMMWORD ptr[rsi+rax+2]
     vpavgw xmm5,xmm5,xmm2
     vpavgw xmm7,xmm7,xmm4
@@ -2830,7 +2830,7 @@ JPSDR_Sobel_16_AVX_4_b:
     vpor xmm6,xmm6,xmm1
 
     vmovdqu xmm1,XMMWORD ptr[rsi+rax-2]
-    vmovdqu xmm3,XMMWORD ptr[rsi+rax+2]
+    vmovdqu xmm3,XMMWORD ptr[rsi+rax]
     vpavgw xmm5,xmm5,xmm2
     vpavgw xmm7,xmm7,xmm4
     vpavgw xmm1,xmm1,xmm5

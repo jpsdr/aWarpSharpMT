@@ -1055,7 +1055,7 @@ JPSDR_Sobel_8_SSE2_a proc psrc:dword,pdst:dword,src_pitch:dword,y_:dword,height:
     psubusb xmm6,xmm1
     por xmm6,xmm3
 
-    movdqu xmm1,XMMWORD ptr[esi+eax-1]
+    movdqu xmm1,XMMWORD ptr[esi+eax]
     movdqu xmm3,XMMWORD ptr[esi+eax+1]
     pavgb xmm5,xmm2
     pavgb xmm7,xmm4
@@ -1256,7 +1256,7 @@ JPSDR_Sobel_8_SSE2_4_b:
     por xmm6,xmm3
 
     movdqu xmm1,XMMWORD ptr[esi+eax-1]
-    movdqu xmm3,XMMWORD ptr[esi+eax+1]
+    movdqu xmm3,XMMWORD ptr[esi+eax]
     pavgb xmm5,xmm2
     pavgb xmm7,xmm4
     pavgb xmm1,xmm5
@@ -1443,7 +1443,7 @@ JPSDR_Sobel_8_AVX_a proc psrc:dword,pdst:dword,src_pitch:dword,y_:dword,height:d
     vpsubusb xmm6,xmm6,xmm3
     vpor xmm6,xmm6,xmm1
 
-    vmovdqu xmm1,XMMWORD ptr[esi+eax-1]
+    vmovdqu xmm1,XMMWORD ptr[esi+eax]
     vmovdqu xmm3,XMMWORD ptr[esi+eax+1]
     vpavgb xmm5,xmm5,xmm2
     vpavgb xmm7,xmm7,xmm4
@@ -1626,7 +1626,7 @@ JPSDR_Sobel_8_AVX_4_b:
     vpor xmm6,xmm6,xmm1
 
     vmovdqu xmm1,XMMWORD ptr[esi+eax-1]
-    vmovdqu xmm3,XMMWORD ptr[esi+eax+1]
+    vmovdqu xmm3,XMMWORD ptr[esi+eax]
     vpavgb xmm5,xmm5,xmm2
     vpavgb xmm7,xmm7,xmm4
     vpavgb xmm1,xmm1,xmm5
@@ -1830,7 +1830,7 @@ JPSDR_Sobel_16_SSE2_a proc psrc:dword,pdst:dword,src_pitch:dword,y_:dword,height
     psubusw xmm6,xmm1
     por xmm6,xmm3
 
-    movdqu xmm1,XMMWORD ptr[esi+eax-2]
+    movdqu xmm1,XMMWORD ptr[esi+eax]
     movdqu xmm3,XMMWORD ptr[esi+eax+2]
     pavgw xmm5,xmm2
     pavgw xmm7,xmm4
@@ -2049,7 +2049,7 @@ JPSDR_Sobel_16_SSE2_4_b:
     por xmm6,xmm3
 
     movdqu xmm1,XMMWORD ptr[esi+eax-2]
-    movdqu xmm3,XMMWORD ptr[esi+eax+2]
+    movdqu xmm3,XMMWORD ptr[esi+eax]
     pavgw xmm5,xmm2
     pavgw xmm7,xmm4
     pavgw xmm1,xmm5
@@ -2240,7 +2240,7 @@ JPSDR_Sobel_16_AVX_a proc psrc:dword,pdst:dword,src_pitch:dword,y_:dword,height:
     vpsubusw xmm6,xmm6,xmm3
     vpor xmm6,xmm6,xmm1
 
-    vmovdqu xmm1,XMMWORD ptr[esi+eax-2]
+    vmovdqu xmm1,XMMWORD ptr[esi+eax]
     vmovdqu xmm3,XMMWORD ptr[esi+eax+2]
     vpavgw xmm5,xmm5,xmm2
     vpavgw xmm7,xmm7,xmm4
@@ -2425,7 +2425,7 @@ JPSDR_Sobel_16_AVX_4_b:
     vpor xmm6,xmm6,xmm1
 
     vmovdqu xmm1,XMMWORD ptr[esi+eax-2]
-    vmovdqu xmm3,XMMWORD ptr[esi+eax+2]
+    vmovdqu xmm3,XMMWORD ptr[esi+eax]
     vpavgw xmm5,xmm5,xmm2
     vpavgw xmm7,xmm7,xmm4
     vpavgw xmm1,xmm1,xmm5
