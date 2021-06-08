@@ -1399,7 +1399,7 @@ static void Warp2_8_MT(const unsigned char *psrc,const unsigned char *pedg,unsig
 static void Sobel_8(const unsigned char *psrc,unsigned char *pdst,const int32_t src_pitch, const int32_t dst_pitch,
 	const int32_t src_height,const int32_t dst_row_size, int32_t thresh)
 {
-  const int32_t i = (dst_row_size-1 + 3) >> 2;
+  const int32_t i = (dst_row_size + 3) >> 2;
   const int32_t ym2 = src_height-2;
 
   if (aWarpSharp_Enable_AVX)
@@ -1474,7 +1474,7 @@ static void Sobel_8(const unsigned char *psrc,unsigned char *pdst,const int32_t 
 static void Sobel_16(const unsigned char *psrc,unsigned char *pdst,const int32_t src_pitch, const int32_t dst_pitch,
 	const int32_t src_height,int32_t dst_row_size, int32_t thresh,uint8_t bit_pixel)
 {
-  const int32_t i = (dst_row_size-4 + 3) >> 2;
+  const int32_t i = (dst_row_size + 3) >> 2;
   const int32_t ym2 = src_height-2;
   uint16_t *dst;
 
@@ -1501,7 +1501,7 @@ static void Sobel_16(const unsigned char *psrc,unsigned char *pdst,const int32_t
     {
 		dst=(uint16_t *)pdst;
 
-		JPSDR_Sobel_16_AVX(psrc+2,pdst+2,src_pitch,y,src_height,i,thresh);
+		JPSDR_Sobel_16_AVX(psrc,pdst,src_pitch,y,src_height,i,thresh);
 		dst[0]=dst[1];
 		dst[dst_row_size-1]=dst[dst_row_size-2];
 
@@ -1541,7 +1541,7 @@ static void Sobel_16(const unsigned char *psrc,unsigned char *pdst,const int32_t
     {
 		dst=(uint16_t *)pdst;
 
-		JPSDR_Sobel_16_SSE2(psrc+2,pdst+2,src_pitch,y,src_height,i,thresh);
+		JPSDR_Sobel_16_SSE2(psrc,pdst,src_pitch,y,src_height,i,thresh);
 		dst[0]=dst[1];
 		dst[dst_row_size-1]=dst[dst_row_size-2];
 
@@ -1656,7 +1656,7 @@ static void Sobel_16_MT(const unsigned char *psrc,unsigned char *pdst,const int3
 	const int32_t src_height,int32_t dst_row_size, int32_t thresh,uint8_t bit_pixel,const int32_t ymin,const int32_t ymax,
 	const bool top,const bool bottom)
 {
-  const int32_t i = (dst_row_size-4 + 3) >> 2;
+  const int32_t i = (dst_row_size + 3) >> 2;
   const int32_t ymin0 = (top)?ymin+2:ymin;
   const int32_t ymax0 = (bottom)?ymax-2:ymax;
   uint16_t *dst;
@@ -1688,7 +1688,7 @@ static void Sobel_16_MT(const unsigned char *psrc,unsigned char *pdst,const int3
     {
 		dst=(uint16_t *)pdst;
 
-		JPSDR_Sobel_16_AVX(psrc+2,pdst+2,src_pitch,y,src_height,i,thresh);
+		JPSDR_Sobel_16_AVX(psrc,pdst,src_pitch,y,src_height,i,thresh);
 		dst[0]=dst[1];
 		dst[dst_row_size-1]=dst[dst_row_size-2];
 
@@ -1732,7 +1732,7 @@ static void Sobel_16_MT(const unsigned char *psrc,unsigned char *pdst,const int3
     {
 		dst=(uint16_t *)pdst;
 
-		JPSDR_Sobel_16_SSE2(psrc+2,pdst+2,src_pitch,y,src_height,i,thresh);
+		JPSDR_Sobel_16_SSE2(psrc,pdst,src_pitch,y,src_height,i,thresh);
 		dst[0]=dst[1];
 		dst[dst_row_size-1]=dst[dst_row_size-2];
 
