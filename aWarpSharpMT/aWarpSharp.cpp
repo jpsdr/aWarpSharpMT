@@ -3787,7 +3787,7 @@ static uint8_t CreateMTData(MT_Data_Info_WarpSharp MT_Data[],uint8_t threads_num
 
 aWarpSharp::aWarpSharp(PClip _child, int _thresh, int _blur_level, int _blur_type, int _depth, int _chroma, int _depthC,
 	bool _cplace_mpeg2_flag, int _blur_levelV, int _depthV, int _depthVC, int _blur_levelC, int _blur_levelVC,
-	int _threshC,uint8_t _threads,bool _sleep,bool _avsp,IScriptEnvironment *env) :
+	int _threshC,uint8_t _threads,bool _sleep, bool negativePrefetch,bool _avsp,IScriptEnvironment *env) :
     GenericVideoFilter(_child), thresh(_thresh), blur_level(_blur_level), blur_type(_blur_type), depth(_depth),
 		chroma(_chroma), depthC(_depthC), cplace_mpeg2_flag(_cplace_mpeg2_flag), blur_levelV(_blur_levelV),
 		depthV(_depthV),depthVC(_depthVC),blur_levelC(_blur_levelC),blur_levelVC(_blur_levelVC),threshC(_threshC),
@@ -3899,6 +3899,19 @@ aWarpSharp::aWarpSharp(PClip _child, int _thresh, int _blur_level, int _blur_typ
 		{
 			poolInterface->DeAllocateAllThreads(true);
 			env->ThrowError("aWarpSharp: Error with the TheadPool while getting UserId!");
+		}
+		if (!poolInterface->EnableAllowSeveral(UserId))
+		{
+			poolInterface->DeAllocateAllThreads(true);
+			env->ThrowError("aWarpSharp: Error with the TheadPool while allowing multiple request on UserId!");
+		}
+		if (negativePrefetch)
+		{
+			if (!poolInterface->DisableWaitonRequest(UserId))
+			{
+				poolInterface->DeAllocateAllThreads(true);
+				env->ThrowError("aWarpSharp: Error with the TheadPool while disabling wait on request on UserId!");
+			}
 		}
 	}
 
@@ -4414,14 +4427,14 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
   memcpy(MT_ThreadGF,MT_Thread,sizeof(MT_Thread));
   memcpy(MT_DataGF,MT_Data,sizeof(MT_Data));
 
-  int8_t nPool=-1;
+  int8_t idxPool=-1;
 
   for(uint8_t i=0; i<threads_number; i++)
 	MT_ThreadGF[i].pData=(void *)MT_DataGF;
 
   if (threads_number>1)
   {
-	  if ((!poolInterface->RequestThreadPool(UserId,threads_number,MT_ThreadGF,nPool,false,true)) || (nPool==-1))
+	  if ((!poolInterface->RequestThreadPool(UserId,idxPool,threads_number,MT_ThreadGF)) || (idxPool==-1))
 		  env->ThrowError("aWarpSharp: Error with the TheadPool while requesting threadpool!");
   }
 
@@ -4490,7 +4503,7 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 	  for(uint8_t i=0; i<threads_number; i++)
 		  MT_ThreadGF[i].f_process=f_proc;
 
-	  if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+	  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 
 	  f_proc=(blur_type==1) ? (2+offs_16b):(4+offs_16b);
 
@@ -4498,11 +4511,11 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 	{
 		for(uint8_t i=0; i<threads_number; i++)
 			MT_ThreadGF[i].f_process=f_proc;
-		if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 
 		for(uint8_t i=0; i<threads_number; i++)
 			MT_ThreadGF[i].f_process++;
-		if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 	}
 
 	f_proc=(blur_type==1) ? (6+offs_16b):(8+offs_16b);
@@ -4511,11 +4524,11 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 	{
 		for(uint8_t i=0; i<threads_number; i++)
 			MT_ThreadGF[i].f_process=f_proc;
-		if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 
 		for(uint8_t i=0; i<threads_number; i++)
 			MT_ThreadGF[i].f_process++;
-		if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 	}
 
     if ((chroma!=6) && ((depth!=0) || (depthV!=0)))
@@ -4525,7 +4538,7 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 		for(uint8_t i=0; i<threads_number; i++)
 			MT_ThreadGF[i].f_process=f_proc;
 
-		if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 	}
     else
       CopyPlane(src,dst,PLANAR_Y,vi);
@@ -4561,7 +4574,7 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 		  for(uint8_t i=0; i<threads_number; i++)
 			  MT_ThreadGF[i].f_process=f_proc;
 
-		  if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+		  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 
 		  f_proc=(blur_type==1) ? (12+offs_16b):(14+offs_16b);
 
@@ -4569,11 +4582,11 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 	{
 		for(uint8_t i=0; i<threads_number; i++)
 			MT_ThreadGF[i].f_process=f_proc;
-		if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 
 		for(uint8_t i=0; i<threads_number; i++)
 			MT_ThreadGF[i].f_process++;
-		if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 	}
 
 		  f_proc=(blur_type==1) ? (16+offs_16b):(18+offs_16b);
@@ -4582,11 +4595,11 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 	{
 		for(uint8_t i=0; i<threads_number; i++)
 			MT_ThreadGF[i].f_process=f_proc;
-		if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 
 		for(uint8_t i=0; i<threads_number; i++)
 			MT_ThreadGF[i].f_process++;
-		if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 	}
 
 	f_proc=20+offs_16b;
@@ -4594,14 +4607,14 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 	for(uint8_t i=0; i<threads_number; i++)
 		MT_ThreadGF[i].f_process=f_proc;
 
-	if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+	if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 
 	f_proc=21+offs_16b;
 
 	for(uint8_t i=0; i<threads_number; i++)
 		MT_ThreadGF[i].f_process=f_proc;
 
-	if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+	if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 
 	f_proc=(blur_type==1) ? (22+offs_16b):(24+offs_16b);
 
@@ -4609,11 +4622,11 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 	{
 		for(uint8_t i=0; i<threads_number; i++)
 			MT_ThreadGF[i].f_process=f_proc;
-		if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 
 		for(uint8_t i=0; i<threads_number; i++)
 			MT_ThreadGF[i].f_process++;
-		if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 	}
 
 	f_proc=(blur_type==1) ? (26+offs_16b):(28+offs_16b);
@@ -4622,11 +4635,11 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 	{
 		for(uint8_t i=0; i<threads_number; i++)
 			MT_ThreadGF[i].f_process=f_proc;
-		if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 
 		for(uint8_t i=0; i<threads_number; i++)
 			MT_ThreadGF[i].f_process++;
-		if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 	}
 
 	f_proc=30+offs_16b;
@@ -4634,7 +4647,7 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 	for(uint8_t i=0; i<threads_number; i++)
 		MT_ThreadGF[i].f_process=f_proc;
 
-	if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+	if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 
 	  }
 	  else
@@ -4655,21 +4668,21 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 	  for(uint8_t i=0; i<threads_number; i++)
 		  MT_ThreadGF[i].f_process=f_proc;
 
-	  if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+	  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 
 	  f_proc=32+offs_16b;
 
 	  for(uint8_t i=0; i<threads_number; i++)
 		  MT_ThreadGF[i].f_process=f_proc;
 
-	  if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+	  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 
 	  f_proc=33+offs_16b;
 
 	  for(uint8_t i=0; i<threads_number; i++)
 		  MT_ThreadGF[i].f_process=f_proc;
 
-	  if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+	  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
     }
     else
     {
@@ -4678,14 +4691,14 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 	  for(uint8_t i=0; i<threads_number; i++)
 		  MT_ThreadGF[i].f_process=f_proc;
 
-	  if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+	  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 
 	  f_proc=35+offs_16b;
 
 	  for(uint8_t i=0; i<threads_number; i++)
 		  MT_ThreadGF[i].f_process=f_proc;
 
-	  if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+	  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
     }
 	  }
 	  else
@@ -4700,7 +4713,7 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
   for(uint8_t i=0; i<threads_number; i++)
 	  MT_ThreadGF[i].f_process=0;
 
-  poolInterface->ReleaseThreadPool(UserId,sleep,nPool);
+  poolInterface->ReleaseThreadPool(UserId,sleep,idxPool);
 
 	}
 	else
@@ -4896,7 +4909,8 @@ PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 }
 
 
-aSobel::aSobel(PClip _child, int _thresh, int _chroma, int _threshC,uint8_t _threads,bool _sleep,bool _avsp, IScriptEnvironment *env) :
+aSobel::aSobel(PClip _child, int _thresh, int _chroma, int _threshC,uint8_t _threads,bool _sleep, bool negativePrefetch,
+	bool _avsp, IScriptEnvironment *env) :
     GenericVideoFilter(_child), thresh(_thresh), chroma(_chroma),threshC(_threshC),sleep(_sleep),threads(_threads),avsp(_avsp)
 {
 	grey = vi.IsY();
@@ -4960,6 +4974,19 @@ aSobel::aSobel(PClip _child, int _thresh, int _chroma, int _threshC,uint8_t _thr
 		{
 			poolInterface->DeAllocateAllThreads(true);
 			env->ThrowError("aSobel: Error with the TheadPool while getting UserId!");
+		}
+		if (!poolInterface->EnableAllowSeveral(UserId))
+		{
+			poolInterface->DeAllocateAllThreads(true);
+			env->ThrowError("aSobel: Error with the TheadPool while allowing multiple request on UserId!");
+		}
+		if (negativePrefetch)
+		{
+			if (!poolInterface->DisableWaitonRequest(UserId))
+			{
+				poolInterface->DeAllocateAllThreads(true);
+				env->ThrowError("aSobel: Error with the TheadPool while disabling wait on request on UserId!");
+			}
 		}
 	}
 
@@ -5075,11 +5102,11 @@ PVideoFrame __stdcall aSobel::GetFrame(int n, IScriptEnvironment *env)
   for(uint8_t i=0; i<threads_number; i++)
 	MT_ThreadGF[i].pData=(void *)MT_DataGF;
 
-  int8_t nPool=-1;
+  int8_t idxPool=-1;
 
   if (threads_number>1)
   {
-	  if ((!poolInterface->RequestThreadPool(UserId,threads_number,MT_ThreadGF,nPool,false,true)) || (nPool==-1))
+	  if ((!poolInterface->RequestThreadPool(UserId,idxPool,threads_number,MT_ThreadGF)) || (idxPool==-1))
 		  env->ThrowError("aSobel: Error with the TheadPool while requesting threadpool!");
   }
 
@@ -5121,7 +5148,7 @@ PVideoFrame __stdcall aSobel::GetFrame(int n, IScriptEnvironment *env)
 	  for(uint8_t i=0; i<threads_number; i++)
 		  MT_ThreadGF[i].f_process=f_proc;
 
-	  if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+	  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
   }
   else
     CopyPlane(src,dst,PLANAR_Y,vi);
@@ -5151,21 +5178,21 @@ PVideoFrame __stdcall aSobel::GetFrame(int n, IScriptEnvironment *env)
 	  for(uint8_t i=0; i<threads_number; i++)
 		  MT_ThreadGF[i].f_process=f_proc;
 
-	  if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+	  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 
 	  f_proc=3+offs_16b;
 
 	  for(uint8_t i=0; i<threads_number; i++)
 		  MT_ThreadGF[i].f_process=f_proc;
 
-	  if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+	  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
     break;
   }
 
 	for(uint8_t i=0; i<threads_number; i++)
 		MT_ThreadGF[i].f_process=0;
 
-    poolInterface->ReleaseThreadPool(UserId,sleep,nPool);
+    poolInterface->ReleaseThreadPool(UserId,sleep,idxPool);
   }
   else
   {
@@ -5218,7 +5245,8 @@ PVideoFrame __stdcall aSobel::GetFrame(int n, IScriptEnvironment *env)
 
 
 aBlur::aBlur(PClip _child, int _blur_level, int _blur_type, int _chroma, int _blur_levelV,
-	int _blur_levelC, int _blur_levelVC,uint8_t _threads,bool _sleep,bool _avsp, IScriptEnvironment *env) :
+	int _blur_levelC, int _blur_levelVC,uint8_t _threads,bool _sleep, bool negativePrefetch,
+	bool _avsp, IScriptEnvironment *env) :
     GenericVideoFilter(_child), blur_level(_blur_level), blur_type(_blur_type), chroma(_chroma),blur_levelV(_blur_levelV),
 		blur_levelC(_blur_levelC),blur_levelVC(_blur_levelVC),sleep(_sleep),threads(_threads),avsp(_avsp)
 {
@@ -5298,6 +5326,19 @@ aBlur::aBlur(PClip _child, int _blur_level, int _blur_type, int _chroma, int _bl
 		{
 			poolInterface->DeAllocateAllThreads(true);
 			env->ThrowError("aBlur: Error with the TheadPool while getting UserId!");
+		}
+		if (!poolInterface->EnableAllowSeveral(UserId))
+		{
+			poolInterface->DeAllocateAllThreads(true);
+			env->ThrowError("aBlur: Error with the TheadPool while allowing multiple request on UserId!");
+		}
+		if (negativePrefetch)
+		{
+			if (!poolInterface->DisableWaitonRequest(UserId))
+			{
+				poolInterface->DeAllocateAllThreads(true);
+				env->ThrowError("aBlur: Error with the TheadPool while disabling wait on request on UserId!");
+			}
 		}
 	}
 
@@ -5625,11 +5666,11 @@ PVideoFrame __stdcall aBlur::GetFrame(int n, IScriptEnvironment *env)
   for(uint8_t i=0; i<threads_number; i++)
 	MT_ThreadGF[i].pData=MT_DataGF;
 
-  int8_t nPool=-1;
+  int8_t idxPool=-1;
 
   if (threads_number>1)
   {
-	  if ((!poolInterface->RequestThreadPool(UserId,threads_number,MT_ThreadGF,nPool,false,true)) || (nPool==-1))
+	  if ((!poolInterface->RequestThreadPool(UserId,idxPool,threads_number,MT_ThreadGF)) || (idxPool==-1))
 		  env->ThrowError("aBlur: Error with the TheadPool while requesting threadpool!");
   }
 
@@ -5677,11 +5718,11 @@ PVideoFrame __stdcall aBlur::GetFrame(int n, IScriptEnvironment *env)
 	{
 		for(uint8_t i=0; i<threads_number; i++)
 			MT_ThreadGF[i].f_process=f_proc;
-		if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 
 		for(uint8_t i=0; i<threads_number; i++)
 			MT_ThreadGF[i].f_process++;
-		if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 	}
 
 	  f_proc=(blur_type==1) ? (5+offs_16b):(7+offs_16b);
@@ -5690,11 +5731,11 @@ PVideoFrame __stdcall aBlur::GetFrame(int n, IScriptEnvironment *env)
 	{
 		for(uint8_t i=0; i<threads_number; i++)
 			MT_ThreadGF[i].f_process=f_proc;
-		if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 
 		for(uint8_t i=0; i<threads_number; i++)
 			MT_ThreadGF[i].f_process++;
-		if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 	}
   }
   switch (chroma)
@@ -5721,11 +5762,11 @@ PVideoFrame __stdcall aBlur::GetFrame(int n, IScriptEnvironment *env)
 	{
 		for(uint8_t i=0; i<threads_number; i++)
 			MT_ThreadGF[i].f_process=f_proc;
-		if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 
 		for(uint8_t i=0; i<threads_number; i++)
 			MT_ThreadGF[i].f_process++;
-		if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 	}
 
 	  f_proc=(blur_type==1) ? (13+offs_16b):(15+offs_16b);
@@ -5734,11 +5775,11 @@ PVideoFrame __stdcall aBlur::GetFrame(int n, IScriptEnvironment *env)
 	{
 		for(uint8_t i=0; i<threads_number; i++)
 			MT_ThreadGF[i].f_process=f_proc;
-		if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 
 		for(uint8_t i=0; i<threads_number; i++)
 			MT_ThreadGF[i].f_process++;
-		if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 	}
 
 	  f_proc=(blur_type==1) ? (17+offs_16b):(19+offs_16b);
@@ -5750,11 +5791,11 @@ PVideoFrame __stdcall aBlur::GetFrame(int n, IScriptEnvironment *env)
 	{
 		for(uint8_t i=0; i<threads_number; i++)
 			MT_ThreadGF[i].f_process=f_proc;
-		if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 
 		for(uint8_t i=0; i<threads_number; i++)
 			MT_ThreadGF[i].f_process++;
-		if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 	}
 
 	  f_proc=(blur_type==1) ? (21+offs_16b):(23+offs_16b); // 21 22  23 24
@@ -5763,11 +5804,11 @@ PVideoFrame __stdcall aBlur::GetFrame(int n, IScriptEnvironment *env)
 	{
 		for(uint8_t i=0; i<threads_number; i++)
 			MT_ThreadGF[i].f_process=f_proc;
-		if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 
 		for(uint8_t i=0; i<threads_number; i++)
 			MT_ThreadGF[i].f_process++;
-		if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 	}
     break;
   }
@@ -5775,7 +5816,7 @@ PVideoFrame __stdcall aBlur::GetFrame(int n, IScriptEnvironment *env)
 	for(uint8_t i=0; i<threads_number; i++)
 		MT_ThreadGF[i].f_process=0;
 
-    poolInterface->ReleaseThreadPool(UserId,sleep,nPool);
+    poolInterface->ReleaseThreadPool(UserId,sleep,idxPool);
   }
   else
   {
@@ -5889,7 +5930,8 @@ PVideoFrame __stdcall aBlur::GetFrame(int n, IScriptEnvironment *env)
 
 
 aWarp::aWarp(PClip _child, PClip _edges, int _depth, int _chroma, int _depthC, bool _cplace_mpeg2_flag,
-	int _depthV, int _depthVC,uint8_t _threads,bool _sleep,bool _avsp, IScriptEnvironment *env) :
+	int _depthV, int _depthVC,uint8_t _threads,bool _sleep, bool negativePrefetch,
+	bool _avsp, IScriptEnvironment *env) :
     GenericVideoFilter(_child), edges(_edges), depth(_depth), chroma(_chroma), depthC(_depthC), cplace_mpeg2_flag(_cplace_mpeg2_flag),
 		depthV(_depthV),depthVC(_depthVC),sleep(_sleep),threads(_threads),avsp(_avsp)
 {
@@ -5977,6 +6019,19 @@ aWarp::aWarp(PClip _child, PClip _edges, int _depth, int _chroma, int _depthC, b
 		{
 			poolInterface->DeAllocateAllThreads(true);
 			env->ThrowError("aWarp: Error with the TheadPool while getting UserId!");
+		}
+		if (!poolInterface->EnableAllowSeveral(UserId))
+		{
+			poolInterface->DeAllocateAllThreads(true);
+			env->ThrowError("aWarp: Error with the TheadPool while allowing multiple request on UserId!");
+		}
+		if (negativePrefetch)
+		{
+			if (!poolInterface->DisableWaitonRequest(UserId))
+			{
+				poolInterface->DeAllocateAllThreads(true);
+				env->ThrowError("aWarp: Error with the TheadPool while disabling wait on request on UserId!");
+			}
 		}
 	}
 
@@ -6167,11 +6222,11 @@ PVideoFrame __stdcall aWarp::GetFrame(int n, IScriptEnvironment *env)
   for(uint8_t i=0; i<threads_number; i++)
 	MT_ThreadGF[i].pData=(void *)MT_DataGF;
 
-  int8_t nPool=-1;
+  int8_t idxPool=-1;
 
   if (threads_number>1)
   {
-	  if ((!poolInterface->RequestThreadPool(UserId,threads_number,MT_ThreadGF,nPool,false,true)) || (nPool==-1))
+	  if ((!poolInterface->RequestThreadPool(UserId,idxPool,threads_number,MT_ThreadGF)) || (idxPool==-1))
 		  env->ThrowError("aWarp: Error with the TheadPool while requesting threadpool!");
   }
 
@@ -6225,7 +6280,7 @@ PVideoFrame __stdcall aWarp::GetFrame(int n, IScriptEnvironment *env)
 	  for(uint8_t i=0; i<threads_number; i++)
 		  MT_ThreadGF[i].f_process=f_proc;
 
-	  if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+	  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
   }
   else
     CopyPlane(src,dst,PLANAR_Y,vi);
@@ -6258,14 +6313,14 @@ PVideoFrame __stdcall aWarp::GetFrame(int n, IScriptEnvironment *env)
 		  for(uint8_t i=0; i<threads_number; i++)
 			  MT_ThreadGF[i].f_process=f_proc;
 
-		  if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+		  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 
 		  f_proc=3+offs_16b;
 
 		  for(uint8_t i=0; i<threads_number; i++)
 			  MT_ThreadGF[i].f_process=f_proc;
 
-		  if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+		  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 	  }
 	  else
 	  {
@@ -6288,7 +6343,7 @@ PVideoFrame __stdcall aWarp::GetFrame(int n, IScriptEnvironment *env)
 		  for(uint8_t i=0; i<threads_number; i++)
 			  MT_ThreadGF[i].f_process=f_proc;
 
-		  if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+		  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 	  }
       else
       {
@@ -6310,7 +6365,7 @@ PVideoFrame __stdcall aWarp::GetFrame(int n, IScriptEnvironment *env)
 			MT_DataGF[i].src_pitch_U2=edg_pitch_U;
 		}
 
-		if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
       }
 
 	  f_proc=5+offs_16b;
@@ -6318,14 +6373,14 @@ PVideoFrame __stdcall aWarp::GetFrame(int n, IScriptEnvironment *env)
 	  for(uint8_t i=0; i<threads_number; i++)
 		  MT_ThreadGF[i].f_process=f_proc;
 
-	  if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+	  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 
 	  f_proc=6+offs_16b;
 
 	  for(uint8_t i=0; i<threads_number; i++)
 		  MT_ThreadGF[i].f_process=f_proc;
 
-	  if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+	  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
     }
     else
     {
@@ -6334,14 +6389,14 @@ PVideoFrame __stdcall aWarp::GetFrame(int n, IScriptEnvironment *env)
 	  for(uint8_t i=0; i<threads_number; i++)
 		  MT_ThreadGF[i].f_process=f_proc;
 
-	  if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+	  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 
 	  f_proc=8+offs_16b;
 
 	  for(uint8_t i=0; i<threads_number; i++)
 		  MT_ThreadGF[i].f_process=f_proc;
 
-	  if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+	  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
     }
 	   }
 	   else
@@ -6356,7 +6411,7 @@ PVideoFrame __stdcall aWarp::GetFrame(int n, IScriptEnvironment *env)
 	for(uint8_t i=0; i<threads_number; i++)
 		MT_ThreadGF[i].f_process=0;
 
-    poolInterface->ReleaseThreadPool(UserId,sleep,nPool);
+    poolInterface->ReleaseThreadPool(UserId,sleep,idxPool);
   }
   else
   {
@@ -6490,7 +6545,8 @@ PVideoFrame __stdcall aWarp::GetFrame(int n, IScriptEnvironment *env)
 
 
 aWarp4::aWarp4(PClip _child, PClip _edges, int _depth, int _chroma, int _depthC, bool _cplace_mpeg2_flag,
-	int _depthV, int _depthVC,uint8_t _threads,bool _sleep,bool _avsp, IScriptEnvironment *env) :
+	int _depthV, int _depthVC,uint8_t _threads,bool _sleep, bool negativePrefetch,
+	bool _avsp, IScriptEnvironment *env) :
     GenericVideoFilter(_child), edges(_edges), depth(_depth), chroma(_chroma), depthC(_depthC), cplace_mpeg2_flag(_cplace_mpeg2_flag),
 		depthV(_depthV),depthVC(_depthVC),sleep(_sleep),threads(_threads),avsp(_avsp)
 {
@@ -6581,6 +6637,19 @@ aWarp4::aWarp4(PClip _child, PClip _edges, int _depth, int _chroma, int _depthC,
 		{
 			poolInterface->DeAllocateAllThreads(true);
 			env->ThrowError("aWarp4: Error with the TheadPool while getting UserId!");
+		}
+		if (!poolInterface->EnableAllowSeveral(UserId))
+		{
+			poolInterface->DeAllocateAllThreads(true);
+			env->ThrowError("aWarp4: Error with the TheadPool while allowing multiple request on UserId!");
+		}
+		if (negativePrefetch)
+		{
+			if (!poolInterface->DisableWaitonRequest(UserId))
+			{
+				poolInterface->DeAllocateAllThreads(true);
+				env->ThrowError("aWarp4: Error with the TheadPool while disabling wait on request on UserId!");
+			}
 		}
 	}
 
@@ -6771,11 +6840,11 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
   for(uint8_t i=0; i<threads_number; i++)
 	MT_ThreadGF[i].pData=MT_DataGF;
 
-  int8_t nPool=-1;
+  int8_t idxPool=-1;
 
   if (threads_number>1)
   {
-	  if ((!poolInterface->RequestThreadPool(UserId,threads_number,MT_ThreadGF,nPool,false,true)) || (nPool==-1))
+	  if ((!poolInterface->RequestThreadPool(UserId,idxPool,threads_number,MT_ThreadGF)) || (idxPool==-1))
 		  env->ThrowError("aWarp4: Error with the TheadPool while requesting threadpool!");
   }
 
@@ -6829,7 +6898,7 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
 	  for(uint8_t i=0; i<threads_number; i++)
 		  MT_ThreadGF[i].f_process=f_proc;
 
-	  if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+	  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
   }
 
   switch (chroma)
@@ -6856,14 +6925,14 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
 		  for(uint8_t i=0; i<threads_number; i++)
 			  MT_ThreadGF[i].f_process=f_proc;
 
-		  if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+		  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 
 		  f_proc=3+offs_16b;
 
 		  for(uint8_t i=0; i<threads_number; i++)
 			  MT_ThreadGF[i].f_process=f_proc;
 
-		  if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+		  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
     break;
   case 4 :
   case 6 :
@@ -6878,7 +6947,7 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
 		  for(uint8_t i=0; i<threads_number; i++)
 			  MT_ThreadGF[i].f_process=f_proc;
 
-		  if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+		  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 	  }
       else
       {
@@ -6900,7 +6969,7 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
 			MT_DataGF[i].src_pitch_U2=edg_pitch_U;
 		}
 
-		if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
       }
 
 	  f_proc=5+offs_16b;
@@ -6908,14 +6977,14 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
 	  for(uint8_t i=0; i<threads_number; i++)
 		  MT_ThreadGF[i].f_process=f_proc;
 
-	  if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+	  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 
 	  f_proc=6+offs_16b;
 
 	  for(uint8_t i=0; i<threads_number; i++)
 		  MT_ThreadGF[i].f_process=f_proc;
 
-	  if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+	  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
     }
     else
     {
@@ -6924,14 +6993,14 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
 	  for(uint8_t i=0; i<threads_number; i++)
 		  MT_ThreadGF[i].f_process=f_proc;
 
-	  if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+	  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 
 	  f_proc=8+offs_16b;
 
 	  for(uint8_t i=0; i<threads_number; i++)
 		  MT_ThreadGF[i].f_process=f_proc;
 
-	  if (poolInterface->StartThreads(UserId,nPool)) poolInterface->WaitThreadsEnd(UserId,nPool);
+	  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
     }
     break;
   default : break;
@@ -6940,7 +7009,7 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
 	for(uint8_t i=0; i<threads_number; i++)
 		MT_ThreadGF[i].f_process=0;
 
-    poolInterface->ReleaseThreadPool(UserId,sleep,nPool);
+    poolInterface->ReleaseThreadPool(UserId,sleep,idxPool);
   }
   else
   {
@@ -7079,6 +7148,8 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 	const ThreadLevelName TabLevel[8]={NoneThreadLevel,IdleThreadLevel,LowestThreadLevel,
 		BelowThreadLevel,NormalThreadLevel,AboveThreadLevel,HighestThreadLevel,CriticalThreadLevel};
 
+	bool negativePrefetch=false;
+
   switch ((int)(size_t)user_data)
   {
   case 0 :
@@ -7093,11 +7164,14 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 	  prefetch=args[19].AsInt(0);
 	  thread_level=args[20].AsInt(6);
 
+	  negativePrefetch=(prefetch<0)?true:false;
+	  prefetch=abs(prefetch);
+
 	  if ((threads<0) || (threads>MAX_MT_THREADS))
 		  env->ThrowError("aWarpSharp2: [threads] must be between 0 and %ld.",MAX_MT_THREADS);
 	  if (prefetch==0) prefetch=1;
-	  if ((prefetch<0) || (prefetch>MAX_THREAD_POOL))
-		  env->ThrowError("aWarpSharp2: [prefetch] must be between 0 and %d.",MAX_THREAD_POOL);
+	  if (prefetch>MAX_THREAD_POOL)
+		  env->ThrowError("aWarpSharp2: [prefetch] can't be higher than %d.",MAX_THREAD_POOL);
 	if ((thread_level<1) || (thread_level>7))
 		env->ThrowError("aWarpSharp2: [ThreadLevel] must be between 1 and 7.");
 
@@ -7161,7 +7235,7 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 	  args[13].Defined() ? threshC=args[13].AsInt(-1) : threshC=thresh;
 
     return new aWarpSharp(args[0].AsClip(),thresh,blur,blurt,depth,args[5].AsInt(4),depthC,is_cplace_mpeg2(args,7),
-		blurV,depthV,depthVC,blurC,blurVC,threshC,threads_number,sleep,avsp,env);
+		blurV,depthV,depthVC,blurC,blurVC,threshC,threads_number,sleep,negativePrefetch,avsp,env);
 	break;
 	  }
   case 1 :
@@ -7181,11 +7255,14 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 	  prefetch=args[12].AsInt(0);
 	  thread_level=args[13].AsInt(6);
 
+	  negativePrefetch=(prefetch<0)?true:false;
+	  prefetch=abs(prefetch);
+
 	  if ((threads<0) || (threads>MAX_MT_THREADS))
 		  env->ThrowError("aWarpSharp: [threads] must be between 0 and %ld.",MAX_MT_THREADS);
 	  if (prefetch==0) prefetch=1;
-	  if ((prefetch<0) || (prefetch>MAX_THREAD_POOL))
-		  env->ThrowError("aWarpSharp: [prefetch] must be between 0 and %d.",MAX_THREAD_POOL);
+	  if (prefetch>MAX_THREAD_POOL)
+		  env->ThrowError("aWarpSharp: [prefetch] can't be higher than %d.",MAX_THREAD_POOL);
 	if ((thread_level<1) || (thread_level>7))
 		env->ThrowError("aWarpSharp: [ThreadLevel] must be between 1 and 7.");
 
@@ -7248,7 +7325,7 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 	  threshC=thresh;
 
     return new aWarpSharp(args[0].AsClip(),thresh,blur,blurt,depth,(cm<4)?map[cm]:-1,depthC,false,
-		blurV,depthV,depthVC,blurC,blurVC,threshC,threads_number,sleep,avsp,env);
+		blurV,depthV,depthVC,blurC,blurVC,threshC,threads_number,sleep,negativePrefetch,avsp,env);
 	break;
 	  }
   case 2 :
@@ -7264,11 +7341,14 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 
 	  if (!aWarpSharp_Enable_SSE2) env->ThrowError("aSobel: SSE2 capable CPU is required");
 
+	  negativePrefetch=(prefetch<0)?true:false;
+	  prefetch=abs(prefetch);
+
 	  if ((threads<0) || (threads>MAX_MT_THREADS))
 		  env->ThrowError("aSobel: [threads] must be between 0 and %ld.",MAX_MT_THREADS);
 	  if (prefetch==0) prefetch=1;
-	  if ((prefetch<0) || (prefetch>MAX_THREAD_POOL))
-		  env->ThrowError("aSobel: [prefetch] must be between 0 and %d.",MAX_THREAD_POOL);
+	  if (prefetch>MAX_THREAD_POOL)
+		  env->ThrowError("aSobel: [prefetch] can't be higher than %d.",MAX_THREAD_POOL);
 	if ((thread_level<1) || (thread_level>7))
 		env->ThrowError("aSobel: [ThreadLevel] must be between 1 and 7.");
 
@@ -7322,7 +7402,7 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 	  thresh=args[1].AsInt(0x80);
 	  args[3].Defined() ? threshC=args[3].AsInt(-1) : threshC=thresh;
 
-	return new aSobel(args[0].AsClip(),thresh,args[2].AsInt(1),threshC,threads_number,sleep,avsp,env);
+	return new aSobel(args[0].AsClip(),thresh,args[2].AsInt(1),threshC,threads_number,sleep,negativePrefetch,avsp,env);
 	break;
 	  }
   case 3 :
@@ -7338,11 +7418,14 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 
 	  if (!aWarpSharp_Enable_SSE2) env->ThrowError("aBlur: SSE2 capable CPU is required");
 
+	  negativePrefetch=(prefetch<0)?true:false;
+	  prefetch=abs(prefetch);
+
 	  if ((threads<0) || (threads>MAX_MT_THREADS))
 		  env->ThrowError("aBlur: [threads] must be between 0 and %ld.",MAX_MT_THREADS);
 	  if (prefetch==0) prefetch=1;
-	  if ((prefetch<0) || (prefetch>MAX_THREAD_POOL))
-		  env->ThrowError("aBlur: [prefetch] must be between 0 and %d.",MAX_THREAD_POOL);
+	  if (prefetch>MAX_THREAD_POOL)
+		  env->ThrowError("aBlur: [prefetch] can't be higher than %d.",MAX_THREAD_POOL);
 	if ((thread_level<1) || (thread_level>7))
 		env->ThrowError("aBlur: [ThreadLevel] must be between 1 and 7.");
 
@@ -7399,7 +7482,7 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 	  args[5].Defined() ? blurC=args[5].AsInt(-1) : blurC=(blur+1)>>1;
 	  args[6].Defined() ? blurVC=args[6].AsInt(-1) : blurVC=blurC;
 
-    return new aBlur(args[0].AsClip(),blur,blurt,args[3].AsInt(1),blurV,blurC,blurVC,threads_number,sleep,avsp,env);
+    return new aBlur(args[0].AsClip(),blur,blurt,args[3].AsInt(1),blurV,blurC,blurVC,threads_number,sleep,negativePrefetch,avsp,env);
 	break;
 	  }
   case 4 :
@@ -7415,11 +7498,14 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 
 	  if (!aWarpSharp_Enable_SSE2) env->ThrowError("aWarp: SSE2 capable CPU is required");
 
+	  negativePrefetch=(prefetch<0)?true:false;
+	  prefetch=abs(prefetch);
+
 	  if ((threads<0) || (threads>MAX_MT_THREADS))
 		  env->ThrowError("aWarp: [threads] must be between 0 and %ld.",MAX_MT_THREADS);
 	  if (prefetch==0) prefetch=1;
-	  if ((prefetch<0) || (prefetch>MAX_THREAD_POOL))
-		  env->ThrowError("aWarp: [prefetch] must be between 0 and %d.",MAX_THREAD_POOL);
+	  if (prefetch>MAX_THREAD_POOL)
+		  env->ThrowError("aWarp: [prefetch] can't be higher than %d.",MAX_THREAD_POOL);
 	if ((thread_level<1) || (thread_level>7))
 		env->ThrowError("aWarp: [ThreadLevel] must be between 1 and 7.");
 
@@ -7476,7 +7562,7 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 	  args[7].Defined() ? depthVC=args[7].AsInt(128) : depthVC=depthC;
 
     return new aWarp(args[0].AsClip(),args[1].AsClip(),depth,args[3].AsInt(4),depthC,is_cplace_mpeg2(args,5),
-		depthV,depthVC,threads_number,sleep,avsp,env);
+		depthV,depthVC,threads_number,sleep,negativePrefetch,avsp,env);
 	break;
 	  }
   case 5 :
@@ -7491,11 +7577,14 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 
 	  if (!aWarpSharp_Enable_SSE2) env->ThrowError("aWarp4: SSE2 capable CPU is required");
 
+	  negativePrefetch=(prefetch<0)?true:false;
+	  prefetch=abs(prefetch);
+
 	  if ((threads<0) || (threads>MAX_MT_THREADS))
 		  env->ThrowError("aWarp4: [threads] must be between 0 and %ld.",MAX_MT_THREADS);
 	  if (prefetch==0) prefetch=1;
-	  if ((prefetch<0) || (prefetch>MAX_THREAD_POOL))
-		  env->ThrowError("aWarp4: [prefetch] must be between 0 and %d.",MAX_THREAD_POOL);
+	  if (prefetch>MAX_THREAD_POOL)
+		  env->ThrowError("aWarp4: [prefetch] can't be higher than %d.",MAX_THREAD_POOL);
 	if ((thread_level<1) || (thread_level>7))
 		env->ThrowError("aWarp4: [ThreadLevel] must be between 1 and 7.");
 
@@ -7552,7 +7641,7 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 	  args[7].Defined() ? depthVC=args[7].AsInt(128) : depthVC=depthC;
 
     return new aWarp4(args[0].AsClip(),args[1].AsClip(),depth,args[3].AsInt(4),depthC,is_cplace_mpeg2(args,5),
-		depthV,depthVC,threads_number,sleep,avsp,env);
+		depthV,depthVC,threads_number,sleep,negativePrefetch,avsp,env);
 	break;
 	  }
   default : break;

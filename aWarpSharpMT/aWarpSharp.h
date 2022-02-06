@@ -17,7 +17,7 @@
 #include "./avisynth.h"
 #include "./ThreadPoolInterface.h"
 
-#define AWARPSHARP_VERSION "aWarpSharpMT 2.1.5 JPSDR"
+#define AWARPSHARP_VERSION "aWarpSharpMT 2.1.6 JPSDR"
 
 #define myfree(ptr) if (ptr!=NULL) { free(ptr); ptr=NULL;}
 #define myAlignedFree(ptr) if (ptr!=NULL) { _aligned_free(ptr); ptr=NULL;}
@@ -60,7 +60,7 @@ class aWarpSharp : public GenericVideoFilter
 public:
   aWarpSharp(PClip _child, int _thresh, int _blur_level, int _blur_type, int _depth, int _chroma, int _depthC, 
 	  bool _cplace_mpeg2_flag, int _blur_levelV, int _depthV, int _depthVC, int _blur_levelC, int _blur_levelVC,
-	  int _threshC,uint8_t _threads,bool _sleep,bool _avsp, IScriptEnvironment *env);
+	  int _threshC,uint8_t _threads,bool _sleep, bool negativePrefetch, bool _avsp, IScriptEnvironment *env);
   virtual ~aWarpSharp();
 
   PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment *env);
@@ -95,7 +95,8 @@ private:
 class aSobel : public GenericVideoFilter
 {
 public:
-  aSobel(PClip _child, int _thresh, int _chroma, int _threshC,uint8_t _threads,bool _sleep,bool _avsp, IScriptEnvironment *env);
+  aSobel(PClip _child, int _thresh, int _chroma, int _threshC,uint8_t _threads,bool _sleep, bool negativePrefetch,
+	  bool _avsp, IScriptEnvironment *env);
   virtual ~aSobel();
 
   PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment *env);
@@ -125,7 +126,8 @@ class aBlur : public GenericVideoFilter
 {
 public:
   aBlur(PClip _child, int _blur_level, int _blur_type, int _chroma, int _blur_levelV,
-	   int _blur_levelC, int _blur_levelVC,uint8_t _threads,bool _sleep,bool _avsp,IScriptEnvironment *env);
+	   int _blur_levelC, int _blur_levelVC,uint8_t _threads,bool _sleep, bool negativePrefetch,
+	   bool _avsp,IScriptEnvironment *env);
   virtual ~aBlur();
 
   PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment *env);
@@ -157,7 +159,8 @@ class aWarp : public GenericVideoFilter
 {
 public:
   aWarp(PClip _child, PClip _edges, int _depth, int _chroma, int _depthC, bool _cplace_mpeg2_flag,
-	  int _depthV, int _depthVC,uint8_t _threads,bool _sleep,bool _avsp, IScriptEnvironment *env);
+	  int _depthV, int _depthVC,uint8_t _threads,bool _sleep, bool negativePrefetch,
+	  bool _avsp, IScriptEnvironment *env);
   virtual ~aWarp();
 
   PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment *env);
@@ -190,7 +193,8 @@ class aWarp4 : public GenericVideoFilter
 {
 public:
   aWarp4(PClip _child, PClip _edges, int _depth, int _chroma, int _depthC, bool _cplace_mpeg2_flag,
-	  int _depthV, int _depthVC,uint8_t _threads,bool _sleep,bool _avsp, IScriptEnvironment *env);
+	  int _depthV, int _depthVC,uint8_t _threads,bool _sleep, bool negativePrefetch,
+	  bool _avsp, IScriptEnvironment *env);
   virtual ~aWarp4();
 
   PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment *env);
