@@ -17,7 +17,7 @@
 #include "./avisynth.h"
 #include "./ThreadPoolInterface.h"
 
-#define AWARPSHARP_VERSION "aWarpSharpMT 2.1.6 JPSDR"
+#define AWARPSHARP_VERSION "aWarpSharpMT 2.1.7 JPSDR"
 
 #define myfree(ptr) if (ptr!=NULL) { free(ptr); ptr=NULL;}
 #define myAlignedFree(ptr) if (ptr!=NULL) { _aligned_free(ptr); ptr=NULL;}
@@ -84,7 +84,7 @@ private:
 	MT_Data_Info_WarpSharp MT_Data[MAX_MT_THREADS];
 	uint8_t threads,threads_number;
 	bool sleep;
-	uint16_t UserId;
+	uint32_t UserId;
 	
 	ThreadPoolFunction StaticThreadpoolF;
 
@@ -114,7 +114,7 @@ private:
 	MT_Data_Info_WarpSharp MT_Data[MAX_MT_THREADS];
 	uint8_t threads,threads_number;
 	bool sleep;
-	uint16_t UserId;
+	uint32_t UserId;
 	
 	ThreadPoolFunction StaticThreadpoolF;
 
@@ -147,7 +147,7 @@ private:
 	MT_Data_Info_WarpSharp MT_Data[MAX_MT_THREADS];
 	uint8_t threads,threads_number;
 	bool sleep;
-	uint16_t UserId;
+	uint32_t UserId;
 	
 	ThreadPoolFunction StaticThreadpoolF;
 
@@ -181,7 +181,7 @@ private:
 	MT_Data_Info_WarpSharp MT_Data[MAX_MT_THREADS];
 	uint8_t threads,threads_number;
 	bool sleep;
-	uint16_t UserId;
+	uint32_t UserId;
 	
 	ThreadPoolFunction StaticThreadpoolF;
 
@@ -215,7 +215,7 @@ private:
 	MT_Data_Info_WarpSharp MT_Data[MAX_MT_THREADS];
 	uint8_t threads,threads_number;
 	bool sleep;
-	uint16_t UserId;
+	uint32_t UserId;
 	
 	ThreadPoolFunction StaticThreadpoolF;
 
