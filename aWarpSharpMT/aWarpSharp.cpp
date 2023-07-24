@@ -5989,7 +5989,7 @@ aWarp::aWarp(PClip _child, PClip _edges, int _depth, int _chroma, int _depthC, b
 		if (threads>1) poolInterface->DeAllocateAllThreads(true);
 		env->ThrowError("aWarp: both sources must have the same width and height");
 	}
-    if (vi.pixel_type!=vi2.pixel_type)
+    if (!vi.IsSameColorspace(vi2))
 	{
 		if (threads>1) poolInterface->DeAllocateAllThreads(true);
 		env->ThrowError("aWarp: both sources must have the same colorspace");
