@@ -26,6 +26,9 @@
 #define _mm_undefined_si128 _mm_setzero_si128
 #endif
 
+#define myfree(ptr) if (ptr!=nullptr) { free(ptr); ptr=nullptr;}
+#define myAlignedFree(ptr) if (ptr!=nullptr) { _aligned_free(ptr); ptr=nullptr;}
+
 static bool aWarpSharp_Enable_SSE2,aWarpSharp_Enable_SSE41,aWarpSharp_Enable_AVX;
 
 static ThreadPoolInterface *poolInterface;
