@@ -17,7 +17,7 @@
 #include "./avisynth.h"
 #include "./ThreadPoolInterface.h"
 
-#define AWARPSHARP_VERSION "aWarpSharpMT 2.1.12 JPSDR"
+#define AWARPSHARP_VERSION "aWarpSharpMT 2.1.13 JPSDR"
 
 typedef struct _MT_Data_Info_WarpSharp
 {

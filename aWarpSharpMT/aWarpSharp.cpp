@@ -3669,7 +3669,7 @@ static uint8_t CreateMTData(MT_Data_Info_WarpSharp MT_Data[],uint8_t threads_num
 		return(1);
 	}
 
-	int32_t src_dh_Y,src_dh_UV,dst_dh_Y,dst_dh_UV;
+	int32_t src_dh_Y,dst_dh_Y;
 	int32_t h_y;
 	uint8_t i,max=1;
 
@@ -3724,49 +3724,90 @@ static uint8_t CreateMTData(MT_Data_Info_WarpSharp MT_Data[],uint8_t threads_num
 		return(1);
 	}
 
-	src_dh_UV= (UV_h>0) ? src_dh_Y>>UV_h : src_dh_Y;
-	dst_dh_UV= (UV_h>0) ? dst_dh_Y>>UV_h : dst_dh_Y;
+	// Rebalance thread partitions to reduce the size difference
+	// between the last partition and the others.
+	int32_t tab_src_dh_Y[MAX_MT_THREADS],tab_dst_dh_Y[MAX_MT_THREADS];
+	int32_t tab_src_dh_UV[MAX_MT_THREADS],tab_dst_dh_UV[MAX_MT_THREADS];
+	int32_t current_dh;
+	uint8_t current_i;
+
+	for (uint8_t i=0; i<(max-1); i++)
+	{
+		tab_src_dh_Y[i]=src_dh_Y;
+		tab_dst_dh_Y[i]=dst_dh_Y;		
+	}
+	tab_src_dh_Y[max-1]=size_y-(max-1)*src_dh_Y;
+	tab_dst_dh_Y[max-1]=size_y-(max-1)*dst_dh_Y;
+	
+	current_i=max-2;
+	current_dh=src_dh_Y;
+	while (tab_src_dh_Y[max-1]>(current_dh+4))
+	{
+		tab_src_dh_Y[max-1]-=4;
+		tab_src_dh_Y[current_i]+=4;
+		if (current_i==0)
+		{
+			current_i=max-2;
+			current_dh+=4;
+		}
+		else current_i--;
+	}
+	current_i=max-2;
+	current_dh=dst_dh_Y;
+	while (tab_dst_dh_Y[max-1]>(current_dh+4))
+	{
+		tab_dst_dh_Y[max-1]-=4;
+		tab_dst_dh_Y[current_i]+=4;
+		if (current_i==0)
+		{
+			current_i=max-2;
+			current_dh+=4;
+		}
+		else current_i--;
+	}
+
+	if (UV_h>0)
+	{
+		for (uint8_t i=0; i<max; i++)
+		{
+			tab_src_dh_UV[i]=tab_src_dh_Y[i]>>UV_h;
+			tab_dst_dh_UV[i]=tab_dst_dh_Y[i]>>UV_h;
+		}
+	}
+	else
+	{
+		for (uint8_t i=0; i<max; i++)
+		{
+			tab_src_dh_UV[i]=tab_src_dh_Y[i];
+			tab_dst_dh_UV[i]=tab_dst_dh_Y[i];
+		}
+	}
 
 	MT_Data[0].top=true;
 	MT_Data[0].bottom=false;
 	MT_Data[0].src_Y_h_min=0;
-	MT_Data[0].src_Y_h_max=src_dh_Y;
+	MT_Data[0].src_Y_h_max=tab_src_dh_Y[0];
 	MT_Data[0].dst_Y_h_min=0;
-	MT_Data[0].dst_Y_h_max=dst_dh_Y;
+	MT_Data[0].dst_Y_h_max=tab_dst_dh_Y[0];
 	MT_Data[0].src_UV_h_min=0;
-	MT_Data[0].src_UV_h_max=src_dh_UV;
+	MT_Data[0].src_UV_h_max=tab_src_dh_UV[0];
 	MT_Data[0].dst_UV_h_min=0;
-	MT_Data[0].dst_UV_h_max=dst_dh_UV;
-
-	i=1;
-	while (i<max)
+	MT_Data[0].dst_UV_h_max=tab_dst_dh_UV[0];
+	
+	for (uint8_t i=1; i<max; i++)
 	{
 		MT_Data[i].top=false;
 		MT_Data[i].bottom=false;
 		MT_Data[i].src_Y_h_min=MT_Data[i-1].src_Y_h_max;
-		MT_Data[i].src_Y_h_max=MT_Data[i].src_Y_h_min+src_dh_Y;
+		MT_Data[i].src_Y_h_max=MT_Data[i].src_Y_h_min+tab_src_dh_Y[i];
 		MT_Data[i].dst_Y_h_min=MT_Data[i-1].dst_Y_h_max;
-		MT_Data[i].dst_Y_h_max=MT_Data[i].dst_Y_h_min+dst_dh_Y;
+		MT_Data[i].dst_Y_h_max=MT_Data[i].dst_Y_h_min+tab_dst_dh_Y[i];
 		MT_Data[i].src_UV_h_min=MT_Data[i-1].src_UV_h_max;
-		MT_Data[i].src_UV_h_max=MT_Data[i].src_UV_h_min+src_dh_UV;
+		MT_Data[i].src_UV_h_max=MT_Data[i].src_UV_h_min+tab_src_dh_UV[i];
 		MT_Data[i].dst_UV_h_min=MT_Data[i-1].dst_UV_h_max;
-		MT_Data[i].dst_UV_h_max=MT_Data[i].dst_UV_h_min+dst_dh_UV;
-		i++;
+		MT_Data[i].dst_UV_h_max=MT_Data[i].dst_UV_h_min+tab_dst_dh_UV[i];	
 	}
-
 	MT_Data[max-1].bottom=true;
-	MT_Data[max-1].src_Y_h_max=size_y;
-	MT_Data[max-1].dst_Y_h_max=size_y;
-	if (UV_h>0)
-	{
-		MT_Data[max-1].src_UV_h_max=size_y >> UV_h;
-		MT_Data[max-1].dst_UV_h_max=size_y >> UV_h;
-	}
-	else
-	{
-		MT_Data[max-1].src_UV_h_max=size_y;
-		MT_Data[max-1].dst_UV_h_max=size_y;
-	}
 
 	for (i=0; i<max; i++)
 	{
