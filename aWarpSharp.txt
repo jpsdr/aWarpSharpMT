@@ -27,6 +27,9 @@ aWarpSharp package 2016.06.23 - a WarpSharpening filter for Avisynth+ and AviSyn
   will be more precise around frame borders if SSSE3 is available.
 
 Syntax:
+  aWarpSharp(float "depth", int "blurlevel", float "thresh", int "cm", int "bm", bool "show", bool"original",
+  int "threads",bool "logicalCores", bool "MaxPhysCore", bool "SetAffinity",bool "sleep",
+  int "prefetch", int "ThreadLevel")
   aWarpSharp2(int "thresh", int "blur", int "type", int "depth", int "chroma", int "depthC", string "cplace",
   int "blurV", int "depthV", int "depthVC", int "blurC", int "blurVC", int "threshC",
   int "threads",bool "logicalCores", bool "MaxPhysCore", bool "SetAffinity",bool "sleep",
@@ -81,7 +84,6 @@ Syntax:
   depthV: default depth. depth set the warping strength for horizontal, and depthV
     set de warping strenght for vertical.
 
-
   chroma: 0..6
     Processing mode for chroma planes (U and V):
       0 - fill with zeroes
@@ -102,6 +104,8 @@ Syntax:
 
   cplace: "MPEG1" (default) or "MPEG2". Indicates the chroma sample location
     for chroma modes 4 and 6 in YV12 and YV16 colorspaces.
+
+  original: Default false. To match the old behavior, YV12 8 bits only, no asm optimisation.
 
    threads -
       Controls how many threads will be used for processing. If set to 0, threads will

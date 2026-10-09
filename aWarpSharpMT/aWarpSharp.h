@@ -17,7 +17,7 @@
 #include "./avisynth.h"
 #include "./ThreadPoolInterface.h"
 
-#define AWARPSHARP_VERSION "aWarpSharpMT 2.1.14 JPSDR"
+#define AWARPSHARP_VERSION "aWarpSharpMT 2.2.0 JPSDR"
 
 typedef struct _MT_Data_Info_WarpSharp
 {
@@ -27,7 +27,7 @@ typedef struct _MT_Data_Info_WarpSharp
 	int32_t dst_pitch_Y1,dst_pitch_Y2,dst_pitch_Y3;
 	void *src_U1,*src_U2,*src_U3;
 	void *dst_U1,*dst_U2,*dst_U3;
-	int32_t src_pitch_U1,src_pitch_U2,src_pitch_u3;
+	int32_t src_pitch_U1,src_pitch_U2,src_pitch_U3;
 	int32_t dst_pitch_U1,dst_pitch_U2,dst_pitch_U3;
 	void *src_V1,*src_V2,*src_V3;
 	void *dst_V1,*dst_V2,*dst_V3;
@@ -39,6 +39,7 @@ typedef struct _MT_Data_Info_WarpSharp
 	int32_t row_size_V1,row_size_V2,row_size_V3;
 
 	int32_t src_Y_h,src_U_h,src_V_h,dst_Y_h,dst_U_h,dst_V_h;
+	int32_t tmp_Y_h,tmp_U_h,tmp_V_h;
 
 	int32_t src_Y_h_min,src_Y_h_max,src_Y_w;
 	int32_t src_UV_h_min,src_UV_h_max,src_UV_w;
@@ -55,27 +56,30 @@ typedef struct _MT_Data_Info_WarpSharp
 class aWarpSharp : public GenericVideoFilter
 {
 public:
-  aWarpSharp(PClip _child, int _thresh, int _blur_level, int _blur_type, int _depth, int _chroma, int _depthC, 
-	  bool _cplace_mpeg2_flag, int _blur_levelV, int _depthV, int _depthVC, int _blur_levelC, int _blur_levelVC,
-	  int _threshC,uint8_t _threads,bool _sleep, bool negativePrefetch, bool _avsp, IScriptEnvironment *env);
-  virtual ~aWarpSharp();
+	aWarpSharp(PClip _child, int _thresh, int _blur_level, int _blur_type, int _depth, int _chroma, int _depthC, 
+		bool _cplace_mpeg2_flag, int _blur_levelV, int _depthV, int _depthVC, int _blur_levelC, int _blur_levelVC,
+		int _threshC,bool _original, int _original_depth, bool _original_show, int _original_bm,
+		uint8_t _threads,bool _sleep, bool negativePrefetch, bool _avsp, IScriptEnvironment *env);
+	virtual ~aWarpSharp();
 
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment *env);
-  int __stdcall SetCacheHints(int cachehints, int frame_range);
+	PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment *env);
+	int __stdcall SetCacheHints(int cachehints, int frame_range);
 
 private:
-  int thresh,threshC;
-  int blur_level,blur_levelV;
-  int blur_levelC,blur_levelVC;
-  int depth,depthV;
-  int depthC,depthVC;
-  int chroma;
-  int blur_type;
-  bool cplace_mpeg2_flag;
+	int thresh,threshC;
+	int blur_level,blur_levelV;
+	int blur_levelC,blur_levelVC;
+	int depth,depthV;
+	int depthC,depthVC;
+	int chroma;
+	int blur_type;
+	bool cplace_mpeg2_flag;
+	bool original,original_show;
+	int original_depth,original_bm;
 
-  bool grey,avsp,isRGBPfamily,isAlphaChannel,has_at_least_v8;
-  uint8_t pixelsize; // AVS16
-  uint8_t bits_per_pixel;
+	bool grey,avsp,isRGBPfamily,isAlphaChannel,has_at_least_v8;
+	uint8_t pixelsize; // AVS16
+	uint8_t bits_per_pixel;
 
 	Public_MT_Data_Thread MT_Thread[MAX_MT_THREADS];
 	MT_Data_Info_WarpSharp MT_Data[MAX_MT_THREADS];

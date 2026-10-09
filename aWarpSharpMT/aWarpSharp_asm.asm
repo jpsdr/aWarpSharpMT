@@ -980,7 +980,7 @@ JPSDR_Sobel_8_SSE2_1:
     add	esi,ebx
     sub	ecx,4
     jb short JPSDR_Sobel_8_SSE2_2
-    movntdq XMMWORD ptr[esi+edi],xmm2
+    movdqa XMMWORD ptr[esi+edi],xmm2
 	jz short JPSDR_Sobel_8_SSE2_Fin
     jmp JPSDR_Sobel_8_SSE2_1
 
@@ -1079,7 +1079,7 @@ JPSDR_Sobel_8_SSE2_a proc psrc:dword,pdst:dword,src_pitch:dword,y_:dword,height:
     add	esi,ebx
     sub	ecx,4
     jb JPSDR_Sobel_8_SSE2_2_a
-    movntdq XMMWORD ptr[esi+edi],xmm2
+    movdqa XMMWORD ptr[esi+edi],xmm2
     jz JPSDR_Sobel_8_SSE2_a_Fin
 	
 JPSDR_Sobel_8_SSE2_1_a:
@@ -1127,7 +1127,7 @@ JPSDR_Sobel_8_SSE2_1_a:
     add	esi,ebx
     sub	ecx,4
     jb short JPSDR_Sobel_8_SSE2_2_a
-    movntdq XMMWORD ptr[esi+edi],xmm2
+    movdqa XMMWORD ptr[esi+edi],xmm2
 	jz short JPSDR_Sobel_8_SSE2_a_Fin
     jmp JPSDR_Sobel_8_SSE2_1_a
 
@@ -1228,7 +1228,7 @@ JPSDR_Sobel_8_SSE2_1_b:
     pminub xmm2,xmm0  ;thresh
     add	esi,ebx
     sub	ecx,4
-	movntdq XMMWORD ptr[esi+edi],xmm2
+	movdqa XMMWORD ptr[esi+edi],xmm2
     ja JPSDR_Sobel_8_SSE2_1_b
 	
 	; Last pixel
@@ -1279,7 +1279,7 @@ JPSDR_Sobel_8_SSE2_4_b:
     add	esi,ebx
     sub	ecx,4
     jb short JPSDR_Sobel_8_SSE2_2_b
-    movntdq XMMWORD ptr[esi+edi],xmm2
+    movdqa XMMWORD ptr[esi+edi],xmm2
     jmp short JPSDR_Sobel_8_SSE2_b_Fin
 
 JPSDR_Sobel_8_SSE2_2_b:
@@ -1371,7 +1371,7 @@ JPSDR_Sobel_8_AVX_1:
     add	esi,ebx
     sub	ecx,4
     jb short JPSDR_Sobel_8_AVX_2
-    vmovntdq XMMWORD ptr[esi+edi],xmm1
+    vmovdqa XMMWORD ptr[esi+edi],xmm1
 	jz short JPSDR_Sobel_8_AVX_Fin
     jmp JPSDR_Sobel_8_AVX_1
 
@@ -1464,7 +1464,7 @@ JPSDR_Sobel_8_AVX_a proc psrc:dword,pdst:dword,src_pitch:dword,y_:dword,height:d
     add	esi,ebx
     sub	ecx,4
     jb JPSDR_Sobel_8_AVX_2_a
-    vmovntdq XMMWORD ptr[esi+edi],xmm1
+    vmovdqa XMMWORD ptr[esi+edi],xmm1
     jz JPSDR_Sobel_8_AVX_a_Fin
 	
 JPSDR_Sobel_8_AVX_1_a:
@@ -1506,7 +1506,7 @@ JPSDR_Sobel_8_AVX_1_a:
     add	esi,ebx
     sub	ecx,4
     jb short JPSDR_Sobel_8_AVX_2_a
-    vmovntdq XMMWORD ptr[esi+edi],xmm1
+    vmovdqa XMMWORD ptr[esi+edi],xmm1
 	jz short JPSDR_Sobel_8_AVX_a_Fin
     jmp JPSDR_Sobel_8_AVX_1_a
 
@@ -1601,7 +1601,7 @@ JPSDR_Sobel_8_AVX_1_b:
     vpminub xmm1,xmm1,xmm0  ;thresh
     add	esi,ebx
     sub	ecx,4
-	vmovntdq XMMWORD ptr[esi+edi],xmm1
+	vmovdqa XMMWORD ptr[esi+edi],xmm1
     ja JPSDR_Sobel_8_AVX_1_b
 	
 	; Last pixel
@@ -1646,7 +1646,7 @@ JPSDR_Sobel_8_AVX_4_b:
     add	esi,ebx
     sub	ecx,4
     jb short JPSDR_Sobel_8_AVX_2_b
-    vmovntdq XMMWORD ptr[esi+edi],xmm1
+    vmovdqa XMMWORD ptr[esi+edi],xmm1
     jmp short JPSDR_Sobel_8_AVX_b_Fin
 
 JPSDR_Sobel_8_AVX_2_b:
@@ -1752,7 +1752,7 @@ JPSDR_Sobel_16_SSE2_1:
     add	esi,ebx
     sub	ecx,4
     jb short JPSDR_Sobel_16_SSE2_2
-    movntdq XMMWORD ptr[esi+edi],xmm2
+    movdqa XMMWORD ptr[esi+edi],xmm2
 	jz short JPSDR_Sobel_16_SSE2_Fin
     jmp JPSDR_Sobel_16_SSE2_1
 
@@ -1859,7 +1859,7 @@ JPSDR_Sobel_16_SSE2_a proc psrc:dword,pdst:dword,src_pitch:dword,y_:dword,height
     add	esi,ebx
     sub	ecx,4
     jb JPSDR_Sobel_16_SSE2_2_a
-    movntdq XMMWORD ptr[esi+edi],xmm2
+    movdqa XMMWORD ptr[esi+edi],xmm2
     jz JPSDR_Sobel_16_SSE2_a_Fin
 	
 JPSDR_Sobel_16_SSE2_1_a:
@@ -1912,7 +1912,7 @@ JPSDR_Sobel_16_SSE2_1_a:
     add	esi,ebx
     sub	ecx,4
     jb short JPSDR_Sobel_16_SSE2_2_a
-    movntdq XMMWORD ptr[esi+edi],xmm2
+    movdqa XMMWORD ptr[esi+edi],xmm2
 	jz short JPSDR_Sobel_16_SSE2_a_Fin
     jmp JPSDR_Sobel_16_SSE2_1_a
 
@@ -2021,7 +2021,7 @@ JPSDR_Sobel_16_SSE2_1_b:
 	paddw xmm2,XMMWORD ptr uw_8000	
     add	esi,ebx
     sub	ecx,4
-    movntdq XMMWORD ptr[esi+edi],xmm2
+    movdqa XMMWORD ptr[esi+edi],xmm2
     ja JPSDR_Sobel_16_SSE2_1_b
 	
 	; Last pixel
@@ -2077,7 +2077,7 @@ JPSDR_Sobel_16_SSE2_4_b:
     add	esi,ebx
     sub	ecx,4
     jb short JPSDR_Sobel_16_SSE2_2_b
-    movntdq XMMWORD ptr[esi+edi],xmm2
+    movdqa XMMWORD ptr[esi+edi],xmm2
     jmp short JPSDR_Sobel_16_SSE2_b_Fin
 
 JPSDR_Sobel_16_SSE2_2_b:
@@ -2169,7 +2169,7 @@ JPSDR_Sobel_16_AVX_1:
     add	esi,ebx
     sub	ecx,4
     jb short JPSDR_Sobel_16_AVX_2
-    vmovntdq XMMWORD ptr[esi+edi],xmm1
+    vmovdqa XMMWORD ptr[esi+edi],xmm1
 	jz short JPSDR_Sobel_16_AVX_Fin
     jmp JPSDR_Sobel_16_AVX_1
 
@@ -2262,7 +2262,7 @@ JPSDR_Sobel_16_AVX_a proc psrc:dword,pdst:dword,src_pitch:dword,y_:dword,height:
     add	esi,ebx
     sub	ecx,4
     jb JPSDR_Sobel_16_AVX_2_a
-    vmovntdq XMMWORD ptr[esi+edi],xmm1
+    vmovdqa XMMWORD ptr[esi+edi],xmm1
     jz JPSDR_Sobel_16_AVX_a_Fin
 	
 JPSDR_Sobel_16_AVX_1_a:
@@ -2305,7 +2305,7 @@ JPSDR_Sobel_16_AVX_1_a:
     add	esi,ebx
     sub	ecx,4
     jb short JPSDR_Sobel_16_AVX_2_a
-    vmovntdq XMMWORD ptr[esi+edi],xmm1
+    vmovdqa XMMWORD ptr[esi+edi],xmm1
 	jz short JPSDR_Sobel_16_AVX_a_Fin
     jmp JPSDR_Sobel_16_AVX_1_a
 
@@ -2400,7 +2400,7 @@ JPSDR_Sobel_16_AVX_1_b:
     vpminuw xmm1,xmm1,xmm0  ;thresh
     add	esi,ebx
     sub	ecx,4
-    vmovntdq XMMWORD ptr[esi+edi],xmm1
+    vmovdqa XMMWORD ptr[esi+edi],xmm1
     ja JPSDR_Sobel_16_AVX_1_b
 	
 	; Last pixel
@@ -2446,7 +2446,7 @@ JPSDR_Sobel_16_AVX_4_b:
     add	esi,ebx
     sub	ecx,4
     jb short JPSDR_Sobel_16_AVX_2_b
-    vmovntdq XMMWORD ptr[esi+edi],xmm1
+    vmovdqa XMMWORD ptr[esi+edi],xmm1
     jmp short JPSDR_Sobel_16_AVX_b_Fin
 
 JPSDR_Sobel_16_AVX_2_b:
@@ -2520,7 +2520,7 @@ JPSDR_H_BlurR6_8_AVX_1:
     vmovdqa xmm6,xmm7
     vpavgb xmm0,xmm0,xmm1
     vpavgb xmm0,xmm0,xmm1
-    vmovntdq XMMWORD ptr[esi+edi],xmm0
+    vmovdqa XMMWORD ptr[esi+edi],xmm0
     add esi,eax
     sub ecx,eax
     ja JPSDR_H_BlurR6_8_AVX_1
@@ -2560,7 +2560,7 @@ JPSDR_H_BlurR6_8_AVX_2:
     vpavgb xmm1,xmm1,xmm6
     vpavgb xmm0,xmm0,xmm1
     vpavgb xmm0,xmm0,xmm1
-    vmovntdq XMMWORD ptr[esi+edi],xmm0
+    vmovdqa XMMWORD ptr[esi+edi],xmm0
 	
 	pop edi
 	pop esi
@@ -2743,7 +2743,7 @@ JPSDR_H_BlurR6a_8_SSE2 proc psrc2:dword,ptmp2:dword
 	pavgb xmm3,xmm5
 	pavgb xmm3,xmm1
 	pavgb xmm3,xmm1	
-    movntdq XMMWORD ptr[edx],xmm3
+    movdqa XMMWORD ptr[edx],xmm3
 
 	ret
 JPSDR_H_BlurR6a_8_SSE2 endp
@@ -2770,7 +2770,7 @@ JPSDR_H_BlurR6a_16_SSE2 proc psrc2:dword,ptmp2:dword
 	pavgw xmm3,xmm5
 	pavgw xmm3,xmm1
 	pavgw xmm3,xmm1	
-    movntdq XMMWORD ptr[edx],xmm3
+    movdqa XMMWORD ptr[edx],xmm3
 
 	ret
 JPSDR_H_BlurR6a_16_SSE2 endp
@@ -2797,7 +2797,7 @@ JPSDR_H_BlurR6a_16_AVX proc psrc2:dword,ptmp2:dword
 	vpavgw xmm3,xmm3,xmm5
 	vpavgw xmm3,xmm3,xmm1
 	vpavgw xmm3,xmm3,xmm1	
-    vmovntdq XMMWORD ptr[edx],xmm3
+    vmovdqa XMMWORD ptr[edx],xmm3
 
 	ret
 JPSDR_H_BlurR6a_16_AVX endp
@@ -3054,7 +3054,7 @@ JPSDR_V_BlurR6a_8_SSE2_1:
 	pavgb xmm2,xmm0
 	pavgb xmm6,xmm2
 	pavgb xmm6,xmm2
-	movntdq XMMWORD ptr[esi+edi],xmm6
+	movdqa XMMWORD ptr[esi+edi],xmm6
 	add esi,16
 	add edx,16
 	loop JPSDR_V_BlurR6a_8_SSE2_1
@@ -3099,7 +3099,7 @@ JPSDR_V_BlurR6a_8_AVX_1:
 	vpavgb xmm2,xmm2,xmm0
 	vpavgb xmm6,xmm6,xmm2
 	vpavgb xmm6,xmm6,xmm2
-	vmovntdq XMMWORD ptr[esi+edi],xmm6
+	vmovdqa XMMWORD ptr[esi+edi],xmm6
 	add esi,16
 	add edx,16
 	loop JPSDR_V_BlurR6a_8_AVX_1
@@ -3144,7 +3144,7 @@ JPSDR_V_BlurR6a_16_SSE2_1:
 	pavgw xmm2,xmm0
 	pavgw xmm6,xmm2
 	pavgw xmm6,xmm2
-	movntdq XMMWORD ptr[esi+edi],xmm6
+	movdqa XMMWORD ptr[esi+edi],xmm6
 	add esi,16
 	add edx,16
 	loop JPSDR_V_BlurR6a_16_SSE2_1
@@ -3189,7 +3189,7 @@ JPSDR_V_BlurR6a_16_AVX_1:
 	vpavgw xmm2,xmm2,xmm0
 	vpavgw xmm6,xmm6,xmm2
 	vpavgw xmm6,xmm6,xmm2
-	vmovntdq XMMWORD ptr[esi+edi],xmm6
+	vmovdqa XMMWORD ptr[esi+edi],xmm6
 	add esi,16
 	add edx,16
 	loop JPSDR_V_BlurR6a_16_AVX_1
@@ -3243,7 +3243,7 @@ JPSDR_V_BlurR6b_8_SSE2_1:
 	pavgb xmm6,xmm2
 	pavgb xmm6,xmm2
 	
-	movntdq XMMWORD ptr[esi+edi],xmm6
+	movdqa XMMWORD ptr[esi+edi],xmm6
 	add esi,16
 	add edx,16
 	add ebx,16
@@ -3299,7 +3299,7 @@ JPSDR_V_BlurR6b_8_AVX_1:
 	vpavgb xmm6,xmm6,xmm2
 	vpavgb xmm6,xmm6,xmm2
 	
-	vmovntdq XMMWORD ptr[esi+edi],xmm6
+	vmovdqa XMMWORD ptr[esi+edi],xmm6
 	add esi,16
 	add edx,16
 	add ebx,16
@@ -3355,7 +3355,7 @@ JPSDR_V_BlurR6b_16_SSE2_1:
 	pavgw xmm6,xmm2
 	pavgw xmm6,xmm2
 	
-	movntdq XMMWORD ptr[esi+edi],xmm6
+	movdqa XMMWORD ptr[esi+edi],xmm6
 	add esi,16
 	add edx,16
 	add ebx,16
@@ -3411,7 +3411,7 @@ JPSDR_V_BlurR6b_16_AVX_1:
 	vpavgw xmm6,xmm6,xmm2
 	vpavgw xmm6,xmm6,xmm2
 	
-	vmovntdq XMMWORD ptr[esi+edi],xmm6
+	vmovdqa XMMWORD ptr[esi+edi],xmm6
 	add esi,16
 	add edx,16
 	add ebx,16
@@ -3458,7 +3458,7 @@ JPSDR_V_BlurR6c_8_SSE2_1:
 	pavgb xmm2,xmm0
 	pavgb xmm6,xmm2
 	pavgb xmm6,xmm2
-	movntdq XMMWORD ptr[esi+edi],xmm6
+	movdqa XMMWORD ptr[esi+edi],xmm6
 	add esi,16
 	add edx,16
 	loop JPSDR_V_BlurR6c_8_SSE2_1
@@ -3503,7 +3503,7 @@ JPSDR_V_BlurR6c_8_AVX_1:
 	vpavgb xmm2,xmm2,xmm0
 	vpavgb xmm6,xmm6,xmm2
 	vpavgb xmm6,xmm6,xmm2
-	vmovntdq XMMWORD ptr[esi+edi],xmm6
+	vmovdqa XMMWORD ptr[esi+edi],xmm6
 	add esi,16
 	add edx,16
 	loop JPSDR_V_BlurR6c_8_AVX_1
@@ -3548,7 +3548,7 @@ JPSDR_V_BlurR6c_16_SSE2_1:
 	pavgw xmm2,xmm0
 	pavgw xmm6,xmm2
 	pavgw xmm6,xmm2
-	movntdq XMMWORD ptr[esi+edi],xmm6
+	movdqa XMMWORD ptr[esi+edi],xmm6
 	add esi,16
 	add edx,16
 	loop JPSDR_V_BlurR6c_16_SSE2_1
@@ -3593,7 +3593,7 @@ JPSDR_V_BlurR6c_16_AVX_1:
 	vpavgw xmm2,xmm2,xmm0
 	vpavgw xmm6,xmm6,xmm2
 	vpavgw xmm6,xmm6,xmm2
-	vmovntdq XMMWORD ptr[esi+edi],xmm6
+	vmovdqa XMMWORD ptr[esi+edi],xmm6
 	add esi,16
 	add edx,16
 	loop JPSDR_V_BlurR6c_16_AVX_1
@@ -3642,7 +3642,7 @@ JPSDR_H_BlurR2_8_AVX_1:
 	vmovdqa xmm5,xmm6
 	vmovdqa xmm6,xmm7
 	vpavgb xmm0,xmm0,xmm1
-	vmovntdq XMMWORD ptr[esi+edi],xmm0
+	vmovdqa XMMWORD ptr[esi+edi],xmm0
 	add esi,eax
 	sub ecx,eax
 	ja short JPSDR_H_BlurR2_8_AVX_1
@@ -3665,7 +3665,7 @@ JPSDR_H_BlurR2_8_AVX_2:
 	vpavgb xmm1,xmm1,xmm3
 	vpavgb xmm0,xmm0,xmm6
 	vpavgb xmm0,xmm0,xmm1
-	vmovntdq XMMWORD ptr[esi+edi],xmm0
+	vmovdqa XMMWORD ptr[esi+edi],xmm0
 	
 	pop edi
 	pop esi
@@ -3881,7 +3881,7 @@ JPSDR_V_BlurR2_8_SSE2_1:
 	pavgb xmm0,xmm2
 	pavgb xmm0,xmm2
 	pavgb xmm0,xmm1
-	movntdq XMMWORD ptr[esi+edi],xmm0
+	movdqa XMMWORD ptr[esi+edi],xmm0
 	add	esi,16
 	sub	ecx,16
 	jnz	short JPSDR_V_BlurR2_8_SSE2_1
@@ -3922,7 +3922,7 @@ JPSDR_V_BlurR2_8_AVX_1:
 	vpavgb xmm0,xmm0,xmm2
 	vpavgb xmm0,xmm0,xmm2
 	vpavgb xmm0,xmm0,xmm1
-	vmovntdq XMMWORD ptr[esi+edi],xmm0
+	vmovdqa XMMWORD ptr[esi+edi],xmm0
 	add	esi,16
 	sub	ecx,16
 	jnz	short JPSDR_V_BlurR2_8_AVX_1
@@ -3963,7 +3963,7 @@ JPSDR_V_BlurR2_16_SSE2_1:
 	pavgw xmm0,xmm2
 	pavgw xmm0,xmm2
 	pavgw xmm0,xmm1
-	movntdq XMMWORD ptr[esi+edi],xmm0
+	movdqa XMMWORD ptr[esi+edi],xmm0
 	add	esi,16
 	sub	ecx,16
 	jnz	short JPSDR_V_BlurR2_16_SSE2_1
@@ -4004,7 +4004,7 @@ JPSDR_V_BlurR2_16_AVX_1:
 	vpavgw xmm0,xmm0,xmm2
 	vpavgw xmm0,xmm0,xmm2
 	vpavgw xmm0,xmm0,xmm1
-	vmovntdq XMMWORD ptr[esi+edi],xmm0
+	vmovdqa XMMWORD ptr[esi+edi],xmm0
 	add	esi,16
 	sub	ecx,16
 	jnz	short JPSDR_V_BlurR2_16_AVX_1
@@ -4065,7 +4065,7 @@ JPSDR_GuideChroma1_8_SSE2_1:
 	pavgb xmm0,xmm1
 	add ecx,ebx
 	jg short JPSDR_GuideChroma1_8_SSE2_2
-	movntdq XMMWORD ptr[ecx+edx],xmm0
+	movdqa XMMWORD ptr[ecx+edx],xmm0
 	jnz short JPSDR_GuideChroma1_8_SSE2_1
 	jmp short JPSDR_GuideChroma1_8_SSE2_3
 	
@@ -4124,7 +4124,7 @@ JPSDR_GuideChroma1_8_AVX_1:
 	vpavgb xmm0,xmm0,xmm1
 	add ecx,ebx
 	jg short JPSDR_GuideChroma1_8_AVX_2
-	vmovntdq XMMWORD ptr[ecx+edx],xmm0
+	vmovdqa XMMWORD ptr[ecx+edx],xmm0
 	jnz short JPSDR_GuideChroma1_8_AVX_1
 	jmp short JPSDR_GuideChroma1_8_AVX_3
 	
@@ -4183,7 +4183,7 @@ JPSDR_GuideChroma1_16_AVX_1:
 	vpavgw xmm0,xmm0,xmm1
 	add ecx,ebx
 	jg short JPSDR_GuideChroma1_16_AVX_2
-	vmovntdq XMMWORD ptr[ecx+edx],xmm0
+	vmovdqa XMMWORD ptr[ecx+edx],xmm0
 	jnz short JPSDR_GuideChroma1_16_AVX_1
 	jmp short JPSDR_GuideChroma1_16_AVX_3
 	
@@ -4231,7 +4231,7 @@ JPSDR_GuideChroma2_8_SSE2_1:
 	pavgb xmm0,xmm1
 	add ecx,eax
 	jg short JPSDR_GuideChroma2_8_SSE2_2
-	movntdq XMMWORD ptr[ecx+edx],xmm0
+	movdqa XMMWORD ptr[ecx+edx],xmm0
 	jnz short JPSDR_GuideChroma2_8_SSE2_1
 	jmp short JPSDR_GuideChroma2_8_SSE2_3
 	
@@ -4276,7 +4276,7 @@ JPSDR_GuideChroma2_8_AVX_1:
 	vpavgb xmm0,xmm0,xmm1
 	add ecx,eax
 	jg short JPSDR_GuideChroma2_8_AVX_2
-	vmovntdq XMMWORD ptr[ecx+edx],xmm0
+	vmovdqa XMMWORD ptr[ecx+edx],xmm0
 	jnz short JPSDR_GuideChroma2_8_AVX_1
 	jmp short JPSDR_GuideChroma2_8_AVX_3
 	
@@ -4321,7 +4321,7 @@ JPSDR_GuideChroma2_16_AVX_1:
 	vpavgw xmm0,xmm0,xmm1
 	add ecx,eax
 	jg short JPSDR_GuideChroma2_16_AVX_2
-	vmovntdq XMMWORD ptr[ecx+edx],xmm0
+	vmovdqa XMMWORD ptr[ecx+edx],xmm0
 	jnz short JPSDR_GuideChroma2_16_AVX_1
 	jmp short JPSDR_GuideChroma2_16_AVX_3
 	

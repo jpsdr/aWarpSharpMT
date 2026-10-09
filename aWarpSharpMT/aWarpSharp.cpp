@@ -14,11 +14,11 @@
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU General Public License for more details.
 
-#define NOMINMAX
-#include <algorithm>
 #include <emmintrin.h>
 #include <smmintrin.h>
 #include <immintrin.h> // _mm_undefined
+
+#include "./avs/minmax.h"
 #include "./aWarpSharp.h"
 
 // For VS2010
@@ -136,6 +136,634 @@ extern "C" void JPSDR_GuideChroma2_16_AVX(const uint16_t *py,uint16_t *pu,int32_
 __declspec(align(16)) static const unsigned char dq0toF[0x10]={0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15};
 
 
+// ***************************************
+// Code for original aWarpSharp - Begin
+// ***************************************
+
+static AVS_FORCEINLINE int32_t avg(int32_t a, int32_t b) { return((a+b+1)/2); }
+static AVS_FORCEINLINE int32_t floor_div(int32_t x, int32_t d) { return((x>=0) ? x/d : -((-x+d-1)/d)); }
+
+static AVS_FORCEINLINE int32_t sample(const unsigned char *src,int32_t x,int32_t y,int32_t wm1,int32_t hm1,int32_t pitch)
+{
+	return(src[static_cast<ptrdiff_t>(clamp(y,0,hm1))*pitch+clamp(x,0,wm1)]);
+}
+
+static AVS_FORCEINLINE int32_t blur_value(const int32_t q[7])
+{
+  const int32_t outer=avg(avg(q[6],q[5]),avg(q[4],q[3]));
+  const int32_t inner=avg(avg(q[2],q[1]),q[0]);
+
+  return(avg(avg(outer,inner),inner));
+}
+
+
+// The original writes each completed row back before reading the next.
+// Therefore this stage must run serially, in ascending row order.
+// The problem of not MT is that srcp8=dstp8 when called.
+static void orig_BlurHQ_c(const unsigned char *srcp8,unsigned char *dstp8,const int32_t src_pitch,const int32_t dst_pitch,
+	const int32_t width,const int32_t height)
+{
+	const int32_t wm1=width-1;
+	const int32_t hm1=height-1;
+	const int32_t hm2=height-2;
+	unsigned char *dst=dstp8;
+	std::vector<int> row(width);
+	
+	dst+=2*dst_pitch;
+	
+	for (int32_t y=2; y<hm2; y++)
+	{
+		const int32_t ym2=y-2;
+		const int32_t ym1=y-1;
+		const int32_t yp2=y+2;
+
+		for (int32_t x=0; x<width; x++)
+			row[x]=sample(srcp8,x,ym2,wm1,hm1,src_pitch)+4*sample(srcp8,x,ym1,wm1,hm1,src_pitch)
+				+10*sample(srcp8,x,y,wm1,hm1,src_pitch)+sample(srcp8,x,yp2,wm1,hm1,src_pitch);
+
+		for (int32_t x=0; x<width; x++)
+			dst[x] = static_cast<unsigned char>((row[max(0,x-2)]+4*row[max(0,x-1)]+6*row[x]+4*row[min(wm1,x+1)]+row[min(wm1,x+2)]+64)/256);
+			
+		dst+=dst_pitch;
+	}
+}
+
+
+static void orig_Sobel_c(const unsigned char *srcp8,unsigned char *dstp8,const int32_t src_pitch,
+	const int32_t dst_pitch,const int32_t width,const int32_t height,int threshold)
+{
+	const int32_t wm1=width-1;
+	const int32_t hm1=height-1;
+	unsigned char *dst=dstp8;
+
+	for (int32_t y=0; y<height; y++)
+	{
+		const int32_t ym1=y-1;
+		const int32_t yp1=y+1;
+
+		for (int32_t x=0; x<width; x++)
+		{
+			const int32_t xm1=x-1;
+			const int32_t xp1=x+1;
+
+			const int tl=sample(srcp8,xm1,ym1,wm1,hm1,src_pitch),tr=sample(srcp8,xp1,ym1,wm1,hm1,src_pitch);
+			const int bl=sample(srcp8,xm1,yp1,wm1,hm1,src_pitch),br=sample(srcp8,xp1,yp1,wm1,hm1,src_pitch);
+			const int top=avg(tl,tr), bottom = avg(bl,br);
+			const int v=abs(avg(sample(srcp8,x,ym1,wm1,hm1,src_pitch),top)-avg(sample(srcp8,x,yp1,wm1,hm1,src_pitch),bottom));
+			// MM4/MM7 were overwritten by the vertical part in the original.
+			const int h=abs(avg(sample(srcp8,xm1,y,wm1,hm1,src_pitch),avg(tl,bl))-
+				avg(sample(srcp8,xp1,y,wm1,hm1,src_pitch),avg(top,bottom)));
+			const int sum=(h+v)&255; // Original PADDB, not PADDUSB.
+			int edge=min(255,min(255,2*sum)+sum);
+
+			edge=min(255,edge+abs(h-v));
+			edge=min(255,min(255,2*edge)+edge);
+			dst[x]=static_cast<unsigned char>(min(edge,threshold));
+		}
+
+		dst+=dst_pitch;
+	}
+}
+
+
+static void orig_Sobel_MT_c(const unsigned char *srcp8,unsigned char *dstp8,const int32_t src_pitch,
+	const int32_t dst_pitch,const int32_t width,const int32_t height,int threshold,const int32_t ymin,const int32_t ymax)
+{
+	const int32_t wm1=width-1;
+	const int32_t hm1=height-1;
+	unsigned char *dst=dstp8;
+
+	dst+=ymin*dst_pitch;
+
+	for (int32_t y=ymin; y<ymax; y++)
+	{
+		const int32_t ym1=y-1;
+		const int32_t yp1=y+1;
+
+		for (int32_t x=0; x<width; x++)
+		{
+			const int32_t xm1=x-1;
+			const int32_t xp1=x+1;
+
+			const int tl=sample(srcp8,xm1,ym1,wm1,hm1,src_pitch),tr=sample(srcp8,xp1,ym1,wm1,hm1,src_pitch);
+			const int bl=sample(srcp8,xm1,yp1,wm1,hm1,src_pitch),br=sample(srcp8,xp1,yp1,wm1,hm1,src_pitch);
+			const int top=avg(tl,tr),bottom=avg(bl,br);
+			const int v=abs(avg(sample(srcp8,x,ym1,wm1,hm1,src_pitch),top)-avg(sample(srcp8,x,yp1,wm1,hm1,src_pitch),bottom));
+			// MM4/MM7 were overwritten by the vertical part in the original.
+			const int h=abs(avg(sample(srcp8,xm1,y,wm1,hm1,src_pitch),avg(tl,bl))-
+				avg(sample(srcp8,xp1,y,wm1,hm1,src_pitch),avg(top,bottom)));
+			const int sum=(h+v)&255; // Original PADDB, not PADDUSB.
+			int edge=min(255,min(255,2*sum)+sum);
+
+			edge=min(255,edge+abs(h-v));
+			edge=min(255,min(255,2*edge)+edge);
+			dst[x]=static_cast<unsigned char>(min(edge,threshold));
+		}
+
+		dst+=dst_pitch;
+	}
+}
+
+
+static void orig_BlurH_c(const unsigned char *srcp8,unsigned char *dstp8,const int32_t src_pitch,
+	const int32_t dst_pitch,const int32_t width,const int32_t height)
+{
+	const int32_t wm1=width-1;
+	const int32_t hm1=height-1;
+	unsigned char *dst=dstp8;
+
+	for (int32_t y=0; y<height; y++)
+	{
+		for (int32_t x=0; x<width; x++)
+		{
+			int q[7];
+			
+			q[0]=sample(srcp8,x,y,wm1,hm1,src_pitch);
+			for (int32_t k=1; k<=6; k++)
+				q[k]=avg(sample(srcp8,x-k,y,wm1,hm1,src_pitch),sample(srcp8,x+k,y,wm1,hm1,src_pitch));
+
+			dst[x]=static_cast<unsigned char>(blur_value(q));
+		}
+
+		dst+=dst_pitch;
+	}
+}
+
+
+static void orig_BlurH_MT_c(const unsigned char *srcp8,unsigned char *dstp8,const int32_t src_pitch,
+	const int32_t dst_pitch,const int32_t width,const int32_t height,const int32_t ymin,const int32_t ymax)
+{
+	const int32_t wm1=width-1;
+	const int32_t hm1=height-1;
+	unsigned char *dst=dstp8;
+
+	dst+=ymin*dst_pitch;
+
+	for (int32_t y=ymin; y<ymax; y++)
+	{
+		for (int32_t x=0; x<width; x++)
+		{
+			int q[7];
+			
+			q[0]=sample(srcp8,x,y,wm1,hm1,src_pitch);
+			for (int32_t k=1; k<=6; k++)
+				q[k]=avg(sample(srcp8,x-k,y,wm1,hm1,src_pitch),sample(srcp8,x+k,y,wm1,hm1,src_pitch));
+
+			dst[x]=static_cast<unsigned char>(blur_value(q));
+		}
+
+		dst+=dst_pitch;
+	}
+}
+
+
+static void orig_BlurV_c(const unsigned char *srcp8,unsigned char *dstp8,const int32_t src_pitch,
+	const int32_t dst_pitch,const int32_t width,const int32_t height)
+{
+	const int32_t wm1=width-1;
+	const int32_t hm1=height-1;
+	unsigned char *dst=dstp8;
+	int32_t y0,y1;
+
+	y0=0; y1=min(height,6);
+	
+	for (int32_t y=y0; y<y1; y++)
+	{
+		for (int32_t x=0; x<width; x++)
+		{
+			int q[7];
+			
+			q[0]=sample(srcp8,x,y,wm1,hm1,src_pitch);
+			for (int32_t k=1; k<=6; k++)
+				q[k]=sample(srcp8,x,y+k,wm1,hm1,src_pitch);
+
+			dst[x]=static_cast<unsigned char>(blur_value(q));
+		}
+
+		dst+=dst_pitch;
+	}
+	
+	if ((height-6)>6)
+	{
+		y0=6; y1=height-6;
+		
+		dst=dstp8+y0*dst_pitch;
+
+		for (int32_t y=y0; y<y1; y++)
+		{
+			for (int32_t x=0; x<width; x++)
+			{
+				int q[7];
+			
+				q[0]=sample(srcp8,x,y,wm1,hm1,src_pitch);
+				for (int32_t k=1; k<=6; k++)
+					q[k]=avg(sample(srcp8,x,y-k,wm1,hm1,src_pitch),sample(srcp8,x,y+k,wm1,hm1,src_pitch));
+
+				dst[x]=static_cast<unsigned char>(blur_value(q));
+			}
+
+			dst+=dst_pitch;
+		}
+	}
+
+	if (height>6)
+	{
+		y0=height-6; y1=height;
+		
+		dst=dstp8+y0*dst_pitch;
+
+		for (int32_t y=y0; y<y1; y++)
+		{
+			for (int32_t x=0; x<width; x++)
+			{
+				int q[7];
+			
+				q[0]=sample(srcp8,x,y,wm1,hm1,src_pitch);
+				for (int32_t k=1; k<=6; k++)
+					q[k]=sample(srcp8,x,y-k,wm1,hm1,src_pitch);
+
+				dst[x]=static_cast<unsigned char>(blur_value(q));
+			}
+
+			dst+=dst_pitch;
+		}
+	}
+}
+
+
+static void orig_BlurV_MT_c(const unsigned char *srcp8,unsigned char *dstp8,const int32_t src_pitch,
+	const int32_t dst_pitch,const int32_t width,const int32_t height,const int32_t ymin,const int32_t ymax)
+{
+	const int32_t wm1=width-1;
+	const int32_t hm1=height-1;
+	unsigned char *dst=dstp8;
+	int32_t y0,y1;
+
+	if (ymin<6)
+	{
+		y0=ymin; y1=min(ymax,6);
+		
+		dst=dstp8+y0*dst_pitch;
+	
+		for (int32_t y=y0; y<y1; y++)
+		{
+			for (int32_t x=0; x<width; x++)
+			{
+				int q[7];
+			
+				q[0]=sample(srcp8,x,y,wm1,hm1,src_pitch);
+				for (int32_t k=1; k<=6; k++)
+					q[k]=sample(srcp8,x,y+k,wm1,hm1,src_pitch);
+
+				dst[x]=static_cast<unsigned char>(blur_value(q));
+			}
+
+			dst+=dst_pitch;
+		}
+	}
+	
+	if ((ymax>=6) && ((height-6)>6))
+	{
+		y0=max(6,ymin); y1=min(height-6,ymax);
+		
+		dst=dstp8+y0*dst_pitch;
+
+		for (int32_t y=y0; y<y1; y++)
+		{
+			for (int32_t x=0; x<width; x++)
+			{
+				int q[7];
+			
+				q[0]=sample(srcp8,x,y,wm1,hm1,src_pitch);
+				for (int32_t k=1; k<=6; k++)
+					q[k]=avg(sample(srcp8,x,y-k,wm1,hm1,src_pitch),sample(srcp8,x,y+k,wm1,hm1,src_pitch));
+
+				dst[x]=static_cast<unsigned char>(blur_value(q));
+			}
+
+			dst+=dst_pitch;
+		}
+	}
+	
+	if ((ymax>=(height-6)) && (height>6))
+	{
+		y0=max(ymin,height-6); y1=min(ymax,height);
+		
+		dst=dstp8+y0*dst_pitch;
+
+		for (int32_t y=y0; y<y1; y++)
+		{
+			for (int32_t x=0; x<width; x++)
+			{
+				int q[7];
+			
+				q[0]=sample(srcp8,x,y,wm1,hm1,src_pitch);
+				for (int32_t k=1; k<=6; k++)
+					q[k]=sample(srcp8,x,y-k,wm1,hm1,src_pitch);
+
+				dst[x]=static_cast<unsigned char>(blur_value(q));
+			}
+
+			dst+=dst_pitch;
+		}
+	}
+}
+
+
+static void orig_BlurH2_c(const unsigned char *srcp8,unsigned char *dstp8,const int32_t src_pitch,
+	const int32_t dst_pitch,const int32_t width,const int32_t height)
+{
+	const int32_t wm1=width-1;
+	const int32_t hm1=height-1;
+	unsigned char *dst=dstp8;
+
+	for (int32_t y=0; y<height; y++)
+	{
+		for (int32_t x=0; x<width; x++)
+		{
+			dst[x]=static_cast<unsigned char>(avg(
+				avg(sample(srcp8,x,y,wm1,hm1,src_pitch),avg(sample(srcp8,x-1,y,wm1,hm1,src_pitch),sample(srcp8,x+1,y,wm1,hm1,src_pitch))),
+				avg(sample(srcp8,x-2,y,wm1,hm1,src_pitch),sample(srcp8,x+2,y,wm1,hm1,src_pitch))));
+		}
+
+		dst+=dst_pitch;
+	}
+}
+
+
+static void orig_BlurH2_MT_c(const unsigned char *srcp8,unsigned char *dstp8,const int32_t src_pitch,
+	const int32_t dst_pitch,const int32_t width,const int32_t height,const int32_t ymin,const int32_t ymax)
+{
+	const int32_t wm1=width-1;
+	const int32_t hm1=height-1;
+	unsigned char *dst=dstp8;
+
+	dst+=ymin*dst_pitch;
+
+	for (int32_t y=ymin; y<ymax; y++)
+	{
+		for (int32_t x=0; x<width; x++)
+		{
+			dst[x]=static_cast<unsigned char>(avg(
+				avg(sample(srcp8,x,y,wm1,hm1,src_pitch),avg(sample(srcp8,x-1,y,wm1,hm1,src_pitch),sample(srcp8,x+1,y,wm1,hm1,src_pitch))),
+				avg(sample(srcp8,x-2,y,wm1,hm1,src_pitch),sample(srcp8,x+2,y,wm1,hm1,src_pitch))));
+		}
+
+		dst+=dst_pitch;
+	}
+}
+
+
+static void orig_BlurV2_c(const unsigned char *srcp8,unsigned char *dstp8,const int32_t src_pitch,
+	const int32_t dst_pitch,const int32_t width,const int32_t height)
+{
+	const int32_t wm1=width-1;
+	const int32_t hm1=height-1;
+	const int32_t hm2=height-2;
+	unsigned char *dst=dstp8;
+
+	if (height<4) return;
+	
+	dst+=dst_pitch*2;
+	
+	for (int32_t y=2; y<hm2; y++)
+	{
+		const int32_t ym2=y-2;
+		const int32_t ym1=y-1;
+		const int32_t yp2=y+2;
+
+		for (int32_t x=0; x<width; x++)
+		{
+			// Both MM3 and MM4 load the center row, not center and next row.
+			dst[x] = static_cast<unsigned char>(avg(
+				avg(sample(srcp8,x,y,wm1,hm1,src_pitch),avg(sample(srcp8,x,ym1,wm1,hm1,src_pitch),sample(srcp8,x,y,wm1,hm1,src_pitch))),
+				avg(sample(srcp8,x,ym2,wm1,hm1,src_pitch),sample(srcp8,x,yp2,wm1,hm1,src_pitch))));
+		}
+
+		dst+=dst_pitch;
+	}
+}
+
+
+static void orig_BlurV2_MT_c(const unsigned char *srcp8,unsigned char *dstp8,const int32_t src_pitch,
+	const int32_t dst_pitch,const int32_t width,const int32_t height,const int32_t ymin,const int32_t ymax)
+{
+	const int32_t wm1=width-1;
+	const int32_t hm1=height-1;
+	const int32_t hm2=height-2;
+	unsigned char *dst=dstp8;
+	int32_t y0,y1;
+
+	if (height<4) return;
+	
+	y0=max(2,ymin);
+	y1=min(ymax,height-2);
+
+	dst+=y0*dst_pitch;
+
+	for (int32_t y=y0; y<y1; y++)
+	{
+		const int32_t ym2=y-2;
+		const int32_t ym1=y-1;
+		const int32_t yp2=y+2;
+
+		for (int32_t x=0; x<width; x++)
+		{
+			// Both MM3 and MM4 load the center row, not center and next row.
+			dst[x] = static_cast<unsigned char>(avg(
+				avg(sample(srcp8,x,y,wm1,hm1,src_pitch),avg(sample(srcp8,x,ym1,wm1,hm1,src_pitch),sample(srcp8,x,y,wm1,hm1,src_pitch))),
+				avg(sample(srcp8,x,ym2,wm1,hm1,src_pitch),sample(srcp8,x,yp2,wm1,hm1,src_pitch))));
+		}
+
+		dst+=dst_pitch;
+	}
+}
+
+
+static void orig_Guide_c(const unsigned char *srcp8,unsigned char *dstp8,const int32_t src_pitch,
+	const int32_t dst_pitch,const int32_t width,const int32_t height)
+{
+	const unsigned char *src=srcp8;
+	unsigned char *dst=dstp8;
+	const int32_t src_pitch2=src_pitch*2;
+
+	for (int32_t y=0; y<height; y++)
+	{
+		const unsigned char *a=src;
+		const unsigned char *b=a+src_pitch;
+		
+		// YV12: rounded horizontal pairs first, then rounded vertical pair.
+		for (int32_t x=0; x<width; x++)
+		{
+			dst[x]=static_cast<unsigned char>(avg(avg(a[0],a[1]),avg(b[0],b[1])));
+
+			a+=2;
+			b+=2;
+		}
+		
+		src+=src_pitch2;
+		dst+=dst_pitch;
+	}
+}
+
+
+static void orig_Guide_MT_c(const unsigned char *srcp8,unsigned char *dstp8,const int32_t src_pitch,
+	const int32_t dst_pitch,const int32_t width,const int32_t height,const int32_t ymin,const int32_t ymax)
+{
+	const unsigned char *src=srcp8;
+	unsigned char *dst=dstp8;
+	const int32_t src_pitch2=src_pitch*2;
+
+	src+=ymin*src_pitch2;
+	dst+=ymin*dst_pitch;
+
+	for (int32_t y=ymin; y<ymax; y++)
+	{
+		const unsigned char *a=src;
+		const unsigned char *b=a+src_pitch;
+		
+		// YV12: rounded horizontal pairs first, then rounded vertical pair.
+		for (int32_t x=0; x<width; x++)
+		{
+			dst[x]=static_cast<unsigned char>(avg(avg(a[0],a[1]),avg(b[0],b[1])));
+
+			a+=2;
+			b+=2;
+		}
+		
+		src+=src_pitch2;
+		dst+=dst_pitch;
+	}
+}
+
+
+static void orig_Warp_c(const unsigned char *srcp8,const unsigned char *edgep8,unsigned char *dstp8,const int32_t src_pitch,
+  const int32_t edge_pitch,const int32_t dst_pitch,const int32_t width,const int32_t height,int depth)
+{
+	const int32_t wm1=width-1;
+	const unsigned char *above=edgep8,*below=edgep8;
+	unsigned char *dst=dstp8;
+	
+	below+=(edge_pitch*2);
+	
+	for (int32_t y=0; y<height; y++)
+	{
+		if ((y==0) || (y==(height-1)))
+		{
+			memcpy(dst,srcp8+static_cast<ptrdiff_t>(y)*src_pitch,width);
+
+			dst+=dst_pitch;
+			continue;
+		}
+
+		const int32_t ym1=y-1;
+		
+		for (int x=0; x<width; x++)
+		{
+			const int gx=above[max(0,x-1)]-above[min(wm1,x+1)];
+			const int gy=above[x]-below[x];
+			
+			// PMULHW followed by PADDSW, preserving fractional legacy depth.
+			const int dx=clamp(2*floor_div(gx*128*depth,65536),-32768,32767);
+			
+			int dy=clamp(2*floor_div(gy*128*depth,65536),-32768,32767);
+			
+			dy=clamp(dy,max(-ym1*256,-16384),min((height-ym1)*256-1,16384));
+			
+			const int ix=floor_div(dx,256),iy=floor_div(dy,256);
+			int sx=x+ix,sy=y+iy;
+			int fx=dx-ix*256;
+			const int fy=dy-iy*256;
+
+			// The original could read outside a row. Use a defined edge extension.
+			if ((sx<0) || (sx>=wm1)) { sx=clamp(sx,0,wm1); fx=0; }
+			
+			const int sx1 = min(sx+1,wm1);
+			const unsigned char *a=srcp8+static_cast<ptrdiff_t>(sy)*src_pitch;
+			const unsigned char *b=a+src_pitch;
+			const int top=(a[sx]*(256-fx)+a[sx1]*fx+128)/256;
+			const int bottom=(b[sx]*(256-fx)+b[sx1]*fx+128)/256;
+
+			dst[x]=static_cast<unsigned char>((top*(256-fy)+bottom*fy+128)/256);
+		}
+		
+		above+=edge_pitch;
+		below+=edge_pitch;
+		dst+=dst_pitch;
+	}
+}
+
+
+static void orig_Warp_MT_c(const unsigned char *srcp8,const unsigned char *edgep8,unsigned char *dstp8,const int32_t src_pitch,
+  const int32_t edge_pitch,const int32_t dst_pitch,const int32_t width,const int32_t height,int depth,
+  const int32_t ymin,const int32_t ymax)
+{
+	const int32_t wm1=width-1;
+	const unsigned char *above=edgep8,*below=edgep8;
+	unsigned char *dst=dstp8;
+	
+	below+=edge_pitch*2;
+	dst+=ymin*dst_pitch;
+	
+	if (ymin>0)
+	{
+		above+=(ymin-1)*edge_pitch;
+		below+=(ymin-1)*edge_pitch;
+	}
+	
+	for (int32_t y=ymin; y<ymax; y++)
+	{
+		if ((y==0) || (y==(height-1)))
+		{
+			memcpy(dst,srcp8+static_cast<ptrdiff_t>(y)*src_pitch,width);
+
+			dst+=dst_pitch;
+			continue;
+		}
+
+		const int32_t ym1=y-1;
+		
+		for (int x=0; x<width; x++)
+		{
+			const int gx=above[max(0,x-1)]-above[min(wm1,x+1)];
+			const int gy=above[x]-below[x];
+			
+			// PMULHW followed by PADDSW, preserving fractional legacy depth.
+			const int dx=clamp(2*floor_div(gx*128*depth,65536),-32768,32767);
+			
+			int dy=clamp(2*floor_div(gy*128*depth,65536),-32768,32767);
+			
+			dy=clamp(dy,max(-ym1*256,-16384),min((height-ym1)*256-1,16384));
+			
+			const int ix=floor_div(dx,256),iy=floor_div(dy,256);
+			int sx=x+ix,sy=y+iy;
+			int fx=dx-ix*256;
+			const int fy=dy-iy*256;
+
+			// The original could read outside a row. Use a defined edge extension.
+			if ((sx<0) || (sx>=wm1)) { sx=clamp(sx,0,wm1); fx=0; }
+			
+			const int sx1=min(sx+1,wm1);
+			const unsigned char *a=srcp8+static_cast<ptrdiff_t>(sy)*src_pitch;
+			const unsigned char *b=a+src_pitch;
+			const int top=(a[sx]*(256-fx)+a[sx1]*fx+128)/256;
+			const int bottom=(b[sx]*(256-fx)+b[sx1]*fx+128)/256;
+
+			dst[x]=static_cast<unsigned char>((top*(256-fy)+bottom*fy+128)/256);
+		}
+		
+		above+=edge_pitch;
+		below+=edge_pitch;
+		dst+=dst_pitch;
+	}
+}
+
+
+// ***************************************
+// Code for original aWarpSharp - End
+// ***************************************
+
+
 // warp0: SMAGL is 0
 // warp2: SMAGL is 2 called from aWarp4
 // uint8_t or uint16_t
@@ -221,7 +849,7 @@ static void warp_c(const unsigned char *srcp8,const unsigned char *edgep8,unsign
       }
       // guard vertical offsets
       for (uint8_t i=0; i<8; i++)
-        vert[i]=std::max(std::min(vert[i],y_limit_max),y_limit_min);
+        vert[i]=max(min(vert[i],y_limit_max),y_limit_min);
 
       int32_t horiz_weight[8];
       int32_t vert_weight[8];
@@ -241,7 +869,7 @@ static void warp_c(const unsigned char *srcp8,const unsigned char *edgep8,unsign
       // guard horizontal offsets min/max
       int32_t horiz_offset_x1[8];
       for (uint8_t i=0; i<8; i++)
-        horiz_offset_x1[i]=std::max(std::min(x_limit_max[i],horiz[i]),x_limit_min[i]);
+        horiz_offset_x1[i]=max(min(x_limit_max[i],horiz[i]),x_limit_min[i]);
 
       // mask out out-of-screen offset weights
       bool b0[8],b3[8];
@@ -291,7 +919,7 @@ static void warp_c(const unsigned char *srcp8,const unsigned char *edgep8,unsign
 
       // clamp pixel min max
       for (int i=0; i<8; i++)
-        result[i] = std::min(std::max(result[i],0),pixel_max);
+        result[i] = min(max(result[i],0),pixel_max);
 
       if (x>=wmod8)
       {
@@ -402,7 +1030,7 @@ static void warp_c_MT(const unsigned char *srcp8,const unsigned char *edgep8,uns
       }
       // guard vertical offsets
       for (uint8_t i=0; i<8; i++)
-        vert[i]=std::max(std::min(vert[i],y_limit_max),y_limit_min);
+        vert[i]=max(min(vert[i],y_limit_max),y_limit_min);
 
       int32_t horiz_weight[8];
       int32_t vert_weight[8];
@@ -422,7 +1050,7 @@ static void warp_c_MT(const unsigned char *srcp8,const unsigned char *edgep8,uns
       // guard horizontal offsets min/max
       int32_t horiz_offset_x1[8];
       for (uint8_t i=0; i<8; i++)
-        horiz_offset_x1[i]=std::max(std::min(x_limit_max[i],horiz[i]),x_limit_min[i]);
+        horiz_offset_x1[i]=max(min(x_limit_max[i],horiz[i]),x_limit_min[i]);
 
       // mask out out-of-screen offset weights
       bool b0[8],b3[8];
@@ -472,7 +1100,7 @@ static void warp_c_MT(const unsigned char *srcp8,const unsigned char *edgep8,uns
 
       // clamp pixel min max
       for (int i=0; i<8; i++)
-        result[i] = std::min(std::max(result[i],0),pixel_max);
+        result[i] = min(max(result[i],0),pixel_max);
 
       if (x>=wmod8)
       {
@@ -2149,7 +2777,7 @@ static void BlurR6_8_MT_V(unsigned char *const psrc,unsigned char *const ptmp,co
 	  {
 	if (ymin<6)
 	{
-		const int32_t ymax0=std::min(6,ymax);
+		const int32_t ymax0=min(6,ymax);
 
 		ptmp2 = ptmp+ymin*tmp_pitch;
 
@@ -2164,7 +2792,7 @@ static void BlurR6_8_MT_V(unsigned char *const psrc,unsigned char *const ptmp,co
 
 	if (ymax>6)
 	{
-		const int32_t ymax0=std::min(height_6,ymax);
+		const int32_t ymax0=min(height_6,ymax);
 
 		ptmp2 = ptmp+(y-6)*tmp_pitch;
 
@@ -2194,7 +2822,7 @@ static void BlurR6_8_MT_V(unsigned char *const psrc,unsigned char *const ptmp,co
     // SSE2 version
 	if (ymin<6)
 	{
-		const int32_t ymax0=std::min(6,ymax);
+		const int32_t ymax0=min(6,ymax);
 
 		ptmp2 = ptmp+ymin*tmp_pitch;
 
@@ -2209,7 +2837,7 @@ static void BlurR6_8_MT_V(unsigned char *const psrc,unsigned char *const ptmp,co
 
 	if (ymax>6)
 	{
-		const int32_t ymax0=std::min(height_6,ymax);
+		const int32_t ymax0=min(height_6,ymax);
 
 		ptmp2 = ptmp+(y-6)*tmp_pitch;
 
@@ -2270,7 +2898,7 @@ static void BlurR6_16_MT_V(unsigned char *const psrc,unsigned char *const ptmp,c
 	  {
 	if (ymin<6)
 	{
-		const int32_t ymax0=std::min(6,ymax);
+		const int32_t ymax0=min(6,ymax);
 
 		ptmp2 = ptmp+ymin*tmp_pitch;
 
@@ -2285,7 +2913,7 @@ static void BlurR6_16_MT_V(unsigned char *const psrc,unsigned char *const ptmp,c
 
 	if (ymax>6)
 	{
-		const int32_t ymax0=std::min(height_6,ymax);
+		const int32_t ymax0=min(height_6,ymax);
 
 		ptmp2 = ptmp+(y-6)*tmp_pitch;
 
@@ -2315,7 +2943,7 @@ static void BlurR6_16_MT_V(unsigned char *const psrc,unsigned char *const ptmp,c
     // SSE2 version
 	if (ymin<6)
 	{
-		const int32_t ymax0=std::min(6,ymax);
+		const int32_t ymax0=min(6,ymax);
 
 		ptmp2 = ptmp+ymin*tmp_pitch;
 
@@ -2330,7 +2958,7 @@ static void BlurR6_16_MT_V(unsigned char *const psrc,unsigned char *const ptmp,c
 
 	if (ymax>6)
 	{
-		const int32_t ymax0=std::min(height_6,ymax);
+		const int32_t ymax0=min(height_6,ymax);
 
 		ptmp2 = ptmp+(y-6)*tmp_pitch;
 
@@ -3671,7 +4299,7 @@ static uint8_t CreateMTData(MT_Data_Info_WarpSharp MT_Data[],uint8_t threads_num
 
 	int32_t src_dh_Y,dst_dh_Y;
 	int32_t h_y;
-	uint8_t i,max=1;
+	uint8_t i,vmax=1;
 
 	dst_dh_Y=(size_y+(uint32_t)max_threads-1)/(uint32_t)max_threads;
 	if (dst_dh_Y<16) dst_dh_Y=16;
@@ -3685,11 +4313,11 @@ static uint8_t CreateMTData(MT_Data_Info_WarpSharp MT_Data[],uint8_t threads_num
 	h_y=_dh;
 	while (h_y<(_y_min-16))
 	{
-		max++;
+		vmax++;
 		h_y+=_dh;
 	}
 
-	if (max==1)
+	if (vmax==1)
 	{
 		MT_Data[0].top=true;
 		MT_Data[0].bottom=true;
@@ -3731,36 +4359,36 @@ static uint8_t CreateMTData(MT_Data_Info_WarpSharp MT_Data[],uint8_t threads_num
 	int32_t current_dh;
 	uint8_t current_i;
 
-	for (uint8_t i=0; i<(max-1); i++)
+	for (uint8_t i=0; i<(vmax-1); i++)
 	{
 		tab_src_dh_Y[i]=src_dh_Y;
 		tab_dst_dh_Y[i]=dst_dh_Y;		
 	}
-	tab_src_dh_Y[max-1]=size_y-(max-1)*src_dh_Y;
-	tab_dst_dh_Y[max-1]=size_y-(max-1)*dst_dh_Y;
+	tab_src_dh_Y[vmax-1]=size_y-(vmax-1)*src_dh_Y;
+	tab_dst_dh_Y[vmax-1]=size_y-(vmax-1)*dst_dh_Y;
 	
-	current_i=max-2;
+	current_i=vmax-2;
 	current_dh=src_dh_Y;
-	while (tab_src_dh_Y[max-1]>(current_dh+4))
+	while (tab_src_dh_Y[vmax-1]>(current_dh+4))
 	{
-		tab_src_dh_Y[max-1]-=4;
+		tab_src_dh_Y[vmax-1]-=4;
 		tab_src_dh_Y[current_i]+=4;
 		if (current_i==0)
 		{
-			current_i=max-2;
+			current_i=vmax-2;
 			current_dh+=4;
 		}
 		else current_i--;
 	}
-	current_i=max-2;
+	current_i=vmax-2;
 	current_dh=dst_dh_Y;
-	while (tab_dst_dh_Y[max-1]>(current_dh+4))
+	while (tab_dst_dh_Y[vmax-1]>(current_dh+4))
 	{
-		tab_dst_dh_Y[max-1]-=4;
+		tab_dst_dh_Y[vmax-1]-=4;
 		tab_dst_dh_Y[current_i]+=4;
 		if (current_i==0)
 		{
-			current_i=max-2;
+			current_i=vmax-2;
 			current_dh+=4;
 		}
 		else current_i--;
@@ -3768,7 +4396,7 @@ static uint8_t CreateMTData(MT_Data_Info_WarpSharp MT_Data[],uint8_t threads_num
 
 	if (UV_h>0)
 	{
-		for (uint8_t i=0; i<max; i++)
+		for (uint8_t i=0; i<vmax; i++)
 		{
 			tab_src_dh_UV[i]=tab_src_dh_Y[i]>>UV_h;
 			tab_dst_dh_UV[i]=tab_dst_dh_Y[i]>>UV_h;
@@ -3776,7 +4404,7 @@ static uint8_t CreateMTData(MT_Data_Info_WarpSharp MT_Data[],uint8_t threads_num
 	}
 	else
 	{
-		for (uint8_t i=0; i<max; i++)
+		for (uint8_t i=0; i<vmax; i++)
 		{
 			tab_src_dh_UV[i]=tab_src_dh_Y[i];
 			tab_dst_dh_UV[i]=tab_dst_dh_Y[i];
@@ -3794,7 +4422,7 @@ static uint8_t CreateMTData(MT_Data_Info_WarpSharp MT_Data[],uint8_t threads_num
 	MT_Data[0].dst_UV_h_min=0;
 	MT_Data[0].dst_UV_h_max=tab_dst_dh_UV[0];
 	
-	for (uint8_t i=1; i<max; i++)
+	for (uint8_t i=1; i<vmax; i++)
 	{
 		MT_Data[i].top=false;
 		MT_Data[i].bottom=false;
@@ -3807,9 +4435,9 @@ static uint8_t CreateMTData(MT_Data_Info_WarpSharp MT_Data[],uint8_t threads_num
 		MT_Data[i].dst_UV_h_min=MT_Data[i-1].dst_UV_h_max;
 		MT_Data[i].dst_UV_h_max=MT_Data[i].dst_UV_h_min+tab_dst_dh_UV[i];	
 	}
-	MT_Data[max-1].bottom=true;
+	MT_Data[vmax-1].bottom=true;
 
-	for (i=0; i<max; i++)
+	for (i=0; i<vmax; i++)
 	{
 		MT_Data[i].src_Y_w=size_x;
 		MT_Data[i].dst_Y_w=size_x;
@@ -3825,16 +4453,18 @@ static uint8_t CreateMTData(MT_Data_Info_WarpSharp MT_Data[],uint8_t threads_num
 		}
 	}
 
-	return(max);
+	return(vmax);
 }
 
 
 aWarpSharp::aWarpSharp(PClip _child, int _thresh, int _blur_level, int _blur_type, int _depth, int _chroma, int _depthC,
 	bool _cplace_mpeg2_flag, int _blur_levelV, int _depthV, int _depthVC, int _blur_levelC, int _blur_levelVC,
-	int _threshC,uint8_t _threads,bool _sleep, bool negativePrefetch,bool _avsp,IScriptEnvironment *env) :
+	int _threshC,bool _original,int _original_depth,bool _original_show,int _original_bm,
+	uint8_t _threads,bool _sleep, bool negativePrefetch,bool _avsp,IScriptEnvironment *env) :
     GenericVideoFilter(_child), thresh(_thresh), blur_level(_blur_level), blur_type(_blur_type), depth(_depth),
 		chroma(_chroma), depthC(_depthC), cplace_mpeg2_flag(_cplace_mpeg2_flag), blur_levelV(_blur_levelV),
 		depthV(_depthV),depthVC(_depthVC),blur_levelC(_blur_levelC),blur_levelVC(_blur_levelVC),threshC(_threshC),
+		original(_original),original_show(_original_show),original_depth(_original_depth),original_bm(_original_bm),
 		sleep(_sleep),threads(_threads),avsp(_avsp)
 {
 	grey = vi.IsY();
@@ -4052,31 +4682,51 @@ void aWarpSharp::StaticThreadpool(void *ptr)
 				mt_data_inf->src_pitch_U1,mt_data_inf->src_pitch_U2,mt_data_inf->src_U_h,
 				mt_data_inf->row_size_U1,ptrClass->threshC,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max,
 				mt_data_inf->top,mt_data_inf->bottom);
+			Sobel_8_MT((const unsigned char *)mt_data_inf->src_V1,(unsigned char *)mt_data_inf->dst_V1,
+				mt_data_inf->src_pitch_V1,mt_data_inf->src_pitch_V2,mt_data_inf->src_V_h,
+				mt_data_inf->row_size_V1,ptrClass->threshC,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max,
+				mt_data_inf->top,mt_data_inf->bottom);
 			break;
 		case 12 :
 			BlurR2_8_MT_H((unsigned char *const)mt_data_inf->dst_U1,(unsigned char *const)mt_data_inf->dst_U2,
 				mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U2,mt_data_inf->dst_U_h,
 				mt_data_inf->row_size_U1,true,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
+			BlurR2_8_MT_H((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
+				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
+				mt_data_inf->row_size_V1,true,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 13 :
 			BlurR2_8_MT_V((unsigned char *const)mt_data_inf->dst_U1,(unsigned char *const)mt_data_inf->dst_U2,
 				mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U2,mt_data_inf->dst_U_h,
 				mt_data_inf->row_size_U1,true,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
+			BlurR2_8_MT_V((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
+				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
+				mt_data_inf->row_size_V1,true,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 14 :
 			BlurR6_8_MT_H((unsigned char *const)mt_data_inf->dst_U1,(unsigned char *const)mt_data_inf->dst_U2,
 				mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U2,mt_data_inf->dst_U_h,
 				mt_data_inf->row_size_U1,true,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
+			BlurR6_8_MT_H((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
+				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
+				mt_data_inf->row_size_V1,true,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 15 :
 			BlurR6_8_MT_V((unsigned char *const)mt_data_inf->dst_U1,(unsigned char *const)mt_data_inf->dst_U2,
 				mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U2,mt_data_inf->dst_U_h,
 				mt_data_inf->row_size_U1,true,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
+			BlurR6_8_MT_V((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
+				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
+				mt_data_inf->row_size_V1,true,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 16 :
 			BlurR2_8_MT_H((unsigned char *const)mt_data_inf->dst_U1,(unsigned char *const)mt_data_inf->dst_U2,
 				mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U2,mt_data_inf->dst_U_h,
 				mt_data_inf->row_size_U1,mt_data_inf->cprocessH,
+				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
+			BlurR2_8_MT_H((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
+				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
+				mt_data_inf->row_size_V1,mt_data_inf->cprocessH,
 				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 17 :
@@ -4084,17 +4734,29 @@ void aWarpSharp::StaticThreadpool(void *ptr)
 				mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U2,mt_data_inf->dst_U_h,
 				mt_data_inf->row_size_U1,mt_data_inf->cprocessV,
 				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
+			BlurR2_8_MT_V((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
+				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
+				mt_data_inf->row_size_V1,mt_data_inf->cprocessV,
+				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 18 :
 			BlurR6_8_MT_H((unsigned char *const)mt_data_inf->dst_U1,(unsigned char *const)mt_data_inf->dst_U2,
 				mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U2,mt_data_inf->dst_U_h,
 				mt_data_inf->row_size_U1,mt_data_inf->cprocessH,
 				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
+			BlurR6_8_MT_H((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
+				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
+				mt_data_inf->row_size_V1,mt_data_inf->cprocessH,
+				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 19 :
 			BlurR6_8_MT_V((unsigned char *const)mt_data_inf->dst_U1,(unsigned char *const)mt_data_inf->dst_U2,
 				mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U2,mt_data_inf->dst_U_h,
 				mt_data_inf->row_size_U1,mt_data_inf->cprocessV,
+				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
+			BlurR6_8_MT_V((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
+				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
+				mt_data_inf->row_size_V1,mt_data_inf->cprocessV,
 				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 20 :
@@ -4103,58 +4765,6 @@ void aWarpSharp::StaticThreadpool(void *ptr)
 				mt_data_inf->src_pitch_U1,mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U2,
 				mt_data_inf->row_size_U2,mt_data_inf->dst_U_h,ptrClass->depthC,ptrClass->depthVC,
 				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
-			break;
-		case 21 :
-			Sobel_8_MT((const unsigned char *)mt_data_inf->src_V1,(unsigned char *)mt_data_inf->dst_V1,
-				mt_data_inf->src_pitch_V1,mt_data_inf->src_pitch_V2,mt_data_inf->src_V_h,
-				mt_data_inf->row_size_V1,ptrClass->threshC,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max,
-				mt_data_inf->top,mt_data_inf->bottom);
-			break;
-		case 22 :
-			BlurR2_8_MT_H((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
-				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
-				mt_data_inf->row_size_V1,true,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
-			break;
-		case 23 :
-			BlurR2_8_MT_V((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
-				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
-				mt_data_inf->row_size_V1,true,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
-			break;
-		case 24 :
-			BlurR6_8_MT_H((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
-				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
-				mt_data_inf->row_size_V1,true,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
-			break;
-		case 25 :
-			BlurR6_8_MT_V((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
-				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
-				mt_data_inf->row_size_V1,true,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
-			break;
-		case 26 :
-			BlurR2_8_MT_H((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
-				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
-				mt_data_inf->row_size_V1,mt_data_inf->cprocessH,
-				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
-			break;
-		case 27 :
-			BlurR2_8_MT_V((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
-				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
-				mt_data_inf->row_size_V1,mt_data_inf->cprocessV,
-				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
-			break;
-		case 28 :
-			BlurR6_8_MT_H((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
-				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
-				mt_data_inf->row_size_V1,mt_data_inf->cprocessH,
-				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
-			break;
-		case 29 :
-			BlurR6_8_MT_V((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
-				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
-				mt_data_inf->row_size_V1,mt_data_inf->cprocessV,
-				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
-			break;
-		case 30 :
 			Warp0_8_MT((const unsigned char *)mt_data_inf->src_V1,(const unsigned char *)mt_data_inf->src_V2,
 				(unsigned char *)mt_data_inf->dst_V2,
 				mt_data_inf->src_pitch_V1,mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,
@@ -4173,8 +4783,6 @@ void aWarpSharp::StaticThreadpool(void *ptr)
 				mt_data_inf->src_pitch_U1,mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U2,
 				mt_data_inf->row_size_U2,mt_data_inf->dst_U_h,ptrClass->depthC,ptrClass->depthVC,
 				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
-			break;
-		case 33 :
 			Warp0_8_MT((const unsigned char *)mt_data_inf->src_V1,(const unsigned char *)mt_data_inf->src_U2,
 				(unsigned char *)mt_data_inf->dst_V2,
 				mt_data_inf->src_pitch_V1,mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_V2,
@@ -4187,8 +4795,6 @@ void aWarpSharp::StaticThreadpool(void *ptr)
 				mt_data_inf->src_pitch_U1,mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_U2,
 				mt_data_inf->row_size_U2,mt_data_inf->dst_U_h,ptrClass->depthC,ptrClass->depthVC,
 				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
-			break;
-		case 35 :
 			Warp0_8_MT((const unsigned char *)mt_data_inf->src_V1,(const unsigned char *)mt_data_inf->src_Y2,
 				(unsigned char *)mt_data_inf->dst_V2,
 				mt_data_inf->src_pitch_V1,mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_V2,
@@ -4253,31 +4859,51 @@ void aWarpSharp::StaticThreadpool(void *ptr)
 				mt_data_inf->src_pitch_U1,mt_data_inf->src_pitch_U2,mt_data_inf->src_U_h,mt_data_inf->row_size_U1,
 				ptrClass->threshC,ptrClass->bits_per_pixel,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max,
 				mt_data_inf->top,mt_data_inf->bottom);
+			Sobel_16_MT((const unsigned char *)mt_data_inf->src_V1,(unsigned char *)mt_data_inf->dst_V1,
+				mt_data_inf->src_pitch_V1,mt_data_inf->src_pitch_V2,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,
+				ptrClass->threshC,ptrClass->bits_per_pixel,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max,
+				mt_data_inf->top,mt_data_inf->bottom);
 			break;
 		case 47 :
 			BlurR2_16_MT_H((unsigned char *const)mt_data_inf->dst_U1,(unsigned char *const)mt_data_inf->dst_U2,
 				mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U2,mt_data_inf->dst_U_h,
 				mt_data_inf->row_size_U1,true,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
+			BlurR2_16_MT_H((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
+				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
+				mt_data_inf->row_size_V1,true,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 48 :
 			BlurR2_16_MT_V((unsigned char *const)mt_data_inf->dst_U1,(unsigned char *const)mt_data_inf->dst_U2,
 				mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U2,mt_data_inf->dst_U_h,
 				mt_data_inf->row_size_U1,true,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
+			BlurR2_16_MT_V((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
+				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
+				mt_data_inf->row_size_V1,true,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 49 :
 			BlurR6_16_MT_H((unsigned char *const)mt_data_inf->dst_U1,(unsigned char *const)mt_data_inf->dst_U2,
 				mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U2,mt_data_inf->dst_U_h,
 				mt_data_inf->row_size_U1,true,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
+			BlurR6_16_MT_H((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
+				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
+				mt_data_inf->row_size_V1,true,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 50 :
 			BlurR6_16_MT_V((unsigned char *const)mt_data_inf->dst_U1,(unsigned char *const)mt_data_inf->dst_U2,
 				mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U2,mt_data_inf->dst_U_h,
 				mt_data_inf->row_size_U1,true,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
+			BlurR6_16_MT_V((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
+				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
+				mt_data_inf->row_size_V1,true,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 51 :
 			BlurR2_16_MT_H((unsigned char *const)mt_data_inf->dst_U1,(unsigned char *const)mt_data_inf->dst_U2,
 				mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U2,mt_data_inf->dst_U_h,
 				mt_data_inf->row_size_U1,mt_data_inf->cprocessH,
+				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
+			BlurR2_16_MT_H((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
+				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
+				mt_data_inf->row_size_V1,mt_data_inf->cprocessH,
 				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 52 :
@@ -4285,11 +4911,19 @@ void aWarpSharp::StaticThreadpool(void *ptr)
 				mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U2,mt_data_inf->dst_U_h,
 				mt_data_inf->row_size_U1,mt_data_inf->cprocessV,
 				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
+			BlurR2_16_MT_V((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
+				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
+				mt_data_inf->row_size_V1,mt_data_inf->cprocessV,
+				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 53 :
 			BlurR6_16_MT_H((unsigned char *const)mt_data_inf->dst_U1,(unsigned char *const)mt_data_inf->dst_U2,
 				mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U2,mt_data_inf->dst_U_h,
 				mt_data_inf->row_size_U1,mt_data_inf->cprocessH,
+				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
+			BlurR6_16_MT_H((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
+				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
+				mt_data_inf->row_size_V1,mt_data_inf->cprocessH,
 				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 54 :
@@ -4297,64 +4931,16 @@ void aWarpSharp::StaticThreadpool(void *ptr)
 				mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U2,mt_data_inf->dst_U_h,
 				mt_data_inf->row_size_U1,mt_data_inf->cprocessV,
 				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
+			BlurR6_16_MT_V((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
+				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
+				mt_data_inf->row_size_V1,mt_data_inf->cprocessV,
+				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
 		case 55 :
 			warp0_u16_MT((const unsigned char *)mt_data_inf->src_U1,(const unsigned char *)mt_data_inf->src_U2,
 				(unsigned char *)mt_data_inf->dst_U2,mt_data_inf->src_pitch_U1,mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U2,
 				mt_data_inf->row_size_U2 >> 1,mt_data_inf->dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
 				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
-			break;
-		case 56 :
-			Sobel_16_MT((const unsigned char *)mt_data_inf->src_V1,(unsigned char *)mt_data_inf->dst_V1,
-				mt_data_inf->src_pitch_V1,mt_data_inf->src_pitch_V2,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,
-				ptrClass->threshC,ptrClass->bits_per_pixel,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max,
-				mt_data_inf->top,mt_data_inf->bottom);
-			break;
-		case 57 :
-			BlurR2_16_MT_H((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
-				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
-				mt_data_inf->row_size_V1,true,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
-			break;
-		case 58 :
-			BlurR2_16_MT_V((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
-				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
-				mt_data_inf->row_size_V1,true,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
-			break;
-		case 59 :
-			BlurR6_16_MT_H((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
-				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
-				mt_data_inf->row_size_V1,true,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
-			break;
-		case 60 :
-			BlurR6_16_MT_V((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
-				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
-				mt_data_inf->row_size_V1,true,mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
-			break;
-		case 61 :
-			BlurR2_16_MT_H((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
-				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
-				mt_data_inf->row_size_V1,mt_data_inf->cprocessH,
-				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
-			break;
-		case 62 :
-			BlurR2_16_MT_V((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
-				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
-				mt_data_inf->row_size_V1,mt_data_inf->cprocessV,
-				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
-			break;
-		case 63 :
-			BlurR6_16_MT_H((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
-				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
-				mt_data_inf->row_size_V1,mt_data_inf->cprocessH,
-				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
-			break;
-		case 64 :
-			BlurR6_16_MT_V((unsigned char *const)mt_data_inf->dst_V1,(unsigned char *const)mt_data_inf->dst_V2,
-				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->dst_V_h,
-				mt_data_inf->row_size_V1,mt_data_inf->cprocessV,
-				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
-			break;
-		case 65 :
 			warp0_u16_MT((const unsigned char *)mt_data_inf->src_V1,(const unsigned char *)mt_data_inf->src_V2,
 				(unsigned char *)mt_data_inf->dst_V2,mt_data_inf->src_pitch_V1,mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,
 				mt_data_inf->row_size_V2 >> 1,mt_data_inf->dst_V_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
@@ -4371,8 +4957,6 @@ void aWarpSharp::StaticThreadpool(void *ptr)
 				(unsigned char *)mt_data_inf->dst_U2,mt_data_inf->src_pitch_U1,mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U2,
 				mt_data_inf->row_size_U2 >> 1,mt_data_inf->dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
 				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
-			break;
-		case 68 :
 			warp0_u16_MT((const unsigned char *)mt_data_inf->src_V1,(const unsigned char *)mt_data_inf->src_U2,
 				(unsigned char *)mt_data_inf->dst_V2,mt_data_inf->src_pitch_V1,mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_V2,
 				mt_data_inf->row_size_V2 >> 1,mt_data_inf->dst_V_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
@@ -4383,573 +4967,940 @@ void aWarpSharp::StaticThreadpool(void *ptr)
 				(unsigned char *)mt_data_inf->dst_U2,mt_data_inf->src_pitch_U1,mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_U2,
 				mt_data_inf->row_size_U2 >> 1,mt_data_inf->dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
 				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
-			break;
-		case 70 :
 			warp0_u16_MT((const unsigned char *)mt_data_inf->src_V1,(const unsigned char *)mt_data_inf->src_Y2,
 				(unsigned char *)mt_data_inf->dst_V2,mt_data_inf->src_pitch_V1,mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_V2,
 				mt_data_inf->row_size_V2 >> 1,mt_data_inf->dst_V_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
 				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
 			break;
-		default : ;
+		// Old original version
+		case 71 :
+			orig_Sobel_MT_c((const unsigned char *)mt_data_inf->src_Y1,(unsigned char *)mt_data_inf->dst_Y1,
+				mt_data_inf->src_pitch_Y1,mt_data_inf->dst_pitch_Y1,mt_data_inf->row_size_Y1,mt_data_inf->src_Y_h,
+				ptrClass->thresh,mt_data_inf->src_Y_h_min,mt_data_inf->src_Y_h_max);
+			break;
+		case 72 :
+			orig_Sobel_MT_c((const unsigned char *)mt_data_inf->src_U1,(unsigned char *)mt_data_inf->dst_U1,
+				mt_data_inf->src_pitch_U1,mt_data_inf->dst_pitch_U1,mt_data_inf->row_size_U1,mt_data_inf->src_U_h,
+				ptrClass->thresh,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
+			orig_Sobel_MT_c((const unsigned char *)mt_data_inf->src_V1,(unsigned char *)mt_data_inf->dst_V1,
+				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->row_size_V1,mt_data_inf->src_V_h,
+				ptrClass->thresh,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
+			break;
+		case 73 :
+			orig_BlurH_MT_c((const unsigned char *)mt_data_inf->src_Y2,(unsigned char *)mt_data_inf->dst_Y2,
+				mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_Y2,mt_data_inf->row_size_Y2,mt_data_inf->src_Y_h,
+				mt_data_inf->src_Y_h_min,mt_data_inf->src_Y_h_max);
+			break;
+		case 74 :
+			orig_BlurH_MT_c((const unsigned char *)mt_data_inf->src_U2,(unsigned char *)mt_data_inf->dst_U2,
+				mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U2,mt_data_inf->row_size_U1,mt_data_inf->src_U_h,
+				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
+			orig_BlurH_MT_c((const unsigned char *)mt_data_inf->src_V2,(unsigned char *)mt_data_inf->dst_V2,
+				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->row_size_V1,mt_data_inf->src_V_h,
+				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
+			break;
+		case 75 :
+			orig_BlurH2_MT_c((const unsigned char *)mt_data_inf->src_Y2,(unsigned char *)mt_data_inf->dst_Y2,
+				mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_Y2,mt_data_inf->row_size_Y2,mt_data_inf->src_Y_h,
+				mt_data_inf->src_Y_h_min,mt_data_inf->src_Y_h_max);
+			break;
+		case 76 :
+			orig_BlurH2_MT_c((const unsigned char *)mt_data_inf->src_U2,(unsigned char *)mt_data_inf->dst_U2,
+				mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U2,mt_data_inf->row_size_U1,mt_data_inf->src_U_h,
+				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
+			orig_BlurH2_MT_c((const unsigned char *)mt_data_inf->src_V2,(unsigned char *)mt_data_inf->dst_V2,
+				mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V2,mt_data_inf->row_size_V1,mt_data_inf->src_V_h,
+				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
+			break;
+		case 77 :
+			orig_BlurV_MT_c((const unsigned char *)mt_data_inf->src_Y3,(unsigned char *)mt_data_inf->dst_Y1,
+				mt_data_inf->src_pitch_Y3,mt_data_inf->dst_pitch_Y1,mt_data_inf->row_size_Y2,mt_data_inf->src_Y_h,
+				mt_data_inf->src_Y_h_min,mt_data_inf->src_Y_h_max);
+			break;
+		case 78 :
+			orig_BlurV_MT_c((const unsigned char *)mt_data_inf->src_U3,(unsigned char *)mt_data_inf->dst_U1,
+				mt_data_inf->src_pitch_U3,mt_data_inf->dst_pitch_U1,mt_data_inf->row_size_U1,mt_data_inf->src_U_h,
+				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
+			orig_BlurV_MT_c((const unsigned char *)mt_data_inf->src_V3,(unsigned char *)mt_data_inf->dst_V1,
+				mt_data_inf->src_pitch_V3,mt_data_inf->dst_pitch_V1,mt_data_inf->row_size_V1,mt_data_inf->src_V_h,
+				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
+			break;
+		case 79 :
+			orig_BlurV2_MT_c((const unsigned char *)mt_data_inf->src_Y3,(unsigned char *)mt_data_inf->dst_Y1,
+				mt_data_inf->src_pitch_Y3,mt_data_inf->dst_pitch_Y1,mt_data_inf->row_size_Y2,mt_data_inf->src_Y_h,
+				mt_data_inf->src_Y_h_min,mt_data_inf->src_Y_h_max);
+			break;
+		case 80 :
+			orig_BlurV2_MT_c((const unsigned char *)mt_data_inf->src_U3,(unsigned char *)mt_data_inf->dst_U1,
+				mt_data_inf->src_pitch_U3,mt_data_inf->dst_pitch_U1,mt_data_inf->row_size_U1,mt_data_inf->src_U_h,
+				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
+			orig_BlurV2_MT_c((const unsigned char *)mt_data_inf->src_V3,(unsigned char *)mt_data_inf->dst_V1,
+				mt_data_inf->src_pitch_V3,mt_data_inf->dst_pitch_V1,mt_data_inf->row_size_V1,mt_data_inf->src_V_h,
+				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
+			break;
+		case 81 :
+			orig_Warp_MT_c((const unsigned char *)mt_data_inf->src_Y1,(const unsigned char *)mt_data_inf->src_Y2,
+				(unsigned char *)mt_data_inf->dst_Y3,mt_data_inf->src_pitch_Y1,mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_Y3,
+				mt_data_inf->row_size_Y1,mt_data_inf->src_Y_h,min(ptrClass->original_depth,32767),mt_data_inf->dst_Y_h_min,
+				mt_data_inf->dst_Y_h_max);
+			break;
+		case 82 :
+			orig_Warp_MT_c((const unsigned char *)mt_data_inf->src_U1,(const unsigned char *)mt_data_inf->src_U2,
+				(unsigned char *)mt_data_inf->dst_U3,mt_data_inf->src_pitch_U1,mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U3,
+				mt_data_inf->row_size_U1,mt_data_inf->src_U_h,min(ptrClass->original_depth/2,32767),mt_data_inf->dst_UV_h_min,
+				mt_data_inf->dst_UV_h_max);
+			orig_Warp_MT_c((const unsigned char *)mt_data_inf->src_V1,(const unsigned char *)mt_data_inf->src_V2,
+				(unsigned char *)mt_data_inf->dst_V3,mt_data_inf->src_pitch_V1,mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V3,
+				mt_data_inf->row_size_V1,mt_data_inf->src_V_h,min(ptrClass->original_depth/2,32767),mt_data_inf->dst_UV_h_min,
+				mt_data_inf->dst_UV_h_max);
+			break;
+		case 83 :
+			orig_Guide_MT_c((const unsigned char *)mt_data_inf->src_Y2,(unsigned char *)mt_data_inf->dst_U1,
+				mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_U1,mt_data_inf->row_size_U1,mt_data_inf->tmp_U_h,
+				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
+			orig_Guide_MT_c((const unsigned char *)mt_data_inf->src_Y2,(unsigned char *)mt_data_inf->dst_V1,
+				mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_V1,mt_data_inf->row_size_V1,mt_data_inf->tmp_V_h,
+				mt_data_inf->dst_UV_h_min,mt_data_inf->dst_UV_h_max);
+			break;
+		default : break;
 	}
 }
 
 
 PVideoFrame __stdcall aWarpSharp::GetFrame(int n, IScriptEnvironment *env)
 {
-  PVideoFrame src = child->GetFrame(n, env);
-  PVideoFrame tmp = env->NewVideoFrame(vi,64);
-  PVideoFrame dst = (has_at_least_v8)?env->NewVideoFrameP(vi,&src):env->NewVideoFrame(vi,64);
+	PVideoFrame src = child->GetFrame(n, env);
+	PVideoFrame dst = (has_at_least_v8)?env->NewVideoFrameP(vi,&src):env->NewVideoFrame(vi,64);
+	PVideoFrame tmp = env->NewVideoFrame(vi,64);
 
-  const int32_t src_pitch_Y = src->GetPitch(PLANAR_Y);
-  const int32_t tmp_pitch_Y = tmp->GetPitch(PLANAR_Y);
-  const int32_t dst_pitch_Y = dst->GetPitch(PLANAR_Y);
-  const int32_t src_pitch_U = src->GetPitch(PLANAR_U);
-  const int32_t tmp_pitch_U = tmp->GetPitch(PLANAR_U);
-  const int32_t dst_pitch_U = dst->GetPitch(PLANAR_U);
-  const int32_t src_pitch_V = src->GetPitch(PLANAR_V);
-  const int32_t tmp_pitch_V = tmp->GetPitch(PLANAR_V);
-  const int32_t dst_pitch_V = dst->GetPitch(PLANAR_V);
+	const int32_t src_pitch_Y = src->GetPitch(PLANAR_Y);
+	const int32_t dst_pitch_Y = dst->GetPitch(PLANAR_Y);
+	const int32_t src_pitch_U = src->GetPitch(PLANAR_U);
+	const int32_t dst_pitch_U = dst->GetPitch(PLANAR_U);
+	const int32_t src_pitch_V = src->GetPitch(PLANAR_V);
+	const int32_t dst_pitch_V = dst->GetPitch(PLANAR_V);
 
-  const unsigned char *psrc_Y = src->GetReadPtr(PLANAR_Y);
-  const unsigned char *ptmp_Y = tmp->GetReadPtr(PLANAR_Y);
-  unsigned char *const wptmp_Y= tmp->GetWritePtr(PLANAR_Y);
-  unsigned char *dptmp_Y = tmp->GetWritePtr(PLANAR_Y);
-  unsigned char *const wpdst_Y = dst->GetWritePtr(PLANAR_Y);
-  unsigned char *pdst_Y = dst->GetWritePtr(PLANAR_Y);
+	const unsigned char *psrc_Y = src->GetReadPtr(PLANAR_Y);
+	unsigned char *const wpdst_Y = dst->GetWritePtr(PLANAR_Y);
+	unsigned char *pdst_Y = dst->GetWritePtr(PLANAR_Y);
 
-  const unsigned char *psrc_U = src->GetReadPtr(PLANAR_U);
-  const unsigned char *ptmp_U = tmp->GetReadPtr(PLANAR_U);
-  unsigned char *const wptmp_U = tmp->GetWritePtr(PLANAR_U);
-  unsigned char *dptmp_U = tmp->GetWritePtr(PLANAR_U);
-  unsigned char *const wpdst_U = dst->GetWritePtr(PLANAR_U);
-  unsigned char *pdst_U = dst->GetWritePtr(PLANAR_U);
+	const unsigned char *psrc_U = src->GetReadPtr(PLANAR_U);
+	unsigned char *const wpdst_U = dst->GetWritePtr(PLANAR_U);
+	unsigned char *pdst_U = dst->GetWritePtr(PLANAR_U);
 
-  const unsigned char *psrc_V = src->GetReadPtr(PLANAR_V);
-  const unsigned char *ptmp_V = tmp->GetReadPtr(PLANAR_V);
-  unsigned char *const wptmp_V = tmp->GetWritePtr(PLANAR_V);
-  unsigned char *dptmp_V = tmp->GetWritePtr(PLANAR_V);
-  unsigned char *const wpdst_V = dst->GetWritePtr(PLANAR_V);
-  unsigned char *pdst_V = dst->GetWritePtr(PLANAR_V);
+	const unsigned char *psrc_V = src->GetReadPtr(PLANAR_V);
+	unsigned char *const wpdst_V = dst->GetWritePtr(PLANAR_V);
+	unsigned char *pdst_V = dst->GetWritePtr(PLANAR_V);
 
-  const int SubH_U = vi.IsY() ? 0:vi.GetPlaneHeightSubsampling(PLANAR_U);
-  const int SubW_U = vi.IsY() ? 0:vi.GetPlaneWidthSubsampling(PLANAR_U);
+	const int SubH_U = vi.IsY() ? 0:vi.GetPlaneHeightSubsampling(PLANAR_U);
+	const int SubW_U = vi.IsY() ? 0:vi.GetPlaneWidthSubsampling(PLANAR_U);
 
-  const int32_t src_height_Y = src->GetHeight(PLANAR_Y);
-  const int32_t tmp_height_Y = tmp->GetHeight(PLANAR_Y);
-  const int32_t dst_height_Y = dst->GetHeight(PLANAR_Y);
+	const int32_t src_height_Y = src->GetHeight(PLANAR_Y);
+	const int32_t dst_height_Y = dst->GetHeight(PLANAR_Y);
 
-  const int32_t src_height_U = src->GetHeight(PLANAR_U);
-  const int32_t tmp_height_U = tmp->GetHeight(PLANAR_U);
-  const int32_t dst_height_U = dst->GetHeight(PLANAR_U);
+	const int32_t src_height_U = src->GetHeight(PLANAR_U);
+	const int32_t dst_height_U = dst->GetHeight(PLANAR_U);
 
-  const int32_t src_height_V = src->GetHeight(PLANAR_V);
-  const int32_t tmp_height_V = tmp->GetHeight(PLANAR_V);
-  const int32_t dst_height_V = dst->GetHeight(PLANAR_V);
+	const int32_t src_height_V = src->GetHeight(PLANAR_V);
+	const int32_t dst_height_V = dst->GetHeight(PLANAR_V);
 
-  const int32_t src_row_size_Y = src->GetRowSize(PLANAR_Y);
-  const int32_t tmp_row_size_Y = tmp->GetRowSize(PLANAR_Y);
-  const int32_t dst_row_size_Y = dst->GetRowSize(PLANAR_Y);
+	const int32_t src_row_size_Y = src->GetRowSize(PLANAR_Y);
+	const int32_t dst_row_size_Y = dst->GetRowSize(PLANAR_Y);
 
-  const int32_t tmp_row_size_U = tmp->GetRowSize(PLANAR_U);
-  const int32_t dst_row_size_U = dst->GetRowSize(PLANAR_U);
+	const int32_t src_row_size_U = src->GetRowSize(PLANAR_U);
+	const int32_t dst_row_size_U = dst->GetRowSize(PLANAR_U);
 
-  const int32_t tmp_row_size_V = tmp->GetRowSize(PLANAR_V);
-  const int32_t dst_row_size_V = dst->GetRowSize(PLANAR_V);
+	const int32_t src_row_size_V = src->GetRowSize(PLANAR_V);
+	const int32_t dst_row_size_V = dst->GetRowSize(PLANAR_V);
 
-  const int blurL=std::min(blur_level,blur_levelV);
-  const int blurLr=std::max(blur_level,blur_levelV)-blurL;
-  const bool processH=blur_level>blurL,processV=blur_levelV>blurL;
+	// Mask
+	const int32_t tmp_pitch_Y = tmp->GetPitch(PLANAR_Y);
+	const int32_t tmp_pitch_U = tmp->GetPitch(PLANAR_U);
+	const int32_t tmp_pitch_V = tmp->GetPitch(PLANAR_V);
 
-  const int cblurL=std::min(blur_levelC,blur_levelVC);
-  const int cblurLr=std::max(blur_levelC,blur_levelVC)-cblurL;
-  const bool cprocessH=blur_levelC>cblurL,cprocessV=blur_levelVC>cblurL;
+	const unsigned char *ptmp_Y = tmp->GetReadPtr(PLANAR_Y);
+	unsigned char *const wptmp_Y= tmp->GetWritePtr(PLANAR_Y);
+	unsigned char *dptmp_Y = tmp->GetWritePtr(PLANAR_Y);
 
-  Public_MT_Data_Thread MT_ThreadGF[MAX_MT_THREADS];
-  MT_Data_Info_WarpSharp MT_DataGF[MAX_MT_THREADS];
+	const unsigned char *ptmp_U = tmp->GetReadPtr(PLANAR_U);
+	unsigned char *const wptmp_U = tmp->GetWritePtr(PLANAR_U);
+	unsigned char *dptmp_U = tmp->GetWritePtr(PLANAR_U);
 
-  memcpy(MT_ThreadGF,MT_Thread,sizeof(MT_Thread));
-  memcpy(MT_DataGF,MT_Data,sizeof(MT_Data));
+	const unsigned char *ptmp_V = tmp->GetReadPtr(PLANAR_V);
+	unsigned char *const wptmp_V = tmp->GetWritePtr(PLANAR_V);
+	unsigned char *dptmp_V = tmp->GetWritePtr(PLANAR_V);
 
-  int8_t idxPool=-1;
+	const int32_t tmp_height_Y = tmp->GetHeight(PLANAR_Y);
+	const int32_t tmp_height_U = tmp->GetHeight(PLANAR_U);
+	const int32_t tmp_height_V = tmp->GetHeight(PLANAR_V);
 
-  for(uint8_t i=0; i<threads_number; i++)
-	MT_ThreadGF[i].pData=(void *)MT_DataGF;
+	const int32_t tmp_row_size_Y = tmp->GetRowSize(PLANAR_Y);
+	const int32_t tmp_row_size_U = tmp->GetRowSize(PLANAR_U);
+	const int32_t tmp_row_size_V = tmp->GetRowSize(PLANAR_V);
 
-  if (threads_number>1)
-  {
-	  if ((!poolInterface->RequestThreadPool(UserId,idxPool,threads_number,MT_ThreadGF)) || (idxPool==-1))
-		  env->ThrowError("aWarpSharp: Error with the TheadPool while requesting threadpool!");
-  }
+	const int blurL=min(blur_level,blur_levelV);
+	const int blurLr=max(blur_level,blur_levelV)-blurL;
+	const bool processH=blur_level>blurL,processV=blur_levelV>blurL;
+
+	const int cblurL=min(blur_levelC,blur_levelVC);
+	const int cblurLr=max(blur_levelC,blur_levelVC)-cblurL;
+	const bool cprocessH=blur_levelC>cblurL,cprocessV=blur_levelVC>cblurL;
+
+	Public_MT_Data_Thread MT_ThreadGF[MAX_MT_THREADS];
+	MT_Data_Info_WarpSharp MT_DataGF[MAX_MT_THREADS];
+
+	memcpy(MT_ThreadGF,MT_Thread,sizeof(MT_Thread));
+	memcpy(MT_DataGF,MT_Data,sizeof(MT_Data));
+
+	int8_t idxPool=-1;
+
+	for(uint8_t i=0; i<threads_number; i++)
+		MT_ThreadGF[i].pData=(void *)MT_DataGF;
 
 	if (threads_number>1)
 	{
-
-	for(uint8_t i=0; i<threads_number; i++)
-	{
-		MT_DataGF[i].src_Y1=(void *)psrc_Y;
-		MT_DataGF[i].src_Y2=(void *)ptmp_Y;
-		MT_DataGF[i].src_pitch_Y1=src_pitch_Y;
-		MT_DataGF[i].src_pitch_Y2=tmp_pitch_Y;
-		MT_DataGF[i].row_size_Y1=src_row_size_Y;
-		MT_DataGF[i].row_size_Y2=tmp_row_size_Y;
-		MT_DataGF[i].row_size_Y3=dst_row_size_Y;
-		MT_DataGF[i].dst_Y1=(void *)dptmp_Y;
-		MT_DataGF[i].dst_Y2=(void *)pdst_Y;
-		MT_DataGF[i].dst_pitch_Y1=tmp_pitch_Y;
-		MT_DataGF[i].dst_pitch_Y2=dst_pitch_Y;
-
-		MT_DataGF[i].src_U1=(void *)psrc_U;
-		MT_DataGF[i].src_U2=(void *)ptmp_U;
-		MT_DataGF[i].src_pitch_U1=src_pitch_U;
-		MT_DataGF[i].src_pitch_U2=tmp_pitch_U;
-		MT_DataGF[i].row_size_U1=tmp_row_size_U;
-		MT_DataGF[i].row_size_U2=dst_row_size_U;
-		MT_DataGF[i].dst_U1=(void *)dptmp_U;
-		MT_DataGF[i].dst_U2=(void *)pdst_U;
-		MT_DataGF[i].dst_pitch_U1=tmp_pitch_U;
-		MT_DataGF[i].dst_pitch_U2=dst_pitch_U;
-
-		MT_DataGF[i].src_V1=(void *)psrc_V;
-		MT_DataGF[i].src_V2=(void *)ptmp_V;
-		MT_DataGF[i].src_pitch_V1=src_pitch_V;
-		MT_DataGF[i].src_pitch_V2=tmp_pitch_V;
-		MT_DataGF[i].row_size_V1=tmp_row_size_V;
-		MT_DataGF[i].row_size_V2=dst_row_size_V;
-		MT_DataGF[i].dst_V1=(void *)dptmp_V;
-		MT_DataGF[i].dst_V2=(void *)pdst_V;
-		MT_DataGF[i].dst_pitch_V1=tmp_pitch_V;
-		MT_DataGF[i].dst_pitch_V2=dst_pitch_V;
-
-		MT_DataGF[i].src_Y_h=src_height_Y;
-		MT_DataGF[i].src_U_h=src_height_U;
-		MT_DataGF[i].src_V_h=src_height_V;
-		MT_DataGF[i].dst_Y_h=dst_height_Y;
-		MT_DataGF[i].dst_U_h=dst_height_U;
-		MT_DataGF[i].dst_V_h=dst_height_V;
-
-		MT_DataGF[i].processH=processH;
-		MT_DataGF[i].processV=processV;
-		MT_DataGF[i].cprocessH=cprocessH;
-		MT_DataGF[i].cprocessV=cprocessV;
-		MT_DataGF[i].SubW_U=SubW_U;
-		MT_DataGF[i].SubH_U=SubH_U;
+		if ((!poolInterface->RequestThreadPool(UserId,idxPool,threads_number,MT_ThreadGF)) || (idxPool==-1))
+			env->ThrowError("aWarpSharp: Error with the TheadPool while requesting threadpool!");
 	}
+	
+	if (!original) goto NOT_ORIGINAL;
+
+// **********************************************************************************************************
+// Old Original added specific code
+// **********************************************************************************************************
+{	
+	PVideoFrame tmp2 = env->NewVideoFrame(vi,64);
+
+	// Scratch
+	const int32_t tmp2_pitch_Y = tmp2->GetPitch(PLANAR_Y);
+	const int32_t tmp2_pitch_U = tmp2->GetPitch(PLANAR_U);
+	const int32_t tmp2_pitch_V = tmp2->GetPitch(PLANAR_V);
+
+	const unsigned char *ptmp2_Y = tmp2->GetReadPtr(PLANAR_Y);
+	unsigned char *const wptmp2_Y= tmp2->GetWritePtr(PLANAR_Y);
+	unsigned char *dptmp2_Y = tmp2->GetWritePtr(PLANAR_Y);
+
+	const unsigned char *ptmp2_U = tmp2->GetReadPtr(PLANAR_U);
+	unsigned char *const wptmp2_U = tmp2->GetWritePtr(PLANAR_U);
+	unsigned char *dptmp2_U = tmp2->GetWritePtr(PLANAR_U);
+
+	const unsigned char *ptmp2_V = tmp2->GetReadPtr(PLANAR_V);
+	unsigned char *const wptmp2_V = tmp2->GetWritePtr(PLANAR_V);
+	unsigned char *dptmp2_V = tmp2->GetWritePtr(PLANAR_V);
+
+	const int32_t tmp2_height_Y = tmp2->GetHeight(PLANAR_Y);
+	const int32_t tmp2_height_U = tmp2->GetHeight(PLANAR_U);
+	const int32_t tmp2_height_V = tmp2->GetHeight(PLANAR_V);
+
+	const int32_t tmp2_row_size_Y = tmp2->GetRowSize(PLANAR_Y);
+	const int32_t tmp2_row_size_U = tmp2->GetRowSize(PLANAR_U);
+	const int32_t tmp2_row_size_V = tmp2->GetRowSize(PLANAR_V);
+	
+	CopyPlane(src,dst,PLANAR_Y,vi);
+	CopyPlane(src,dst,PLANAR_U,vi);
+	CopyPlane(src,dst,PLANAR_V,vi);
+	SetPlane(tmp,PLANAR_Y,0,vi);
+	SetPlane(tmp,PLANAR_U,0,vi);
+	SetPlane(tmp,PLANAR_V,0,vi);
+	SetPlane(tmp2,PLANAR_Y,0,vi);
+	SetPlane(tmp2,PLANAR_U,0,vi);
+	SetPlane(tmp2,PLANAR_V,0,vi);
+	
+	if (threads_number>1)
+	{
+		for(uint8_t i=0; i<threads_number; i++)
+		{
+			MT_DataGF[i].src_Y1=(void *)psrc_Y;
+			MT_DataGF[i].src_Y2=(void *)ptmp_Y;
+			MT_DataGF[i].src_Y3=(void *)ptmp2_Y;
+			MT_DataGF[i].src_pitch_Y1=src_pitch_Y;
+			MT_DataGF[i].src_pitch_Y2=tmp_pitch_Y;
+			MT_DataGF[i].src_pitch_Y3=tmp2_pitch_Y;
+			MT_DataGF[i].row_size_Y1=src_row_size_Y;
+			MT_DataGF[i].row_size_Y2=tmp_row_size_Y;
+			MT_DataGF[i].row_size_Y3=dst_row_size_Y;
+			MT_DataGF[i].dst_Y1=(void *)dptmp_Y;
+			MT_DataGF[i].dst_Y2=(void *)dptmp2_Y;
+			MT_DataGF[i].dst_Y3=(void *)pdst_Y;
+			MT_DataGF[i].dst_pitch_Y1=tmp_pitch_Y;
+			MT_DataGF[i].dst_pitch_Y2=tmp2_pitch_Y;
+			MT_DataGF[i].dst_pitch_Y3=dst_pitch_Y;
+
+			MT_DataGF[i].src_U1=(void *)psrc_U;
+			MT_DataGF[i].src_U2=(void *)ptmp_U;
+			MT_DataGF[i].src_U3=(void *)ptmp2_U;
+			MT_DataGF[i].src_pitch_U1=src_pitch_U;
+			MT_DataGF[i].src_pitch_U2=tmp_pitch_U;
+			MT_DataGF[i].src_pitch_U3=tmp2_pitch_U;
+			MT_DataGF[i].row_size_U1=tmp_row_size_U;
+			MT_DataGF[i].row_size_U2=tmp2_row_size_U;
+			MT_DataGF[i].row_size_U3=dst_row_size_U;
+			MT_DataGF[i].dst_U1=(void *)dptmp_U;
+			MT_DataGF[i].dst_U2=(void *)dptmp2_U;
+			MT_DataGF[i].dst_U3=(void *)pdst_U;
+			MT_DataGF[i].dst_pitch_U1=tmp_pitch_U;
+			MT_DataGF[i].dst_pitch_U2=tmp2_pitch_U;
+			MT_DataGF[i].dst_pitch_U3=dst_pitch_U;
+
+			MT_DataGF[i].src_V1=(void *)psrc_V;
+			MT_DataGF[i].src_V2=(void *)ptmp_V;
+			MT_DataGF[i].src_V3=(void *)ptmp2_V;
+			MT_DataGF[i].src_pitch_V1=src_pitch_V;
+			MT_DataGF[i].src_pitch_V2=tmp_pitch_V;
+			MT_DataGF[i].src_pitch_V3=tmp2_pitch_V;
+			MT_DataGF[i].row_size_V1=tmp_row_size_V;
+			MT_DataGF[i].row_size_V2=tmp2_row_size_V;
+			MT_DataGF[i].row_size_V3=dst_row_size_V;
+			MT_DataGF[i].dst_V1=(void *)dptmp_V;
+			MT_DataGF[i].dst_V2=(void *)dptmp2_V;
+			MT_DataGF[i].dst_V3=(void *)pdst_V;
+			MT_DataGF[i].dst_pitch_V1=tmp_pitch_V;
+			MT_DataGF[i].dst_pitch_V2=tmp2_pitch_V;
+			MT_DataGF[i].dst_pitch_V3=dst_pitch_V;
+
+			MT_DataGF[i].src_Y_h=src_height_Y;
+			MT_DataGF[i].src_U_h=src_height_U;
+			MT_DataGF[i].src_V_h=src_height_V;
+			MT_DataGF[i].dst_Y_h=dst_height_Y;
+			MT_DataGF[i].dst_U_h=dst_height_U;
+			MT_DataGF[i].dst_V_h=dst_height_V;
+			MT_DataGF[i].tmp_Y_h=tmp_height_Y;
+			MT_DataGF[i].tmp_U_h=tmp_height_U;
+			MT_DataGF[i].tmp_V_h=tmp_height_V;
+
+			MT_DataGF[i].processH=processH;
+			MT_DataGF[i].processV=processV;
+			MT_DataGF[i].cprocessH=cprocessH;
+			MT_DataGF[i].cprocessV=cprocessV;
+			MT_DataGF[i].SubW_U=SubW_U;
+			MT_DataGF[i].SubH_U=SubH_U;
+		}
+		
+		for(uint8_t i=0; i<threads_number; i++)
+			MT_ThreadGF[i].f_process=71;
+		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
+
+		//Blur Mask
+		{
+			const int passes=blur_level*((original_bm==2) ? 1 : 3);
+			
+			for (int i=0; i<passes; i++)
+			{
+				if (original_bm==0)
+					orig_BlurHQ_c(wptmp_Y,dptmp_Y,tmp_pitch_Y,tmp_pitch_Y,tmp_row_size_Y,tmp_height_Y);
+				else
+				{
+					if (original_bm==2)
+					{
+						for(uint8_t i=0; i<threads_number; i++)
+							MT_ThreadGF[i].f_process=73;
+						if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
+					}
+					else
+					{
+						for(uint8_t i=0; i<threads_number; i++)
+							MT_ThreadGF[i].f_process=75;
+						if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
+					}
+
+					if (original_bm==2)
+					{
+						for(uint8_t i=0; i<threads_number; i++)
+							MT_ThreadGF[i].f_process=77;
+						if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
+					}
+					else
+					{
+						for(uint8_t i=0; i<threads_number; i++)
+							MT_ThreadGF[i].f_process=79;
+						if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
+					}
+				}
+			}
+		}
+
+		if (original_show)
+		{
+			for(uint8_t i=0; i<threads_number; i++)
+				MT_ThreadGF[i].f_process=0;
+
+			poolInterface->ReleaseThreadPool(UserId,sleep,idxPool);
+
+			CopyPlane(tmp,dst,PLANAR_Y,vi);
+			return(dst);
+		}
+
+		for(uint8_t i=0; i<threads_number; i++)
+			MT_ThreadGF[i].f_process=81;
+		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
+
+		// chroma uses the MT numbering: 2=copy, 3=independent, 4=luma guidance.
+		if (chroma==2)
+		{
+			for(uint8_t i=0; i<threads_number; i++)
+				MT_ThreadGF[i].f_process=0;
+
+			poolInterface->ReleaseThreadPool(UserId,sleep,idxPool);
+
+			return(dst);
+		}
+		
+		if (chroma==4)
+		{
+			for(uint8_t i=0; i<threads_number; i++)
+				MT_ThreadGF[i].f_process=83;
+			if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
+		}
+
+		if (chroma==3)
+		{
+			for(uint8_t i=0; i<threads_number; i++)
+				MT_ThreadGF[i].f_process=72;
+			if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
+
+			//Blur Mask
+			{
+				const int passes=(blur_level/2)*((original_bm==2) ? 1 : 3);
+			
+				for (int i=0; i<passes; i++)
+				{
+					if (original_bm==0)
+					{
+						orig_BlurHQ_c(wptmp_U,dptmp_U,tmp_pitch_U,tmp_pitch_U,tmp_row_size_U,tmp_height_U);
+						orig_BlurHQ_c(wptmp_V,dptmp_V,tmp_pitch_V,tmp_pitch_V,tmp_row_size_V,tmp_height_V);
+					}
+					else
+					{
+						if (original_bm==2)
+						{
+							for(uint8_t i=0; i<threads_number; i++)
+								MT_ThreadGF[i].f_process=74;
+							if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
+
+							for(uint8_t i=0; i<threads_number; i++)
+								MT_ThreadGF[i].f_process=78;
+							if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
+						}
+						else
+						{
+							for(uint8_t i=0; i<threads_number; i++)
+								MT_ThreadGF[i].f_process=76;
+							if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
+
+							for(uint8_t i=0; i<threads_number; i++)
+								MT_ThreadGF[i].f_process=80;
+							if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
+						}
+					}
+				}
+			}
+		}
+
+		for(uint8_t i=0; i<threads_number; i++)
+			MT_ThreadGF[i].f_process=82;
+		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
+
+		for(uint8_t i=0; i<threads_number; i++)
+			MT_ThreadGF[i].f_process=0;
+
+		poolInterface->ReleaseThreadPool(UserId,sleep,idxPool);
+	}
+	else
+	{
+		orig_Sobel_c(psrc_Y,dptmp_Y,src_pitch_Y,tmp_pitch_Y,src_row_size_Y,src_height_Y,thresh);
+		
+		//Blur Mask
+		{
+			const int passes=blur_level*((original_bm==2) ? 1 : 3);
+			
+			for (int i=0; i<passes; i++)
+			{
+				if (original_bm==0)
+					orig_BlurHQ_c(wptmp_Y,dptmp_Y,tmp_pitch_Y,tmp_pitch_Y,tmp_row_size_Y,tmp_height_Y);
+				else
+				{
+					if (original_bm==2)
+					{
+						orig_BlurH_c(ptmp_Y,dptmp2_Y,tmp_pitch_Y,tmp2_pitch_Y,tmp_row_size_Y,tmp_height_Y);
+						orig_BlurV_c(ptmp2_Y,dptmp_Y,tmp2_pitch_Y,tmp_pitch_Y,tmp_row_size_Y,tmp_height_Y);
+					}
+					else
+					{
+						orig_BlurH2_c(ptmp_Y,dptmp2_Y,tmp_pitch_Y,tmp2_pitch_Y,tmp_row_size_Y,tmp_height_Y);
+						orig_BlurV2_c(ptmp2_Y,dptmp_Y,tmp2_pitch_Y,tmp_pitch_Y,tmp_row_size_Y,tmp_height_Y);
+					}
+				}
+			}
+		}
+		
+		if (original_show)
+		{
+			env->BitBlt(pdst_Y,dst_pitch_Y,ptmp_Y,tmp_pitch_Y,src_row_size_Y,src_height_Y);
+			return(dst);
+		}
+		
+		orig_Warp_c(psrc_Y,ptmp_Y,pdst_Y,src_pitch_Y,tmp_pitch_Y,dst_pitch_Y,src_row_size_Y,src_height_Y,min(original_depth,32767));
+		
+		// chroma uses the MT numbering: 2=copy, 3=independent, 4=luma guidance.
+		if (chroma==2) return(dst);
+		
+		if (chroma==4)
+		{
+			orig_Guide_c(ptmp_Y,dptmp_U,tmp_pitch_Y,tmp_pitch_U,tmp_row_size_U,tmp_height_U);
+			orig_Guide_c(ptmp_Y,dptmp_V,tmp_pitch_Y,tmp_pitch_V,tmp_row_size_V,tmp_height_V);
+		}
+		
+		if (chroma==3)
+		{
+			orig_Sobel_c(psrc_U,dptmp_U,src_pitch_U,tmp_pitch_U,tmp_row_size_U,tmp_height_U,thresh);
+			orig_Sobel_c(psrc_V,dptmp_V,src_pitch_V,tmp_pitch_V,tmp_row_size_V,tmp_height_V,thresh);
+			
+			//Blur Mask
+			{
+				const int passes=(blur_level/2)*((original_bm==2) ? 1 : 3);
+			
+				for (int i=0; i<passes; i++)
+				{
+					if (original_bm==0)
+					{
+						orig_BlurHQ_c(wptmp_U,dptmp_U,tmp_pitch_U,tmp_pitch_U,tmp_row_size_U,tmp_height_U);
+						orig_BlurHQ_c(wptmp_V,dptmp_V,tmp_pitch_V,tmp_pitch_V,tmp_row_size_V,tmp_height_V);
+					}
+					else
+					{
+						if (original_bm==2)
+						{
+							orig_BlurH_c(ptmp_U,dptmp2_U,tmp_pitch_U,tmp2_pitch_U,tmp_row_size_U,tmp_height_U);
+							orig_BlurV_c(ptmp2_U,dptmp_U,tmp2_pitch_U,tmp_pitch_U,tmp_row_size_U,tmp_height_U);
+							orig_BlurH_c(ptmp_V,dptmp2_V,tmp_pitch_V,tmp2_pitch_V,tmp_row_size_V,tmp_height_V);
+							orig_BlurV_c(ptmp2_V,dptmp_V,tmp2_pitch_V,tmp_pitch_V,tmp_row_size_V,tmp_height_V);
+						}
+						else
+						{
+							orig_BlurH2_c(ptmp_U,dptmp2_U,tmp_pitch_U,tmp2_pitch_U,tmp_row_size_U,tmp_height_U);
+							orig_BlurV2_c(ptmp2_U,dptmp_U,tmp2_pitch_U,tmp_pitch_U,tmp_row_size_U,tmp_height_U);
+							orig_BlurH2_c(ptmp_V,dptmp2_V,tmp_pitch_V,tmp2_pitch_V,tmp_row_size_V,tmp_height_V);
+							orig_BlurV2_c(ptmp2_V,dptmp_V,tmp2_pitch_V,tmp_pitch_V,tmp_row_size_V,tmp_height_V);
+						}
+					}
+				}
+			}
+		}
+		
+		orig_Warp_c(psrc_U,ptmp_U,pdst_U,src_pitch_U,tmp_pitch_U,dst_pitch_U,src_row_size_U,src_height_U,min(original_depth/2,32767));
+		orig_Warp_c(psrc_V,ptmp_V,pdst_V,src_pitch_V,tmp_pitch_V,dst_pitch_V,src_row_size_V,src_height_V,min(original_depth/2,32767));
+	}
+	
+	return(dst);
+}
+// **********************************************************************************************************
+// End of old original added specific code
+// **********************************************************************************************************
+
+
+NOT_ORIGINAL:
+
+	if (threads_number>1)
+	{
+		for(uint8_t i=0; i<threads_number; i++)
+		{
+			MT_DataGF[i].src_Y1=(void *)psrc_Y;
+			MT_DataGF[i].src_Y2=(void *)ptmp_Y;
+			MT_DataGF[i].src_pitch_Y1=src_pitch_Y;
+			MT_DataGF[i].src_pitch_Y2=tmp_pitch_Y;
+			MT_DataGF[i].row_size_Y1=src_row_size_Y;
+			MT_DataGF[i].row_size_Y2=tmp_row_size_Y;
+			MT_DataGF[i].row_size_Y3=dst_row_size_Y;
+			MT_DataGF[i].dst_Y1=(void *)dptmp_Y;
+			MT_DataGF[i].dst_Y2=(void *)pdst_Y;
+			MT_DataGF[i].dst_pitch_Y1=tmp_pitch_Y;
+			MT_DataGF[i].dst_pitch_Y2=dst_pitch_Y;
+
+			MT_DataGF[i].src_U1=(void *)psrc_U;
+			MT_DataGF[i].src_U2=(void *)ptmp_U;
+			MT_DataGF[i].src_pitch_U1=src_pitch_U;
+			MT_DataGF[i].src_pitch_U2=tmp_pitch_U;
+			MT_DataGF[i].row_size_U1=tmp_row_size_U;
+			MT_DataGF[i].row_size_U2=dst_row_size_U;
+			MT_DataGF[i].dst_U1=(void *)dptmp_U;
+			MT_DataGF[i].dst_U2=(void *)pdst_U;
+			MT_DataGF[i].dst_pitch_U1=tmp_pitch_U;
+			MT_DataGF[i].dst_pitch_U2=dst_pitch_U;
+
+			MT_DataGF[i].src_V1=(void *)psrc_V;
+			MT_DataGF[i].src_V2=(void *)ptmp_V;
+			MT_DataGF[i].src_pitch_V1=src_pitch_V;
+			MT_DataGF[i].src_pitch_V2=tmp_pitch_V;
+			MT_DataGF[i].row_size_V1=tmp_row_size_V;
+			MT_DataGF[i].row_size_V2=dst_row_size_V;
+			MT_DataGF[i].dst_V1=(void *)dptmp_V;
+			MT_DataGF[i].dst_V2=(void *)pdst_V;
+			MT_DataGF[i].dst_pitch_V1=tmp_pitch_V;
+			MT_DataGF[i].dst_pitch_V2=dst_pitch_V;
+
+			MT_DataGF[i].src_Y_h=src_height_Y;
+			MT_DataGF[i].src_U_h=src_height_U;
+			MT_DataGF[i].src_V_h=src_height_V;
+			MT_DataGF[i].dst_Y_h=dst_height_Y;
+			MT_DataGF[i].dst_U_h=dst_height_U;
+			MT_DataGF[i].dst_V_h=dst_height_V;
+			MT_DataGF[i].tmp_Y_h=tmp_height_Y;
+			MT_DataGF[i].tmp_U_h=tmp_height_U;
+			MT_DataGF[i].tmp_V_h=tmp_height_V;
+
+			MT_DataGF[i].processH=processH;
+			MT_DataGF[i].processV=processV;
+			MT_DataGF[i].cprocessH=cprocessH;
+			MT_DataGF[i].cprocessV=cprocessV;
+			MT_DataGF[i].SubW_U=SubW_U;
+			MT_DataGF[i].SubH_U=SubH_U;
+		}
 
 		uint8_t f_proc;
 
 		const uint8_t offs_16b=(pixelsize==1) ? 0:35;
 
-  if (chroma!=5)
-  {
-	  f_proc=1+offs_16b;
+		if (chroma!=5)
+		{
+			f_proc=1+offs_16b;
 
-	  for(uint8_t i=0; i<threads_number; i++)
-		  MT_ThreadGF[i].f_process=f_proc;
+			for(uint8_t i=0; i<threads_number; i++)
+				MT_ThreadGF[i].f_process=f_proc;
+			if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 
-	  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
+			f_proc=(blur_type==1) ? (2+offs_16b):(4+offs_16b);
 
-	  f_proc=(blur_type==1) ? (2+offs_16b):(4+offs_16b);
+			for (int i=0; i<blurL; i++)
+			{
+				for(uint8_t i=0; i<threads_number; i++)
+					MT_ThreadGF[i].f_process=f_proc;
+				if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 
-	for (int i=0; i<blurL; i++)
-	{
+				for(uint8_t i=0; i<threads_number; i++)
+					MT_ThreadGF[i].f_process++;
+				if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
+			}
+
+			f_proc=(blur_type==1) ? (6+offs_16b):(8+offs_16b);
+
+			for (int i=0; i<blurLr; i++)
+			{
+				for(uint8_t i=0; i<threads_number; i++)
+					MT_ThreadGF[i].f_process=f_proc;
+				if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
+
+				for(uint8_t i=0; i<threads_number; i++)
+					MT_ThreadGF[i].f_process++;
+				if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
+			}
+
+			if ((chroma!=6) && ((depth!=0) || (depthV!=0)))
+			{
+				f_proc=10+offs_16b;
+
+				for(uint8_t i=0; i<threads_number; i++)
+					MT_ThreadGF[i].f_process=f_proc;
+				if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
+			}
+			else CopyPlane(src,dst,PLANAR_Y,vi);
+		}
+		else CopyPlane(src,dst,PLANAR_Y,vi);
+
+		switch (chroma)
+		{
+			case 0 :
+				if (pixelsize==1)
+				{
+					SetPlane(dst,PLANAR_U,0x80,vi);
+					SetPlane(dst,PLANAR_V,0x80,vi);
+				}
+				else
+				{
+					SetPlane_16(dst,PLANAR_U,0x80 << (bits_per_pixel-8),vi);
+					SetPlane_16(dst,PLANAR_V,0x80 << (bits_per_pixel-8),vi);
+				}
+				break;
+			case 1 : break;
+			case 2 :
+				CopyPlane(src,dst,PLANAR_U,vi);
+				CopyPlane(src,dst,PLANAR_V,vi);
+				break;
+			case 3 :
+			case 5 :
+				if ((depthC!=0) || (depthVC!=0))
+				{
+					f_proc=11+offs_16b;
+
+					for(uint8_t i=0; i<threads_number; i++)
+						MT_ThreadGF[i].f_process=f_proc;
+					if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
+
+					f_proc=(blur_type==1) ? (12+offs_16b):(14+offs_16b);
+
+					for (int i=0; i<cblurL; i++)
+					{
+						for(uint8_t i=0; i<threads_number; i++)
+							MT_ThreadGF[i].f_process=f_proc;
+						if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
+
+						for(uint8_t i=0; i<threads_number; i++)
+							MT_ThreadGF[i].f_process++;
+						if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
+					}
+
+					f_proc=(blur_type==1) ? (16+offs_16b):(18+offs_16b);
+
+					for (int i=0; i<cblurLr; i++)
+					{
+						for(uint8_t i=0; i<threads_number; i++)
+							MT_ThreadGF[i].f_process=f_proc;
+						if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
+
+						for(uint8_t i=0; i<threads_number; i++)
+							MT_ThreadGF[i].f_process++;
+						if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
+					}
+
+					f_proc=20+offs_16b;
+
+					for(uint8_t i=0; i<threads_number; i++)
+						MT_ThreadGF[i].f_process=f_proc;
+					if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
+				}
+				else
+				{
+					CopyPlane(src,dst,PLANAR_U,vi);
+					CopyPlane(src,dst,PLANAR_V,vi);
+				}
+				break;
+			case 4 :
+			case 6 :
+				if ((depthC!=0) || (depthVC!=0))
+				{
+					if (!vi.Is444())
+					{
+						if (!GuideChroma_Test(SubW_U,SubH_U)) env->ThrowError("aWarpSharp: Unsuported colorspace");
+						f_proc=31+offs_16b;
+
+						for(uint8_t i=0; i<threads_number; i++)
+							MT_ThreadGF[i].f_process=f_proc;
+						if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
+
+						f_proc=32+offs_16b;
+
+						for(uint8_t i=0; i<threads_number; i++)
+							MT_ThreadGF[i].f_process=f_proc;
+						if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
+					}
+					else
+					{
+						f_proc=34+offs_16b;
+
+						for(uint8_t i=0; i<threads_number; i++)
+							MT_ThreadGF[i].f_process=f_proc;
+						if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
+					}
+				}
+				else
+				{
+					CopyPlane(src,dst,PLANAR_U,vi);
+					CopyPlane(src,dst,PLANAR_V,vi);
+				}
+				break;
+			default : break;
+		}
+
 		for(uint8_t i=0; i<threads_number; i++)
-			MT_ThreadGF[i].f_process=f_proc;
-		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
+			MT_ThreadGF[i].f_process=0;
 
-		for(uint8_t i=0; i<threads_number; i++)
-			MT_ThreadGF[i].f_process++;
-		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
-	}
-
-	f_proc=(blur_type==1) ? (6+offs_16b):(8+offs_16b);
-
-	for (int i=0; i<blurLr; i++)
-	{
-		for(uint8_t i=0; i<threads_number; i++)
-			MT_ThreadGF[i].f_process=f_proc;
-		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
-
-		for(uint8_t i=0; i<threads_number; i++)
-			MT_ThreadGF[i].f_process++;
-		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
-	}
-
-    if ((chroma!=6) && ((depth!=0) || (depthV!=0)))
-	{
-		f_proc=10+offs_16b;
-
-		for(uint8_t i=0; i<threads_number; i++)
-			MT_ThreadGF[i].f_process=f_proc;
-
-		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
-	}
-    else
-      CopyPlane(src,dst,PLANAR_Y,vi);
-  }
-  else
-    CopyPlane(src,dst,PLANAR_Y,vi);
-
-  switch (chroma)
-  {
-  case 0 :
-	  if (pixelsize==1)
-	  {
-		  SetPlane(dst,PLANAR_U,0x80,vi);
-		  SetPlane(dst,PLANAR_V,0x80,vi);
-	  }
-	  else
-	  {
-		  SetPlane_16(dst,PLANAR_U,0x80 << (bits_per_pixel-8),vi);
-		  SetPlane_16(dst,PLANAR_V,0x80 << (bits_per_pixel-8),vi);
-	  }
-    break;
-  case 1 : break;
-  case 2 :
-    CopyPlane(src,dst,PLANAR_U,vi);
-    CopyPlane(src,dst,PLANAR_V,vi);
-    break;
-  case 3 :
-  case 5 :
-	  if ((depthC!=0) || (depthVC!=0))
-	  {
-		  f_proc=11+offs_16b;
-
-		  for(uint8_t i=0; i<threads_number; i++)
-			  MT_ThreadGF[i].f_process=f_proc;
-
-		  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
-
-		  f_proc=(blur_type==1) ? (12+offs_16b):(14+offs_16b);
-
-	for (int i=0; i<cblurL; i++)
-	{
-		for(uint8_t i=0; i<threads_number; i++)
-			MT_ThreadGF[i].f_process=f_proc;
-		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
-
-		for(uint8_t i=0; i<threads_number; i++)
-			MT_ThreadGF[i].f_process++;
-		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
-	}
-
-		  f_proc=(blur_type==1) ? (16+offs_16b):(18+offs_16b);
-
-	for (int i=0; i<cblurLr; i++)
-	{
-		for(uint8_t i=0; i<threads_number; i++)
-			MT_ThreadGF[i].f_process=f_proc;
-		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
-
-		for(uint8_t i=0; i<threads_number; i++)
-			MT_ThreadGF[i].f_process++;
-		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
-	}
-
-	f_proc=20+offs_16b;
-
-	for(uint8_t i=0; i<threads_number; i++)
-		MT_ThreadGF[i].f_process=f_proc;
-
-	if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
-
-	f_proc=21+offs_16b;
-
-	for(uint8_t i=0; i<threads_number; i++)
-		MT_ThreadGF[i].f_process=f_proc;
-
-	if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
-
-	f_proc=(blur_type==1) ? (22+offs_16b):(24+offs_16b);
-
-	for (int i=0; i<cblurL; i++)
-	{
-		for(uint8_t i=0; i<threads_number; i++)
-			MT_ThreadGF[i].f_process=f_proc;
-		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
-
-		for(uint8_t i=0; i<threads_number; i++)
-			MT_ThreadGF[i].f_process++;
-		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
-	}
-
-	f_proc=(blur_type==1) ? (26+offs_16b):(28+offs_16b);
-
-	for (int i=0; i<cblurLr; i++)
-	{
-		for(uint8_t i=0; i<threads_number; i++)
-			MT_ThreadGF[i].f_process=f_proc;
-		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
-
-		for(uint8_t i=0; i<threads_number; i++)
-			MT_ThreadGF[i].f_process++;
-		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
-	}
-
-	f_proc=30+offs_16b;
-
-	for(uint8_t i=0; i<threads_number; i++)
-		MT_ThreadGF[i].f_process=f_proc;
-
-	if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
-
-	  }
-	  else
-	  {
-		   CopyPlane(src,dst,PLANAR_U,vi);
-		   CopyPlane(src,dst,PLANAR_V,vi);
-	  }
-    break;
-  case 4 :
-  case 6 :
-	  if ((depthC!=0) || (depthVC!=0))
-	  {
-    if (!vi.Is444())
-    {
-	  if (!GuideChroma_Test(SubW_U,SubH_U)) env->ThrowError("aWarpSharp: Unsuported colorspace");
-	  f_proc=31+offs_16b;
-
-	  for(uint8_t i=0; i<threads_number; i++)
-		  MT_ThreadGF[i].f_process=f_proc;
-
-	  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
-
-	  f_proc=32+offs_16b;
-
-	  for(uint8_t i=0; i<threads_number; i++)
-		  MT_ThreadGF[i].f_process=f_proc;
-
-	  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
-
-	  f_proc=33+offs_16b;
-
-	  for(uint8_t i=0; i<threads_number; i++)
-		  MT_ThreadGF[i].f_process=f_proc;
-
-	  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
-    }
-    else
-    {
-	  f_proc=34+offs_16b;
-
-	  for(uint8_t i=0; i<threads_number; i++)
-		  MT_ThreadGF[i].f_process=f_proc;
-
-	  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
-
-	  f_proc=35+offs_16b;
-
-	  for(uint8_t i=0; i<threads_number; i++)
-		  MT_ThreadGF[i].f_process=f_proc;
-
-	  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
-    }
-	  }
-	  else
-	  {
-		   CopyPlane(src,dst,PLANAR_U,vi);
-		   CopyPlane(src,dst,PLANAR_V,vi);
-	  }
-	  break;
-  default : break;
-  }
-
-  for(uint8_t i=0; i<threads_number; i++)
-	  MT_ThreadGF[i].f_process=0;
-
-  poolInterface->ReleaseThreadPool(UserId,sleep,idxPool);
-
+		poolInterface->ReleaseThreadPool(UserId,sleep,idxPool);
 	}
 	else
 	{
+		if (chroma!=5)
+		{
+			if (pixelsize==1) Sobel_8(psrc_Y,dptmp_Y,src_pitch_Y,tmp_pitch_Y,src_height_Y,tmp_row_size_Y,thresh);
+			else Sobel_16(psrc_Y,dptmp_Y,src_pitch_Y,tmp_pitch_Y,src_height_Y,tmp_row_size_Y,thresh,bits_per_pixel);
+			for (int i=0; i<blurL; i++)
+			{
+				if (pixelsize==1)
+				{
+					if (blur_type==1) BlurR2_8(wptmp_Y,wpdst_Y,tmp_pitch_Y,dst_pitch_Y,tmp_height_Y,tmp_row_size_Y,true,true);
+					else BlurR6_8(wptmp_Y,wpdst_Y,tmp_pitch_Y,dst_pitch_Y,tmp_height_Y,tmp_row_size_Y,true,true);
+				}
+				else
+				{
+					if (blur_type==1) BlurR2_16(wptmp_Y,wpdst_Y,tmp_pitch_Y,dst_pitch_Y,tmp_height_Y,tmp_row_size_Y,true,true);
+					else BlurR6_16(wptmp_Y,wpdst_Y,tmp_pitch_Y,dst_pitch_Y,tmp_height_Y,tmp_row_size_Y,true,true);
+				}
+			}
+			for (int i=0; i<blurLr; i++)
+			{
+				if (pixelsize==1)
+				{
+					if (blur_type==1) BlurR2_8(wptmp_Y,wpdst_Y,tmp_pitch_Y,dst_pitch_Y,tmp_height_Y,tmp_row_size_Y,processH,processV);
+					else BlurR6_8(wptmp_Y,wpdst_Y,tmp_pitch_Y,dst_pitch_Y,tmp_height_Y,tmp_row_size_Y,processH,processV);
+				}
+				else
+				{
+					if (blur_type==1) BlurR2_16(wptmp_Y,wpdst_Y,tmp_pitch_Y,dst_pitch_Y,tmp_height_Y,tmp_row_size_Y,processH,processV);
+					else BlurR6_16(wptmp_Y,wpdst_Y,tmp_pitch_Y,dst_pitch_Y,tmp_height_Y,tmp_row_size_Y,processH,processV);
+				}
+			}
+			if ((chroma!=6) && ((depth!=0) || (depthV!=0)))
+			{
+				if (pixelsize==1) Warp0_8(psrc_Y,ptmp_Y,pdst_Y,src_pitch_Y,tmp_pitch_Y,dst_pitch_Y,dst_row_size_Y,dst_height_Y,depth,depthV);
+				else warp0_u16(psrc_Y,ptmp_Y,pdst_Y,src_pitch_Y,tmp_pitch_Y,dst_pitch_Y,dst_row_size_Y >> 1,dst_height_Y,
+					depth,depthV,bits_per_pixel);
+			}
+			else CopyPlane(src,dst,PLANAR_Y,vi);
+		}
+		else CopyPlane(src,dst,PLANAR_Y,vi);
 
-  if (chroma!=5)
-  {
-	if (pixelsize==1) Sobel_8(psrc_Y,dptmp_Y,src_pitch_Y,tmp_pitch_Y,src_height_Y,tmp_row_size_Y,thresh);
-	else Sobel_16(psrc_Y,dptmp_Y,src_pitch_Y,tmp_pitch_Y,src_height_Y,tmp_row_size_Y,thresh,bits_per_pixel);
-	for (int i=0; i<blurL; i++)
-	{
-		if (pixelsize==1)
+		switch (chroma)
 		{
-			if (blur_type==1) BlurR2_8(wptmp_Y,wpdst_Y,tmp_pitch_Y,dst_pitch_Y,tmp_height_Y,tmp_row_size_Y,true,true);
-			else BlurR6_8(wptmp_Y,wpdst_Y,tmp_pitch_Y,dst_pitch_Y,tmp_height_Y,tmp_row_size_Y,true,true);
-		}
-		else
-		{
-			if (blur_type==1) BlurR2_16(wptmp_Y,wpdst_Y,tmp_pitch_Y,dst_pitch_Y,tmp_height_Y,tmp_row_size_Y,true,true);
-			else BlurR6_16(wptmp_Y,wpdst_Y,tmp_pitch_Y,dst_pitch_Y,tmp_height_Y,tmp_row_size_Y,true,true);
-		}
-	}
-	for (int i=0; i<blurLr; i++)
-	{
-		if (pixelsize==1)
-		{
-			if (blur_type==1) BlurR2_8(wptmp_Y,wpdst_Y,tmp_pitch_Y,dst_pitch_Y,tmp_height_Y,tmp_row_size_Y,processH,processV);
-			else BlurR6_8(wptmp_Y,wpdst_Y,tmp_pitch_Y,dst_pitch_Y,tmp_height_Y,tmp_row_size_Y,processH,processV);
-		}
-		else
-		{
-			if (blur_type==1) BlurR2_16(wptmp_Y,wpdst_Y,tmp_pitch_Y,dst_pitch_Y,tmp_height_Y,tmp_row_size_Y,processH,processV);
-			else BlurR6_16(wptmp_Y,wpdst_Y,tmp_pitch_Y,dst_pitch_Y,tmp_height_Y,tmp_row_size_Y,processH,processV);
-		}
-	}
-    if ((chroma!=6) && ((depth!=0) || (depthV!=0)))
-	{
-		if (pixelsize==1) Warp0_8(psrc_Y,ptmp_Y,pdst_Y,src_pitch_Y,tmp_pitch_Y,dst_pitch_Y,dst_row_size_Y,dst_height_Y,depth,depthV);
-		else warp0_u16(psrc_Y,ptmp_Y,pdst_Y,src_pitch_Y,tmp_pitch_Y,dst_pitch_Y,dst_row_size_Y >> 1,dst_height_Y,
-			depth,depthV,bits_per_pixel);
-	}
-    else
-      CopyPlane(src,dst,PLANAR_Y,vi);
-  }
-  else
-    CopyPlane(src,dst,PLANAR_Y,vi);
+			case 0 :
+				if (pixelsize==1)
+				{
+					SetPlane(dst,PLANAR_U,0x80,vi);
+					SetPlane(dst,PLANAR_V,0x80,vi);
+				}
+				else
+				{
+					SetPlane_16(dst,PLANAR_U,0x80 << (bits_per_pixel-8),vi);
+					SetPlane_16(dst,PLANAR_V,0x80 << (bits_per_pixel-8),vi);
+				}
+				break;
+			case 1 : break;
+			case 2 :
+				CopyPlane(src,dst,PLANAR_U,vi);
+				CopyPlane(src,dst,PLANAR_V,vi);
+				break;
+			case 3 :
+			case 5 :
+				if ((depthC!=0) || (depthVC!=0))
+				{
+					if (pixelsize==1) Sobel_8(psrc_U,dptmp_U,src_pitch_U,tmp_pitch_U,src_height_U,tmp_row_size_U,threshC);
+					else Sobel_16(psrc_U,dptmp_U,src_pitch_U,tmp_pitch_U,src_height_U,tmp_row_size_U,threshC,bits_per_pixel);
+					for (int i=0; i<cblurL; i++)
+					{
+						if (pixelsize==1)
+						{
+							if (blur_type==1) BlurR2_8(wptmp_U,wpdst_U,tmp_pitch_U,dst_pitch_U,tmp_height_U,tmp_row_size_U,true,true);
+							else BlurR6_8(wptmp_U,wpdst_U,tmp_pitch_U,dst_pitch_U,tmp_height_U,tmp_row_size_U,true,true);
+						}
+						else
+						{
+							if (blur_type==1) BlurR2_16(wptmp_U,wpdst_U,tmp_pitch_U,dst_pitch_U,tmp_height_U,tmp_row_size_U,true,true);
+							else BlurR6_16(wptmp_U,wpdst_U,tmp_pitch_U,dst_pitch_U,tmp_height_U,tmp_row_size_U,true,true);
+						}
+					}
+					for (int i=0; i<cblurLr; i++)
+					{
+						if (pixelsize==1)
+						{
+							if (blur_type==1) BlurR2_8(wptmp_U,wpdst_U,tmp_pitch_U,dst_pitch_U,tmp_height_U,tmp_row_size_U,cprocessH,cprocessV);
+							else BlurR6_8(wptmp_U,wpdst_U,tmp_pitch_U,dst_pitch_U,tmp_height_U,tmp_row_size_U,cprocessH,cprocessV);
+						}
+						else
+						{
+							if (blur_type==1) BlurR2_16(wptmp_U,wpdst_U,tmp_pitch_U,dst_pitch_U,tmp_height_U,tmp_row_size_U,cprocessH,cprocessV);
+							else BlurR6_16(wptmp_U,wpdst_U,tmp_pitch_U,dst_pitch_U,tmp_height_U,tmp_row_size_U,cprocessH,cprocessV);
+						}
+					}
+					if (pixelsize==1) Warp0_8(psrc_U,ptmp_U,pdst_U,src_pitch_U,tmp_pitch_U,dst_pitch_U,dst_row_size_U,dst_height_U,depthC,depthVC);
+					else warp0_u16(psrc_U,ptmp_U,pdst_U,src_pitch_U,tmp_pitch_U,dst_pitch_U,dst_row_size_U >> 1,dst_height_U,
+						depthC,depthVC,bits_per_pixel);
 
-  switch (chroma)
-  {
-  case 0 :
-	  if (pixelsize==1)
-	  {
-		  SetPlane(dst,PLANAR_U,0x80,vi);
-		  SetPlane(dst,PLANAR_V,0x80,vi);
-	  }
-	  else
-	  {
-		  SetPlane_16(dst,PLANAR_U,0x80 << (bits_per_pixel-8),vi);
-		  SetPlane_16(dst,PLANAR_V,0x80 << (bits_per_pixel-8),vi);
-	  }
-    break;
-  case 1 : break;
-  case 2 :
-    CopyPlane(src,dst,PLANAR_U,vi);
-    CopyPlane(src,dst,PLANAR_V,vi);
-    break;
-  case 3 :
-  case 5 :
-	  if ((depthC!=0) || (depthVC!=0))
-	  {
-	if (pixelsize==1) Sobel_8(psrc_U,dptmp_U,src_pitch_U,tmp_pitch_U,src_height_U,tmp_row_size_U,threshC);
-	else Sobel_16(psrc_U,dptmp_U,src_pitch_U,tmp_pitch_U,src_height_U,tmp_row_size_U,threshC,bits_per_pixel);
-	for (int i=0; i<cblurL; i++)
-	{
-		if (pixelsize==1)
-		{
-			if (blur_type==1) BlurR2_8(wptmp_U,wpdst_U,tmp_pitch_U,dst_pitch_U,tmp_height_U,tmp_row_size_U,true,true);
-			else BlurR6_8(wptmp_U,wpdst_U,tmp_pitch_U,dst_pitch_U,tmp_height_U,tmp_row_size_U,true,true);
-		}
-		else
-		{
-			if (blur_type==1) BlurR2_16(wptmp_U,wpdst_U,tmp_pitch_U,dst_pitch_U,tmp_height_U,tmp_row_size_U,true,true);
-			else BlurR6_16(wptmp_U,wpdst_U,tmp_pitch_U,dst_pitch_U,tmp_height_U,tmp_row_size_U,true,true);
-		}
-	}
-	for (int i=0; i<cblurLr; i++)
-	{
-		if (pixelsize==1)
-		{
-			if (blur_type) BlurR2_8(wptmp_U,wpdst_U,tmp_pitch_U,dst_pitch_U,tmp_height_U,tmp_row_size_U,cprocessH,cprocessV);
-			else BlurR6_8(wptmp_U,wpdst_U,tmp_pitch_U,dst_pitch_U,tmp_height_U,tmp_row_size_U,cprocessH,cprocessV);
-		}
-		else
-		{
-			if (blur_type) BlurR2_16(wptmp_U,wpdst_U,tmp_pitch_U,dst_pitch_U,tmp_height_U,tmp_row_size_U,cprocessH,cprocessV);
-			else BlurR6_16(wptmp_U,wpdst_U,tmp_pitch_U,dst_pitch_U,tmp_height_U,tmp_row_size_U,cprocessH,cprocessV);
-		}
-	}
-	if (pixelsize==1) Warp0_8(psrc_U,ptmp_U,pdst_U,src_pitch_U,tmp_pitch_U,dst_pitch_U,dst_row_size_U,dst_height_U,depthC,depthVC);
-	else warp0_u16(psrc_U,ptmp_U,pdst_U,src_pitch_U,tmp_pitch_U,dst_pitch_U,dst_row_size_U >> 1,dst_height_U,
-		depthC,depthVC,bits_per_pixel);
+					if (pixelsize==1) Sobel_8(psrc_V,dptmp_V,src_pitch_V,tmp_pitch_V,src_height_V,tmp_row_size_V,threshC);
+					else Sobel_16(psrc_V,dptmp_V,src_pitch_V,tmp_pitch_V,src_height_V,tmp_row_size_V,threshC,bits_per_pixel);
+					for (int i=0; i<cblurL; i++)
+					{
+						if (pixelsize==1)
+						{
+							if (blur_type==1) BlurR2_8(wptmp_V,wpdst_V,tmp_pitch_V,dst_pitch_V,tmp_height_V,tmp_row_size_V,true,true);
+							else BlurR6_8(wptmp_V,wpdst_V,tmp_pitch_V,dst_pitch_V,tmp_height_V,tmp_row_size_V,true,true);
+						}
+						else
+						{
+							if (blur_type==1) BlurR2_16(wptmp_V,wpdst_V,tmp_pitch_V,dst_pitch_V,tmp_height_V,tmp_row_size_V,true,true);
+							else BlurR6_16(wptmp_V,wpdst_V,tmp_pitch_V,dst_pitch_V,tmp_height_V,tmp_row_size_V,true,true);
+						}
+					}
+					for (int i=0; i<cblurLr; i++)
+					{
+						if (pixelsize==1)
+						{
+							if (blur_type==1) BlurR2_8(wptmp_V,wpdst_V,tmp_pitch_V,dst_pitch_V,tmp_height_V,tmp_row_size_V,cprocessH,cprocessV);
+							else BlurR6_8(wptmp_V,wpdst_V,tmp_pitch_V,dst_pitch_V,tmp_height_V,tmp_row_size_V,cprocessH,cprocessV);
+						}
+						else
+						{
+							if (blur_type==1) BlurR2_16(wptmp_V,wpdst_V,tmp_pitch_V,dst_pitch_V,tmp_height_V,tmp_row_size_V,cprocessH,cprocessV);
+							else BlurR6_16(wptmp_V,wpdst_V,tmp_pitch_V,dst_pitch_V,tmp_height_V,tmp_row_size_V,cprocessH,cprocessV);
+						}
+					}
+					if (pixelsize==1) Warp0_8(psrc_V,ptmp_V,pdst_V,src_pitch_V,tmp_pitch_V,dst_pitch_V,dst_row_size_V,dst_height_V,depthC,depthVC);
+					else warp0_u16(psrc_V,ptmp_V,pdst_V,src_pitch_V,tmp_pitch_V,dst_pitch_V,dst_row_size_V >> 1,dst_height_V,
+						depthC,depthVC,bits_per_pixel);
+				}
+				else
+				{
+					CopyPlane(src,dst,PLANAR_U,vi);
+					CopyPlane(src,dst,PLANAR_V,vi);
+				}
+				break;
+			case 4 :
+			case 6 :
+				if ((depthC!=0) || (depthVC!=0))
+				{
+					if (!vi.Is444())
+					{
+						const bool testC=(pixelsize==1) ? GuideChroma_8(ptmp_Y,dptmp_U,tmp_pitch_Y,tmp_pitch_U,tmp_height_U,tmp_row_size_U,SubW_U,
+							SubH_U,cplace_mpeg2_flag):GuideChroma_16(ptmp_Y,dptmp_U,tmp_pitch_Y,tmp_pitch_U,tmp_height_U,tmp_row_size_U >> 1,SubW_U,
+							SubH_U,cplace_mpeg2_flag);
 
-	if (pixelsize==1) Sobel_8(psrc_V,dptmp_V,src_pitch_V,tmp_pitch_V,src_height_V,tmp_row_size_V,threshC);
-	else Sobel_16(psrc_V,dptmp_V,src_pitch_V,tmp_pitch_V,src_height_V,tmp_row_size_V,threshC,bits_per_pixel);
-	for (int i=0; i<cblurL; i++)
-	{
-		if (pixelsize==1)
-		{
-			if (blur_type==1) BlurR2_8(wptmp_V,wpdst_V,tmp_pitch_V,dst_pitch_V,tmp_height_V,tmp_row_size_V,true,true);
-			else BlurR6_8(wptmp_V,wpdst_V,tmp_pitch_V,dst_pitch_V,tmp_height_V,tmp_row_size_V,true,true);
+						if (!testC) env->ThrowError("aWarpSharp: Unsuported colorspace");
+						if (pixelsize==1)
+						{
+							Warp0_8(psrc_U,ptmp_U,pdst_U,src_pitch_U,tmp_pitch_U,dst_pitch_U,dst_row_size_U,dst_height_U,depthC,depthVC);
+							Warp0_8(psrc_V,ptmp_U,pdst_V,src_pitch_V,tmp_pitch_U,dst_pitch_V,dst_row_size_V,dst_height_V,depthC,depthVC);
+						}
+						else
+						{
+							warp0_u16(psrc_U,ptmp_U,pdst_U,src_pitch_U,tmp_pitch_U,dst_pitch_U,dst_row_size_U >> 1,dst_height_U,
+								depthC,depthVC,bits_per_pixel);
+							warp0_u16(psrc_V,ptmp_U,pdst_V,src_pitch_V,tmp_pitch_U,dst_pitch_V,dst_row_size_V >> 1,dst_height_V,
+								depthC,depthVC,bits_per_pixel);
+						}
+					}
+					else
+					{
+						if (pixelsize==1)
+						{
+							Warp0_8(psrc_U,ptmp_Y,pdst_U,src_pitch_U,tmp_pitch_Y,dst_pitch_U,dst_row_size_U,dst_height_U,depthC,depthVC);
+							Warp0_8(psrc_V,ptmp_Y,pdst_V,src_pitch_V,tmp_pitch_Y,dst_pitch_V,dst_row_size_V,dst_height_V,depthC,depthVC);
+						}
+						else
+						{
+							warp0_u16(psrc_U,ptmp_Y,pdst_U,src_pitch_U,tmp_pitch_Y,dst_pitch_U,dst_row_size_U >> 1,dst_height_U,
+								depthC,depthVC,bits_per_pixel);
+							warp0_u16(psrc_V,ptmp_Y,pdst_V,src_pitch_V,tmp_pitch_Y,dst_pitch_V,dst_row_size_V >> 1,dst_height_V,
+								depthC,depthVC,bits_per_pixel);
+						}
+					}
+				}
+				else
+				{
+					CopyPlane(src,dst,PLANAR_U,vi);
+					CopyPlane(src,dst,PLANAR_V,vi);
+				}
+				break;
+			default : break;
 		}
-		else
-		{
-			if (blur_type==1) BlurR2_16(wptmp_V,wpdst_V,tmp_pitch_V,dst_pitch_V,tmp_height_V,tmp_row_size_V,true,true);
-			else BlurR6_16(wptmp_V,wpdst_V,tmp_pitch_V,dst_pitch_V,tmp_height_V,tmp_row_size_V,true,true);
-		}
-	}
-	for (int i=0; i<cblurLr; i++)
-	{
-		if (pixelsize==1)
-		{
-			if (blur_type==1) BlurR2_8(wptmp_V,wpdst_V,tmp_pitch_V,dst_pitch_V,tmp_height_V,tmp_row_size_V,cprocessH,cprocessV);
-			else BlurR6_8(wptmp_V,wpdst_V,tmp_pitch_V,dst_pitch_V,tmp_height_V,tmp_row_size_V,cprocessH,cprocessV);
-		}
-		else
-		{
-			if (blur_type==1) BlurR2_16(wptmp_V,wpdst_V,tmp_pitch_V,dst_pitch_V,tmp_height_V,tmp_row_size_V,cprocessH,cprocessV);
-			else BlurR6_16(wptmp_V,wpdst_V,tmp_pitch_V,dst_pitch_V,tmp_height_V,tmp_row_size_V,cprocessH,cprocessV);
-		}
-	}
-	if (pixelsize==1) Warp0_8(psrc_V,ptmp_V,pdst_V,src_pitch_V,tmp_pitch_V,dst_pitch_V,dst_row_size_V,dst_height_V,depthC,depthVC);
-	else warp0_u16(psrc_V,ptmp_V,pdst_V,src_pitch_V,tmp_pitch_V,dst_pitch_V,dst_row_size_V >> 1,dst_height_V,
-		depthC,depthVC,bits_per_pixel);
-	  }
-	  else
-	  {
-		   CopyPlane(src,dst,PLANAR_U,vi);
-		   CopyPlane(src,dst,PLANAR_V,vi);
-	  }
-    break;
-  case 4 :
-  case 6 :
-	  if ((depthC!=0) || (depthVC!=0))
-	  {
-    if (!vi.Is444())
-    {
-		const bool testC=(pixelsize==1) ? GuideChroma_8(ptmp_Y,dptmp_U,tmp_pitch_Y,tmp_pitch_U,tmp_height_U,tmp_row_size_U,SubW_U,
-			SubH_U,cplace_mpeg2_flag):GuideChroma_16(ptmp_Y,dptmp_U,tmp_pitch_Y,tmp_pitch_U,tmp_height_U,tmp_row_size_U >> 1,SubW_U,
-			SubH_U,cplace_mpeg2_flag);
-
-	  if (!testC) env->ThrowError("aWarpSharp: Unsuported colorspace");
-	  if (pixelsize==1)
-	  {
-		  Warp0_8(psrc_U,ptmp_U,pdst_U,src_pitch_U,tmp_pitch_U,dst_pitch_U,dst_row_size_U,dst_height_U,depthC,depthVC);
-		  Warp0_8(psrc_V,ptmp_U,pdst_V,src_pitch_V,tmp_pitch_U,dst_pitch_V,dst_row_size_V,dst_height_V,depthC,depthVC);
-	  }
-	  else
-	  {
-		  warp0_u16(psrc_U,ptmp_U,pdst_U,src_pitch_U,tmp_pitch_U,dst_pitch_U,dst_row_size_U >> 1,dst_height_U,
-			  depthC,depthVC,bits_per_pixel);
-		  warp0_u16(psrc_V,ptmp_U,pdst_V,src_pitch_V,tmp_pitch_U,dst_pitch_V,dst_row_size_V >> 1,dst_height_V,
-			  depthC,depthVC,bits_per_pixel);
-	  }
-    }
-    else
-    {
-		if (pixelsize==1)
-		{
-			Warp0_8(psrc_U,ptmp_Y,pdst_U,src_pitch_U,tmp_pitch_Y,dst_pitch_U,dst_row_size_U,dst_height_U,depthC,depthVC);
-			Warp0_8(psrc_V,ptmp_Y,pdst_V,src_pitch_V,tmp_pitch_Y,dst_pitch_V,dst_row_size_V,dst_height_V,depthC,depthVC);
-		}
-		else
-		{
-			warp0_u16(psrc_U,ptmp_Y,pdst_U,src_pitch_U,tmp_pitch_Y,dst_pitch_U,dst_row_size_U >> 1,dst_height_U,
-				depthC,depthVC,bits_per_pixel);
-			warp0_u16(psrc_V,ptmp_Y,pdst_V,src_pitch_V,tmp_pitch_Y,dst_pitch_V,dst_row_size_V >> 1,dst_height_V,
-				depthC,depthVC,bits_per_pixel);
-		}
-    }
-	  }
-	  else
-	  {
-		   CopyPlane(src,dst,PLANAR_U,vi);
-		   CopyPlane(src,dst,PLANAR_V,vi);
-	  }
-	  break;
-  default : break;
-  }
-
 	}
 
-  return dst;
+	return(dst);
 }
 
 
@@ -5079,8 +6030,6 @@ void aSobel::StaticThreadpool(void *ptr)
 				mt_data_inf->src_pitch_U1,mt_data_inf->dst_pitch_U1,mt_data_inf->src_U_h,
 				mt_data_inf->row_size_U1,ptrClass->threshC,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max,
 				mt_data_inf->top,mt_data_inf->bottom);
-			break;
-		case 3 :
 			Sobel_8_MT((const unsigned char *)mt_data_inf->src_V1,(unsigned char *)mt_data_inf->dst_V1,
 				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,
 				mt_data_inf->row_size_V1,ptrClass->threshC,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max,
@@ -5098,14 +6047,12 @@ void aSobel::StaticThreadpool(void *ptr)
 				mt_data_inf->src_pitch_U1,mt_data_inf->dst_pitch_U1,mt_data_inf->src_U_h,mt_data_inf->row_size_U1,
 				ptrClass->threshC,ptrClass->bits_per_pixel,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max,
 				mt_data_inf->top,mt_data_inf->bottom);
-			break;
-		case 6 :
 			Sobel_16_MT((const unsigned char *)mt_data_inf->src_V1,(unsigned char *)mt_data_inf->dst_V1,
 				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,
 				ptrClass->threshC,ptrClass->bits_per_pixel,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max,
 				mt_data_inf->top,mt_data_inf->bottom);
 			break;
-		default : ;
+		default : break;
 	}
 }
 
@@ -5191,11 +6138,9 @@ PVideoFrame __stdcall aSobel::GetFrame(int n, IScriptEnvironment *env)
 
 	  for(uint8_t i=0; i<threads_number; i++)
 		  MT_ThreadGF[i].f_process=f_proc;
-
 	  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
   }
-  else
-    CopyPlane(src,dst,PLANAR_Y,vi);
+  else CopyPlane(src,dst,PLANAR_Y,vi);
 
   switch (chroma)
   {
@@ -5221,14 +6166,6 @@ PVideoFrame __stdcall aSobel::GetFrame(int n, IScriptEnvironment *env)
 
 	  for(uint8_t i=0; i<threads_number; i++)
 		  MT_ThreadGF[i].f_process=f_proc;
-
-	  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
-
-	  f_proc=3+offs_16b;
-
-	  for(uint8_t i=0; i<threads_number; i++)
-		  MT_ThreadGF[i].f_process=f_proc;
-
 	  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
     break;
   }
@@ -5463,78 +6400,62 @@ void aBlur::StaticThreadpool(void *ptr)
 			BlurR2_8_MT_H((unsigned char *const)mt_data_inf->src_U1,(unsigned char *const)mt_data_inf->dst_U1,
 				mt_data_inf->src_pitch_U1,mt_data_inf->dst_pitch_U1,mt_data_inf->src_U_h,mt_data_inf->row_size_U1,true,
 				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
+			BlurR2_8_MT_H((unsigned char *const)mt_data_inf->src_V1,(unsigned char *const)mt_data_inf->dst_V1,
+				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,true,
+				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 10 :
 			BlurR2_8_MT_V((unsigned char *const)mt_data_inf->src_U1,(unsigned char *const)mt_data_inf->dst_U1,
 				mt_data_inf->src_pitch_U1,mt_data_inf->dst_pitch_U1,mt_data_inf->src_U_h,mt_data_inf->row_size_U1,true,
+				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
+			BlurR2_8_MT_V((unsigned char *const)mt_data_inf->src_V1,(unsigned char *const)mt_data_inf->dst_V1,
+				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,true,
 				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 11 :
 			BlurR6_8_MT_H((unsigned char *const)mt_data_inf->src_U1,(unsigned char *const)mt_data_inf->dst_U1,
 				mt_data_inf->src_pitch_U1,mt_data_inf->dst_pitch_U1,mt_data_inf->src_U_h,mt_data_inf->row_size_U1,true,
 				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
+			BlurR6_8_MT_H((unsigned char *const)mt_data_inf->src_V1,(unsigned char *const)mt_data_inf->dst_V1,
+				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,true,
+				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 12 :
 			BlurR6_8_MT_V((unsigned char *const)mt_data_inf->src_U1,(unsigned char *const)mt_data_inf->dst_U1,
 				mt_data_inf->src_pitch_U1,mt_data_inf->dst_pitch_U1,mt_data_inf->src_U_h,mt_data_inf->row_size_U1,true,
+				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
+			BlurR6_8_MT_V((unsigned char *const)mt_data_inf->src_V1,(unsigned char *const)mt_data_inf->dst_V1,
+				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,true,
 				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 13 :
 			BlurR2_8_MT_H((unsigned char *const)mt_data_inf->src_U1,(unsigned char *const)mt_data_inf->dst_U1,
 				mt_data_inf->src_pitch_U1,mt_data_inf->dst_pitch_U1,mt_data_inf->src_U_h,mt_data_inf->row_size_U1,
 				mt_data_inf->cprocessH,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
+			BlurR2_8_MT_H((unsigned char *const)mt_data_inf->src_V1,(unsigned char *const)mt_data_inf->dst_V1,
+				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,
+				mt_data_inf->cprocessH,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 14 :
 			BlurR2_8_MT_V((unsigned char *const)mt_data_inf->src_U1,(unsigned char *const)mt_data_inf->dst_U1,
 				mt_data_inf->src_pitch_U1,mt_data_inf->dst_pitch_U1,mt_data_inf->src_U_h,mt_data_inf->row_size_U1,
+				mt_data_inf->cprocessV,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
+			BlurR2_8_MT_V((unsigned char *const)mt_data_inf->src_V1,(unsigned char *const)mt_data_inf->dst_V1,
+				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,
 				mt_data_inf->cprocessV,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 15 :
 			BlurR6_8_MT_H((unsigned char *const)mt_data_inf->src_U1,(unsigned char *const)mt_data_inf->dst_U1,
 				mt_data_inf->src_pitch_U1,mt_data_inf->dst_pitch_U1,mt_data_inf->src_U_h,mt_data_inf->row_size_U1,
 				mt_data_inf->cprocessH,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
+			BlurR6_8_MT_H((unsigned char *const)mt_data_inf->src_V1,(unsigned char *const)mt_data_inf->dst_V1,
+				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,
+				mt_data_inf->cprocessH,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 16 :
 			BlurR6_8_MT_V((unsigned char *const)mt_data_inf->src_U1,(unsigned char *const)mt_data_inf->dst_U1,
 				mt_data_inf->src_pitch_U1,mt_data_inf->dst_pitch_U1,mt_data_inf->src_U_h,mt_data_inf->row_size_U1,
 				mt_data_inf->cprocessV,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
-			break;
-		case 17 :
-			BlurR2_8_MT_H((unsigned char *const)mt_data_inf->src_V1,(unsigned char *const)mt_data_inf->dst_V1,
-				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,true,
-				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
-			break;
-		case 18 :
-			BlurR2_8_MT_V((unsigned char *const)mt_data_inf->src_V1,(unsigned char *const)mt_data_inf->dst_V1,
-				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,true,
-				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
-			break;
-		case 19 :
-			BlurR6_8_MT_H((unsigned char *const)mt_data_inf->src_V1,(unsigned char *const)mt_data_inf->dst_V1,
-				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,true,
-				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
-			break;
-		case 20 :
-			BlurR6_8_MT_V((unsigned char *const)mt_data_inf->src_V1,(unsigned char *const)mt_data_inf->dst_V1,
-				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,true,
-				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
-			break;
-		case 21 :
-			BlurR2_8_MT_H((unsigned char *const)mt_data_inf->src_V1,(unsigned char *const)mt_data_inf->dst_V1,
-				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,
-				mt_data_inf->cprocessH,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
-			break;
-		case 22 :
-			BlurR2_8_MT_V((unsigned char *const)mt_data_inf->src_V1,(unsigned char *const)mt_data_inf->dst_V1,
-				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,
-				mt_data_inf->cprocessV,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
-			break;
-		case 23 :
-			BlurR6_8_MT_H((unsigned char *const)mt_data_inf->src_V1,(unsigned char *const)mt_data_inf->dst_V1,
-				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,
-				mt_data_inf->cprocessH,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
-			break;
-		case 24 :
 			BlurR6_8_MT_V((unsigned char *const)mt_data_inf->src_V1,(unsigned char *const)mt_data_inf->dst_V1,
 				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,
 				mt_data_inf->cprocessV,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
@@ -5584,83 +6505,67 @@ void aBlur::StaticThreadpool(void *ptr)
 			BlurR2_16_MT_H((unsigned char *const)mt_data_inf->src_U1,(unsigned char *const)mt_data_inf->dst_U1,
 				mt_data_inf->src_pitch_U1,mt_data_inf->dst_pitch_U1,mt_data_inf->src_U_h,mt_data_inf->row_size_U1,true,
 				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
+			BlurR2_16_MT_H((unsigned char *const)mt_data_inf->src_V1,(unsigned char *const)mt_data_inf->dst_V1,
+				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,true,
+				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 34 :
 			BlurR2_16_MT_V((unsigned char *const)mt_data_inf->src_U1,(unsigned char *const)mt_data_inf->dst_U1,
 				mt_data_inf->src_pitch_U1,mt_data_inf->dst_pitch_U1,mt_data_inf->src_U_h,mt_data_inf->row_size_U1,true,
+				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
+			BlurR2_16_MT_V((unsigned char *const)mt_data_inf->src_V1,(unsigned char *const)mt_data_inf->dst_V1,
+				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,true,
 				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 35 :
 			BlurR6_16_MT_H((unsigned char *const)mt_data_inf->src_U1,(unsigned char *const)mt_data_inf->dst_U1,
 				mt_data_inf->src_pitch_U1,mt_data_inf->dst_pitch_U1,mt_data_inf->src_U_h,mt_data_inf->row_size_U1,true,
 				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
+			BlurR6_16_MT_H((unsigned char *const)mt_data_inf->src_V1,(unsigned char *const)mt_data_inf->dst_V1,
+				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,true,
+				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 36 :
 			BlurR6_16_MT_V((unsigned char *const)mt_data_inf->src_U1,(unsigned char *const)mt_data_inf->dst_U1,
 				mt_data_inf->src_pitch_U1,mt_data_inf->dst_pitch_U1,mt_data_inf->src_U_h,mt_data_inf->row_size_U1,true,
+				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
+			BlurR6_16_MT_V((unsigned char *const)mt_data_inf->src_V1,(unsigned char *const)mt_data_inf->dst_V1,
+				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,true,
 				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 37 :
 			BlurR2_16_MT_H((unsigned char *const)mt_data_inf->src_U1,(unsigned char *const)mt_data_inf->dst_U1,
 				mt_data_inf->src_pitch_U1,mt_data_inf->dst_pitch_U1,mt_data_inf->src_U_h,mt_data_inf->row_size_U1,
 				mt_data_inf->cprocessH,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
+			BlurR2_16_MT_H((unsigned char *const)mt_data_inf->src_V1,(unsigned char *const)mt_data_inf->dst_V1,
+				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,
+				mt_data_inf->cprocessH,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 38 :
 			BlurR2_16_MT_V((unsigned char *const)mt_data_inf->src_U1,(unsigned char *const)mt_data_inf->dst_U1,
 				mt_data_inf->src_pitch_U1,mt_data_inf->dst_pitch_U1,mt_data_inf->src_U_h,mt_data_inf->row_size_U1,
+				mt_data_inf->cprocessV,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
+			BlurR2_16_MT_V((unsigned char *const)mt_data_inf->src_V1,(unsigned char *const)mt_data_inf->dst_V1,
+				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,
 				mt_data_inf->cprocessV,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 39 :
 			BlurR6_16_MT_H((unsigned char *const)mt_data_inf->src_U1,(unsigned char *const)mt_data_inf->dst_U1,
 				mt_data_inf->src_pitch_U1,mt_data_inf->dst_pitch_U1,mt_data_inf->src_U_h,mt_data_inf->row_size_U1,
 				mt_data_inf->cprocessH,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
+			BlurR6_16_MT_H((unsigned char *const)mt_data_inf->src_V1,(unsigned char *const)mt_data_inf->dst_V1,
+				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,
+				mt_data_inf->cprocessH,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 40 :
 			BlurR6_16_MT_V((unsigned char *const)mt_data_inf->src_U1,(unsigned char *const)mt_data_inf->dst_U1,
 				mt_data_inf->src_pitch_U1,mt_data_inf->dst_pitch_U1,mt_data_inf->src_U_h,mt_data_inf->row_size_U1,
 				mt_data_inf->cprocessV,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
-			break;
-		case 41 :
-			BlurR2_16_MT_H((unsigned char *const)mt_data_inf->src_V1,(unsigned char *const)mt_data_inf->dst_V1,
-				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,true,
-				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
-			break;
-		case 42 :
-			BlurR2_16_MT_V((unsigned char *const)mt_data_inf->src_V1,(unsigned char *const)mt_data_inf->dst_V1,
-				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,true,
-				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
-			break;
-		case 43 :
-			BlurR6_16_MT_H((unsigned char *const)mt_data_inf->src_V1,(unsigned char *const)mt_data_inf->dst_V1,
-				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,true,
-				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
-			break;
-		case 44 :
-			BlurR6_16_MT_V((unsigned char *const)mt_data_inf->src_V1,(unsigned char *const)mt_data_inf->dst_V1,
-				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,true,
-				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
-			break;
-		case 45 :
-			BlurR2_16_MT_H((unsigned char *const)mt_data_inf->src_V1,(unsigned char *const)mt_data_inf->dst_V1,
-				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,
-				mt_data_inf->cprocessH,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
-			break;
-		case 46 :
-			BlurR2_16_MT_V((unsigned char *const)mt_data_inf->src_V1,(unsigned char *const)mt_data_inf->dst_V1,
-				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,
-				mt_data_inf->cprocessV,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
-			break;
-		case 47 :
-			BlurR6_16_MT_H((unsigned char *const)mt_data_inf->src_V1,(unsigned char *const)mt_data_inf->dst_V1,
-				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,
-				mt_data_inf->cprocessH,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
-			break;
-		case 48 :
 			BlurR6_16_MT_V((unsigned char *const)mt_data_inf->src_V1,(unsigned char *const)mt_data_inf->dst_V1,
 				mt_data_inf->src_pitch_V1,mt_data_inf->dst_pitch_V1,mt_data_inf->src_V_h,mt_data_inf->row_size_V1,
 				mt_data_inf->cprocessV,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
-		default : ;
+		default : break;
 	}
 }
 
@@ -5693,12 +6598,12 @@ PVideoFrame __stdcall aBlur::GetFrame(int n, IScriptEnvironment *env)
   const int32_t src_row_size_U = src->GetRowSize(PLANAR_U);
   const int32_t src_row_size_V = src->GetRowSize(PLANAR_V);
  
-  const int blurL=std::min(blur_level,blur_levelV);
-  const int blurLr=std::max(blur_level,blur_levelV)-blurL;
+  const int blurL=min(blur_level,blur_levelV);
+  const int blurLr=max(blur_level,blur_levelV)-blurL;
   const bool processH=blur_level>blurL,processV=blur_levelV>blurL;
 
-  const int cblurL=std::min(blur_levelC,blur_levelVC);
-  const int cblurLr=std::max(blur_levelC,blur_levelVC)-cblurL;
+  const int cblurL=min(blur_levelC,blur_levelVC);
+  const int cblurLr=max(blur_levelC,blur_levelVC)-cblurL;
   const bool cprocessH=blur_levelC>cblurL,cprocessV=blur_levelVC>cblurL;
 
   Public_MT_Data_Thread MT_ThreadGF[MAX_MT_THREADS];
@@ -5814,35 +6719,6 @@ PVideoFrame __stdcall aBlur::GetFrame(int n, IScriptEnvironment *env)
 	}
 
 	  f_proc=(blur_type==1) ? (13+offs_16b):(15+offs_16b);
-
-	for (int i=0; i<cblurLr; i++)
-	{
-		for(uint8_t i=0; i<threads_number; i++)
-			MT_ThreadGF[i].f_process=f_proc;
-		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
-
-		for(uint8_t i=0; i<threads_number; i++)
-			MT_ThreadGF[i].f_process++;
-		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
-	}
-
-	  f_proc=(blur_type==1) ? (17+offs_16b):(19+offs_16b);
-
-	  for(uint8_t i=0; i<threads_number; i++)
-		  MT_ThreadGF[i].f_process=f_proc;
-
-	for (int i=0; i<cblurL; i++)
-	{
-		for(uint8_t i=0; i<threads_number; i++)
-			MT_ThreadGF[i].f_process=f_proc;
-		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
-
-		for(uint8_t i=0; i<threads_number; i++)
-			MT_ThreadGF[i].f_process++;
-		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
-	}
-
-	  f_proc=(blur_type==1) ? (21+offs_16b):(23+offs_16b); // 21 22  23 24
 
 	for (int i=0; i<cblurLr; i++)
 	{
@@ -6124,12 +7000,10 @@ void aWarp::StaticThreadpool(void *ptr)
 				(unsigned char*)mt_data_inf->dst_U2,
 				mt_data_inf->src_pitch_U1,mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U1,mt_data_inf->row_size_U1,
 				mt_data_inf->dst_U_h,ptrClass->depthC,ptrClass->depthVC,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
-			break;
-		case 3 :
 			Warp0_8_MT((const unsigned char*)mt_data_inf->src_V1,(const unsigned char*)mt_data_inf->src_V2,
 				(unsigned char*)mt_data_inf->dst_V1,
 				mt_data_inf->src_pitch_V1,mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V1,mt_data_inf->row_size_V1,
-				mt_data_inf->dst_U_h,ptrClass->depthC,ptrClass->depthVC,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
+				mt_data_inf->dst_V_h,ptrClass->depthC,ptrClass->depthVC,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
 		case 4 :
 			GuideChroma_8_MT((const unsigned char*)mt_data_inf->src_Y2,(unsigned char*)mt_data_inf->dst_U1,
@@ -6142,8 +7016,6 @@ void aWarp::StaticThreadpool(void *ptr)
 				(unsigned char*)mt_data_inf->dst_U2,
 				mt_data_inf->src_pitch_U1,mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U1,mt_data_inf->row_size_U1,
 				mt_data_inf->dst_U_h,ptrClass->depthC,ptrClass->depthVC,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
-			break;
-		case 6 :
 			Warp0_8_MT((const unsigned char*)mt_data_inf->src_V1,(const unsigned char*)mt_data_inf->src_U2,
 				(unsigned char*)mt_data_inf->dst_V1,
 				mt_data_inf->src_pitch_V1,mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_V1,mt_data_inf->row_size_V1,
@@ -6154,8 +7026,6 @@ void aWarp::StaticThreadpool(void *ptr)
 				(unsigned char*)mt_data_inf->dst_U2,
 				mt_data_inf->src_pitch_U1,mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_U1,mt_data_inf->row_size_U1,
 				mt_data_inf->dst_U_h,ptrClass->depthC,ptrClass->depthVC,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
-			break;
-		case 8 :
 			Warp0_8_MT((const unsigned char*)mt_data_inf->src_V1,(const unsigned char*)mt_data_inf->src_Y2,
 				(unsigned char*)mt_data_inf->dst_V1,
 				mt_data_inf->src_pitch_V1,mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_V1,mt_data_inf->row_size_V1,
@@ -6173,8 +7043,6 @@ void aWarp::StaticThreadpool(void *ptr)
 				(unsigned char*)mt_data_inf->dst_U2,mt_data_inf->src_pitch_U1,mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U1,
 				mt_data_inf->row_size_U1 >> 1,mt_data_inf->dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
 				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
-			break;
-		case 11 :
 			warp0_u16_MT((const unsigned char*)mt_data_inf->src_V1,(const unsigned char*)mt_data_inf->src_V2,
 				(unsigned char*)mt_data_inf->dst_V1,mt_data_inf->src_pitch_V1,mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V1,
 				mt_data_inf->row_size_V1 >> 1,mt_data_inf->dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
@@ -6191,8 +7059,6 @@ void aWarp::StaticThreadpool(void *ptr)
 				(unsigned char*)mt_data_inf->dst_U2,mt_data_inf->src_pitch_U1,mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U1,
 				mt_data_inf->row_size_U1 >> 1,mt_data_inf->dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
 				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
-			break;
-		case 14 :
 			warp0_u16_MT((const unsigned char*)mt_data_inf->src_V1,(const unsigned char*)mt_data_inf->src_U2,
 				(unsigned char*)mt_data_inf->dst_V1,mt_data_inf->src_pitch_V1,mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_V1,
 				mt_data_inf->row_size_V1 >> 1,mt_data_inf->dst_V_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
@@ -6203,14 +7069,12 @@ void aWarp::StaticThreadpool(void *ptr)
 				(unsigned char*)mt_data_inf->dst_U2,mt_data_inf->src_pitch_U1,mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_U1,
 				mt_data_inf->row_size_U1 >> 1,mt_data_inf->dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
 				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
-			break;
-		case 16 :
 			warp0_u16_MT((const unsigned char*)mt_data_inf->src_V1,(const unsigned char*)mt_data_inf->src_Y2,
 				(unsigned char*)mt_data_inf->dst_V1,mt_data_inf->src_pitch_V1,mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_V1,
 				mt_data_inf->row_size_V1 >> 1,mt_data_inf->dst_V_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
 				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
-		default : ;
+		default : break;
 	}
 }
 
@@ -6323,7 +7187,6 @@ PVideoFrame __stdcall aWarp::GetFrame(int n, IScriptEnvironment *env)
 
 	  for(uint8_t i=0; i<threads_number; i++)
 		  MT_ThreadGF[i].f_process=f_proc;
-
 	  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
   }
   else
@@ -6356,14 +7219,6 @@ PVideoFrame __stdcall aWarp::GetFrame(int n, IScriptEnvironment *env)
 
 		  for(uint8_t i=0; i<threads_number; i++)
 			  MT_ThreadGF[i].f_process=f_proc;
-
-		  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
-
-		  f_proc=3+offs_16b;
-
-		  for(uint8_t i=0; i<threads_number; i++)
-			  MT_ThreadGF[i].f_process=f_proc;
-
 		  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 	  }
 	  else
@@ -6386,7 +7241,6 @@ PVideoFrame __stdcall aWarp::GetFrame(int n, IScriptEnvironment *env)
 
 		  for(uint8_t i=0; i<threads_number; i++)
 			  MT_ThreadGF[i].f_process=f_proc;
-
 		  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 	  }
       else
@@ -6408,7 +7262,6 @@ PVideoFrame __stdcall aWarp::GetFrame(int n, IScriptEnvironment *env)
 			MT_DataGF[i].src_U2=(void *)pedg_U;
 			MT_DataGF[i].src_pitch_U2=edg_pitch_U;
 		}
-
 		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
       }
 
@@ -6416,14 +7269,6 @@ PVideoFrame __stdcall aWarp::GetFrame(int n, IScriptEnvironment *env)
 
 	  for(uint8_t i=0; i<threads_number; i++)
 		  MT_ThreadGF[i].f_process=f_proc;
-
-	  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
-
-	  f_proc=6+offs_16b;
-
-	  for(uint8_t i=0; i<threads_number; i++)
-		  MT_ThreadGF[i].f_process=f_proc;
-
 	  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
     }
     else
@@ -6432,14 +7277,6 @@ PVideoFrame __stdcall aWarp::GetFrame(int n, IScriptEnvironment *env)
 
 	  for(uint8_t i=0; i<threads_number; i++)
 		  MT_ThreadGF[i].f_process=f_proc;
-
-	  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
-
-	  f_proc=8+offs_16b;
-
-	  for(uint8_t i=0; i<threads_number; i++)
-		  MT_ThreadGF[i].f_process=f_proc;
-
 	  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
     }
 	   }
@@ -6741,8 +7578,6 @@ void aWarp4::StaticThreadpool(void *ptr)
 				(unsigned char*)mt_data_inf->dst_U2,
 				mt_data_inf->src_pitch_U1,mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U1,mt_data_inf->row_size_U1,
 				mt_data_inf->dst_U_h,ptrClass->depthC,ptrClass->depthVC,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
-			break;
-		case 3 :
 			Warp2_8_MT((const unsigned char*)mt_data_inf->src_V1,(const unsigned char*)mt_data_inf->src_V2,
 				(unsigned char*)mt_data_inf->dst_V1,
 				mt_data_inf->src_pitch_V1,mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V1,mt_data_inf->row_size_V1,
@@ -6759,8 +7594,6 @@ void aWarp4::StaticThreadpool(void *ptr)
 				(unsigned char*)mt_data_inf->dst_U2,
 				mt_data_inf->src_pitch_U1,mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U1,mt_data_inf->row_size_U1,
 				mt_data_inf->dst_U_h,ptrClass->depthC,ptrClass->depthVC,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
-			break;
-		case 6 :
 			Warp2_8_MT((const unsigned char*)mt_data_inf->src_V1,(const unsigned char*)mt_data_inf->src_U2,
 				(unsigned char*)mt_data_inf->dst_V1,
 				mt_data_inf->src_pitch_V1,mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_V1,mt_data_inf->row_size_V1,
@@ -6771,8 +7604,6 @@ void aWarp4::StaticThreadpool(void *ptr)
 				(unsigned char*)mt_data_inf->dst_U2,
 				mt_data_inf->src_pitch_U1,mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_U1,mt_data_inf->row_size_U1,
 				mt_data_inf->dst_U_h,ptrClass->depthC,ptrClass->depthVC,mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
-			break;
-		case 8 :
 			Warp2_8_MT((const unsigned char*)mt_data_inf->src_V1,(const unsigned char*)mt_data_inf->src_Y2,
 				(unsigned char*)mt_data_inf->dst_V1,
 				mt_data_inf->src_pitch_V1,mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_V1,mt_data_inf->row_size_V1,
@@ -6790,8 +7621,6 @@ void aWarp4::StaticThreadpool(void *ptr)
 				(unsigned char*)mt_data_inf->dst_U2,mt_data_inf->src_pitch_U1,mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U1,
 				mt_data_inf->row_size_U1 >> 1,mt_data_inf->dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
 				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
-			break;
-		case 11 :
 			warp2_u16_MT((const unsigned char*)mt_data_inf->src_V1,(const unsigned char*)mt_data_inf->src_V2,
 				(unsigned char*)mt_data_inf->dst_V1,mt_data_inf->src_pitch_V1,mt_data_inf->src_pitch_V2,mt_data_inf->dst_pitch_V1,
 				mt_data_inf->row_size_V1 >> 1,mt_data_inf->dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
@@ -6808,8 +7637,6 @@ void aWarp4::StaticThreadpool(void *ptr)
 				(unsigned char*)mt_data_inf->dst_U2,mt_data_inf->src_pitch_U1,mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_U1,
 				mt_data_inf->row_size_U1 >> 1,mt_data_inf->dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
 				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
-			break;
-		case 14 :
 			warp2_u16_MT((const unsigned char*)mt_data_inf->src_V1,(const unsigned char*)mt_data_inf->src_U2,
 				(unsigned char*)mt_data_inf->dst_V1,mt_data_inf->src_pitch_V1,mt_data_inf->src_pitch_U2,mt_data_inf->dst_pitch_V1,
 				mt_data_inf->row_size_V1 >> 1,mt_data_inf->dst_V_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
@@ -6820,14 +7647,12 @@ void aWarp4::StaticThreadpool(void *ptr)
 				(unsigned char*)mt_data_inf->dst_U2,mt_data_inf->src_pitch_U1,mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_U1,
 				mt_data_inf->row_size_U1 >> 1,mt_data_inf->dst_U_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
 				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
-			break;
-		case 16 :
 			warp2_u16_MT((const unsigned char*)mt_data_inf->src_V1,(const unsigned char*)mt_data_inf->src_Y2,
 				(unsigned char*)mt_data_inf->dst_V1,mt_data_inf->src_pitch_V1,mt_data_inf->src_pitch_Y2,mt_data_inf->dst_pitch_V1,
 				mt_data_inf->row_size_V1 >> 1,mt_data_inf->dst_V_h,ptrClass->depthC,ptrClass->depthVC,ptrClass->bits_per_pixel,
 				mt_data_inf->src_UV_h_min,mt_data_inf->src_UV_h_max);
 			break;
-		default : ;
+		default : break;
 	}
 }
 
@@ -6941,7 +7766,6 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
 
 	  for(uint8_t i=0; i<threads_number; i++)
 		  MT_ThreadGF[i].f_process=f_proc;
-
 	  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
   }
 
@@ -6968,14 +7792,6 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
 
 		  for(uint8_t i=0; i<threads_number; i++)
 			  MT_ThreadGF[i].f_process=f_proc;
-
-		  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
-
-		  f_proc=3+offs_16b;
-
-		  for(uint8_t i=0; i<threads_number; i++)
-			  MT_ThreadGF[i].f_process=f_proc;
-
 		  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
     break;
   case 4 :
@@ -6990,7 +7806,6 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
 
 		  for(uint8_t i=0; i<threads_number; i++)
 			  MT_ThreadGF[i].f_process=f_proc;
-
 		  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
 	  }
       else
@@ -7012,7 +7827,6 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
 			MT_DataGF[i].src_U2=(void *)pedg_U;
 			MT_DataGF[i].src_pitch_U2=edg_pitch_U;
 		}
-
 		if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
       }
 
@@ -7020,14 +7834,6 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
 
 	  for(uint8_t i=0; i<threads_number; i++)
 		  MT_ThreadGF[i].f_process=f_proc;
-
-	  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
-
-	  f_proc=6+offs_16b;
-
-	  for(uint8_t i=0; i<threads_number; i++)
-		  MT_ThreadGF[i].f_process=f_proc;
-
 	  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
     }
     else
@@ -7036,14 +7842,6 @@ PVideoFrame __stdcall aWarp4::GetFrame(int n, IScriptEnvironment *env)
 
 	  for(uint8_t i=0; i<threads_number; i++)
 		  MT_ThreadGF[i].f_process=f_proc;
-
-	  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
-
-	  f_proc=8+offs_16b;
-
-	  for(uint8_t i=0; i<threads_number; i++)
-		  MT_ThreadGF[i].f_process=f_proc;
-
 	  if (poolInterface->StartThreads(UserId,idxPool)) poolInterface->WaitThreadsEnd(UserId,idxPool);
     }
     break;
@@ -7279,25 +8077,48 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 	  args[13].Defined() ? threshC=args[13].AsInt(-1) : threshC=thresh;
 
     return new aWarpSharp(args[0].AsClip(),thresh,blur,blurt,depth,args[5].AsInt(4),depthC,is_cplace_mpeg2(args,7),
-		blurV,depthV,depthVC,blurC,blurVC,threshC,threads_number,sleep,negativePrefetch,avsp,env);
+		blurV,depthV,depthVC,blurC,blurVC,threshC,false,0,false,2,threads_number,sleep,negativePrefetch,avsp,env);
 	break;
 	  }
   case 1 :
 	  {
 	  if (!aWarpSharp_Enable_SSE2) env->ThrowError("aWarpSharp: SSE2 capable CPU is required");
 
-    blurt = (args[5].AsInt(2)!=2)?1:0;
+	const bool original = args[7].AsBool(false);
+	
+	const double original_d = args[1].AsFloat(16.0);
+	const double original_t = args[3].AsFloat(0.5);
+
+    if (original)
+	{
+      if ((!vi.IsYV12()) || (vi.ComponentSize()!=1))
+        env->ThrowError("aWarpSharp(original=true): 8-bit YV12 input is required");
+      if ((args[5].AsInt(2)<0) || (args[5].AsInt(2)>2))
+        env->ThrowError("aWarpSharp(original=true): bm must be 0..2");
+      if (!((original_d>=0.0) && (original_d<=64.0)))
+        env->ThrowError("aWarpSharp(original=true): depth must be 0..64");
+      if (!((original_t>=0.0) && (original_t<=1.0)))
+        env->ThrowError("aWarpSharp(original=true): thresh must be 0..1");
+      if ((args[2].AsInt(2)<1) || (args[2].AsInt(2)>4))
+        env->ThrowError("aWarpSharp(original=true): blurlevel must be 1..4");
+      if ((args[4].AsInt(1)<0) || (args[4].AsInt(1)>2))
+        env->ThrowError("aWarpSharp(original=true): cm must be 0..2");
+    }
+
+    const int original_depth = (original) ? int(original_d*args[2].AsInt(2)*128.0) : 0;
+	blurt = (args[5].AsInt(2)!=2)?1:0;
     const int blurlevel = args[2].AsInt(2);
     const unsigned int cm = args[4].AsInt(1);
     static const char map[4] = {1,4,3,2};
 
-	  threads=args[7].AsInt(0);
-	  LogicalCores=args[8].AsBool(true);
-	  MaxPhysCores=args[9].AsBool(true);
-	  SetAffinity=args[10].AsBool(false);
-	  sleep = args[11].AsBool(false);
-	  prefetch=args[12].AsInt(0);
-	  thread_level=args[13].AsInt(6);
+
+	  threads=args[8].AsInt(0);
+	  LogicalCores=args[9].AsBool(true);
+	  MaxPhysCores=args[10].AsBool(true);
+	  SetAffinity=args[11].AsBool(false);
+	  sleep = args[12].AsBool(false);
+	  prefetch=args[13].AsInt(0);
+	  thread_level=args[14].AsInt(6);
 
 	  negativePrefetch=(prefetch<0)?true:false;
 	  prefetch=abs(prefetch);
@@ -7358,8 +8179,10 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 	  }
 
 	  thresh=int(args[3].AsFloat(0.5)*256.0);
-	  blur=(blurt==1)?(blurlevel*3):blurlevel;
+	  if (original) thresh &= 255; // beta 1 passes the threshold as a byte
+	  blur=(original) ? blurlevel : ((blurt==1)?(blurlevel*3):blurlevel);
 	  depth=int(args[1].AsFloat(16.0)*blurlevel*0.5);
+	  if (original) depth=min(depth,127); // full precision is in original_depth
 	  depthC=vi.Is444() ? depth:(depth>>1);
 	  blurV=blur;
 	  depthV=depth;
@@ -7368,8 +8191,9 @@ AVSValue __cdecl Create_aWarpSharp(AVSValue args, void *user_data, IScriptEnviro
 	  blurVC=blurC;
 	  threshC=thresh;
 
-    return new aWarpSharp(args[0].AsClip(),thresh,blur,blurt,depth,(cm<4)?map[cm]:-1,depthC,false,
-		blurV,depthV,depthVC,blurC,blurVC,threshC,threads_number,sleep,negativePrefetch,avsp,env);
+    return new aWarpSharp(args[0].AsClip(),thresh,blur,blurt,depth,(original && (cm==0)) ? 2 : ((cm<4)?map[cm]:-1),depthC,false,
+		blurV,depthV,depthVC,blurC,blurVC,threshC,original,original_depth,args[6].AsBool(false),args[5].AsInt(2),
+		threads_number,sleep,negativePrefetch,avsp,env);
 	break;
 	  }
   case 2 :
@@ -7727,7 +8551,7 @@ AvisynthPluginInit3(IScriptEnvironment* env, const AVS_Linkage* const vectors)
 
   env->AddFunction("aWarpSharp2", "c[thresh]i[blur]i[type]i[depth]i[chroma]i[depthC]i[cplace]s[blurV]i[depthV]i[depthVC]i" \
 	  "[blurC]i[blurVC]i[threshC]i[threads]i[logicalCores]b[MaxPhysCore]b[SetAffinity]b[sleep]b[prefetch]i[ThreadLevel]i", Create_aWarpSharp, (void*)0);
-  env->AddFunction("aWarpSharp", "c[depth]f[blurlevel]i[thresh]f[cm]i[bm]i[show]b" \
+  env->AddFunction("aWarpSharp", "c[depth]f[blurlevel]i[thresh]f[cm]i[bm]i[show]b[original]b" \
 	  "[threads]i[logicalCores]b[MaxPhysCore]b[SetAffinity]b[sleep]b[prefetch]i[ThreadLevel]i", Create_aWarpSharp, (void*)1);
   env->AddFunction("aSobel", "c[thresh]i[chroma]i[threshC]i" \
 	  "[threads]i[logicalCores]b[MaxPhysCore]b[SetAffinity]b[sleep]b[prefetch]i[ThreadLevel]i", Create_aWarpSharp, (void*)2);

@@ -1098,7 +1098,7 @@ JPSDR_Sobel_8_SSE2_1:
     add	r11,16
     sub	rcx,4
     jb short JPSDR_Sobel_8_SSE2_2
-    movntdq XMMWORD ptr[r11+r10],xmm2
+    movdqa XMMWORD ptr[r11+r10],xmm2
     jz short JPSDR_Sobel_8_SSE2_Fin
     jmp JPSDR_Sobel_8_SSE2_1
 
@@ -1212,7 +1212,7 @@ thresh equ dword ptr[rbp+64]
     add	r11,16
     sub	rcx,4
     jb JPSDR_Sobel_8_SSE2_2_a
-    movntdq XMMWORD ptr[r11+r10],xmm2
+    movdqa XMMWORD ptr[r11+r10],xmm2
     jz JPSDR_Sobel_8_SSE2_a_Fin
 	
 JPSDR_Sobel_8_SSE2_1_a:
@@ -1260,7 +1260,7 @@ JPSDR_Sobel_8_SSE2_1_a:
     add	r11,16
     sub	rcx,4
     jb short JPSDR_Sobel_8_SSE2_2_a
-    movntdq XMMWORD ptr[r11+r10],xmm2
+    movdqa XMMWORD ptr[r11+r10],xmm2
     jz short JPSDR_Sobel_8_SSE2_a_Fin
     jmp JPSDR_Sobel_8_SSE2_1_a
 
@@ -1376,7 +1376,7 @@ JPSDR_Sobel_8_SSE2_1_b:
     pminub xmm2,xmm0  ;thresh
     add	r11,16
     sub	rcx,4
-    movntdq XMMWORD ptr[r11+r10],xmm2
+    movdqa XMMWORD ptr[r11+r10],xmm2
     ja JPSDR_Sobel_8_SSE2_1_b
 	
 	; Last pixel
@@ -1427,7 +1427,7 @@ JPSDR_Sobel_8_SSE2_4_b:
     add	r11,16
     sub	rcx,4
     jb short JPSDR_Sobel_8_SSE2_2_b
-    movntdq XMMWORD ptr[r11+r10],xmm2
+    movdqa XMMWORD ptr[r11+r10],xmm2
     jmp short JPSDR_Sobel_8_SSE2_b_Fin
 
 JPSDR_Sobel_8_SSE2_2_b:
@@ -1534,7 +1534,7 @@ JPSDR_Sobel_8_AVX_1:
     add	r11,16
     sub	rcx,4
     jb short JPSDR_Sobel_8_AVX_2
-    vmovntdq XMMWORD ptr[r11+r10],xmm1
+    vmovdqa XMMWORD ptr[r11+r10],xmm1
 	jz short JPSDR_Sobel_8_AVX_Fin
     jmp JPSDR_Sobel_8_AVX_1
 
@@ -1642,7 +1642,7 @@ thresh equ dword ptr[rbp+64]
     add	r11,16
     sub	rcx,4
     jb JPSDR_Sobel_8_AVX_2_a
-    vmovntdq XMMWORD ptr[r11+r10],xmm1
+    vmovdqa XMMWORD ptr[r11+r10],xmm1
 	jz JPSDR_Sobel_8_AVX_a_Fin
 	
 JPSDR_Sobel_8_AVX_1_a:
@@ -1684,7 +1684,7 @@ JPSDR_Sobel_8_AVX_1_a:
     add	r11,16
     sub	rcx,4
     jb short JPSDR_Sobel_8_AVX_2_a
-    vmovntdq XMMWORD ptr[r11+r10],xmm1
+    vmovdqa XMMWORD ptr[r11+r10],xmm1
 	jz short JPSDR_Sobel_8_AVX_a_Fin
     jmp JPSDR_Sobel_8_AVX_1_a
 
@@ -1794,7 +1794,7 @@ JPSDR_Sobel_8_AVX_1_b:
     vpminub xmm1,xmm1,xmm0  ;thresh
     add	r11,16
     sub	rcx,4
-    vmovntdq XMMWORD ptr[r11+r10],xmm1
+    vmovdqa XMMWORD ptr[r11+r10],xmm1
     ja JPSDR_Sobel_8_AVX_1_b
 	
 	; Last pixel
@@ -1839,7 +1839,7 @@ JPSDR_Sobel_8_AVX_4_b:
     add	r11,16
     sub	rcx,4
     jb short JPSDR_Sobel_8_AVX_2_b
-    vmovntdq XMMWORD ptr[r11+r10],xmm1
+    vmovdqa XMMWORD ptr[r11+r10],xmm1
 	jmp JPSDR_Sobel_8_AVX_b_Fin
 
 JPSDR_Sobel_8_AVX_2_b:
@@ -1963,7 +1963,7 @@ JPSDR_Sobel_16_SSE2_1:
     add	r11,16
     sub	rcx,4
     jb short JPSDR_Sobel_16_SSE2_2
-    movntdq XMMWORD ptr[r11+r10],xmm2
+    movdqa XMMWORD ptr[r11+r10],xmm2
     jz short JPSDR_Sobel_16_SSE2_Fin
     jmp JPSDR_Sobel_16_SSE2_1
 
@@ -2089,7 +2089,7 @@ thresh equ dword ptr[rbp+64]
     add	r11,16
     sub	rcx,4
     jb JPSDR_Sobel_16_SSE2_2_a
-    movntdq XMMWORD ptr[r11+r10],xmm2
+    movdqa XMMWORD ptr[r11+r10],xmm2
     jz JPSDR_Sobel_16_SSE2_a_Fin
 	
 JPSDR_Sobel_16_SSE2_1_a:
@@ -2142,7 +2142,7 @@ JPSDR_Sobel_16_SSE2_1_a:
     add	r11,16
     sub	rcx,4
     jb short JPSDR_Sobel_16_SSE2_2_a
-    movntdq XMMWORD ptr[r11+r10],xmm2
+    movdqa XMMWORD ptr[r11+r10],xmm2
     jz short JPSDR_Sobel_16_SSE2_a_Fin
     jmp JPSDR_Sobel_16_SSE2_1_a
 
@@ -2270,7 +2270,7 @@ JPSDR_Sobel_16_SSE2_1_b:
 	paddw xmm2,xmm8
     add	r11,16
     sub	rcx,4
-    movntdq XMMWORD ptr[r11+r10],xmm2
+    movdqa XMMWORD ptr[r11+r10],xmm2
     ja JPSDR_Sobel_16_SSE2_1_b
 	
 	; Last pixel
@@ -2326,7 +2326,7 @@ JPSDR_Sobel_16_SSE2_4_b:
     add	r11,16
     sub	rcx,4
     jb short JPSDR_Sobel_16_SSE2_2_b
-    movntdq XMMWORD ptr[r11+r10],xmm2
+    movdqa XMMWORD ptr[r11+r10],xmm2
     jmp short JPSDR_Sobel_16_SSE2_b_Fin
 
 JPSDR_Sobel_16_SSE2_2_b:
@@ -2433,7 +2433,7 @@ JPSDR_Sobel_16_AVX_1:
     add	r11,16
     sub	rcx,4
     jb short JPSDR_Sobel_16_AVX_2
-    vmovntdq XMMWORD ptr[r11+r10],xmm1
+    vmovdqa XMMWORD ptr[r11+r10],xmm1
     jz short JPSDR_Sobel_16_AVX_Fin
     jmp JPSDR_Sobel_16_AVX_1
 
@@ -2540,7 +2540,7 @@ thresh equ dword ptr[rbp+64]
     add	r11,16
     sub	rcx,4
     jb JPSDR_Sobel_16_AVX_2_a
-    vmovntdq XMMWORD ptr[r11+r10],xmm1
+    vmovdqa XMMWORD ptr[r11+r10],xmm1
     jz JPSDR_Sobel_16_AVX_a_Fin
 	
 JPSDR_Sobel_16_AVX_1_a:
@@ -2582,7 +2582,7 @@ JPSDR_Sobel_16_AVX_1_a:
     add	r11,16
     sub	rcx,4
     jb short JPSDR_Sobel_16_AVX_2_a
-    vmovntdq XMMWORD ptr[r11+r10],xmm1
+    vmovdqa XMMWORD ptr[r11+r10],xmm1
     jz short JPSDR_Sobel_16_AVX_a_Fin
     jmp JPSDR_Sobel_16_AVX_1_a
 
@@ -2691,7 +2691,7 @@ JPSDR_Sobel_16_AVX_1_b:
     vpminuw xmm1,xmm1,xmm0  ;thresh
     add	r11,16
     sub	rcx,4
-    vmovntdq XMMWORD ptr[r11+r10],xmm1
+    vmovdqa XMMWORD ptr[r11+r10],xmm1
     ja JPSDR_Sobel_16_AVX_1_b
 	
 	; Last pixel
@@ -2736,7 +2736,7 @@ JPSDR_Sobel_16_AVX_4_b:
     add	r11,16
     sub	rcx,4
     jb short JPSDR_Sobel_16_AVX_2_b
-    vmovntdq XMMWORD ptr[r11+r10],xmm1
+    vmovdqa XMMWORD ptr[r11+r10],xmm1
     jmp short JPSDR_Sobel_16_AVX_b_Fin
 
 JPSDR_Sobel_16_AVX_2_b:
@@ -2821,7 +2821,7 @@ JPSDR_H_BlurR6_8_AVX_1:
     vmovdqa xmm6,xmm7
     vpavgb xmm0,xmm0,xmm1
     vpavgb xmm0,xmm0,xmm1
-    vmovntdq XMMWORD ptr[rax+rdx],xmm0
+    vmovdqa XMMWORD ptr[rax+rdx],xmm0
     add rax,16
     sub rcx,16
     ja JPSDR_H_BlurR6_8_AVX_1
@@ -2860,7 +2860,7 @@ JPSDR_H_BlurR6_8_AVX_2:
     vpavgb xmm1,xmm1,xmm6
     vpavgb xmm0,xmm0,xmm1
     vpavgb xmm0,xmm0,xmm1
-    vmovntdq XMMWORD ptr[rax+rdx],xmm0
+    vmovdqa XMMWORD ptr[rax+rdx],xmm0
 	
 	vmovdqa xmm7,XMMWORD ptr[rsp+16]
 	vmovdqa xmm6,XMMWORD ptr[rsp]
@@ -3091,7 +3091,7 @@ JPSDR_H_BlurR6a_8_SSE2 proc public frame
 	pavgb xmm3,xmm5
 	pavgb xmm3,xmm1
 	pavgb xmm3,xmm1	
-    movntdq XMMWORD ptr[rdx],xmm3
+    movdqa XMMWORD ptr[rdx],xmm3
 
 	ret
 JPSDR_H_BlurR6a_8_SSE2 endp
@@ -3118,7 +3118,7 @@ JPSDR_H_BlurR6a_16_SSE2 proc public frame
 	pavgw xmm3,xmm5
 	pavgw xmm3,xmm1
 	pavgw xmm3,xmm1	
-    movntdq XMMWORD ptr[rdx],xmm3
+    movdqa XMMWORD ptr[rdx],xmm3
 
 	ret
 JPSDR_H_BlurR6a_16_SSE2 endp
@@ -3145,7 +3145,7 @@ JPSDR_H_BlurR6a_16_AVX proc public frame
 	vpavgw xmm3,xmm3,xmm5
 	vpavgw xmm3,xmm3,xmm1
 	vpavgw xmm3,xmm3,xmm1	
-    vmovntdq XMMWORD ptr[rdx],xmm3
+    vmovdqa XMMWORD ptr[rdx],xmm3
 
 	ret
 JPSDR_H_BlurR6a_16_AVX endp
@@ -3396,9 +3396,10 @@ JPSDR_V_BlurR6a_8_SSE2 proc public frame
 	.endprolog
 	
 	movsxd rax,r8d
-	mov	r10,rdx
-	mov	r9,rcx
+	mov	r10,rcx
 	movsxd rcx,r9d
+	mov	r9,r10
+	mov	r10,rdx
 	lea	r8,[rax+2*rax]
 	lea	rdx,[r8+2*rax]
 	add	rdx,r10
@@ -3419,7 +3420,7 @@ JPSDR_V_BlurR6a_8_SSE2_1:
 	pavgb xmm2,xmm0
 	pavgb xmm6,xmm2
 	pavgb xmm6,xmm2
-	movntdq XMMWORD ptr[r10+r9],xmm6
+	movdqa XMMWORD ptr[r10+r9],xmm6
 	add r10,16
 	add rdx,16
 	dec rcx
@@ -3451,9 +3452,10 @@ JPSDR_V_BlurR6a_8_AVX proc public frame
 	.endprolog
 	
 	movsxd rax,r8d
-	mov	r10,rdx
-	mov	r9,rcx
+	mov	r10,rcx
 	movsxd rcx,r9d
+	mov	r9,r10
+	mov	r10,rdx
 	lea	r8,[rax+2*rax]
 	lea	rdx,[r8+2*rax]
 	add	rdx,r10
@@ -3474,7 +3476,7 @@ JPSDR_V_BlurR6a_8_AVX_1:
 	vpavgb xmm2,xmm2,xmm0
 	vpavgb xmm6,xmm6,xmm2
 	vpavgb xmm6,xmm6,xmm2
-	vmovntdq XMMWORD ptr[r10+r9],xmm6
+	vmovdqa XMMWORD ptr[r10+r9],xmm6
 	add r10,16
 	add rdx,16
 	dec rcx
@@ -3506,9 +3508,10 @@ JPSDR_V_BlurR6a_16_SSE2 proc public frame
 	.endprolog
 	
 	movsxd rax,r8d
-	mov	r10,rdx
-	mov	r9,rcx
+	mov	r10,rcx
 	movsxd rcx,r9d
+	mov	r9,r10
+	mov	r10,rdx
 	lea	r8,[rax+2*rax]
 	lea	rdx,[r8+2*rax]
 	add	rdx,r10
@@ -3529,7 +3532,7 @@ JPSDR_V_BlurR6a_16_SSE2_1:
 	pavgw xmm2,xmm0
 	pavgw xmm6,xmm2
 	pavgw xmm6,xmm2
-	movntdq XMMWORD ptr[r10+r9],xmm6
+	movdqa XMMWORD ptr[r10+r9],xmm6
 	add r10,16
 	add rdx,16
 	dec rcx
@@ -3561,9 +3564,10 @@ JPSDR_V_BlurR6a_16_AVX proc public frame
 	.endprolog
 	
 	movsxd rax,r8d
-	mov	r10,rdx
-	mov	r9,rcx
+	mov	r10,rcx
 	movsxd rcx,r9d
+	mov	r9,r10
+	mov	r10,rdx
 	lea	r8,[rax+2*rax]
 	lea	rdx,[r8+2*rax]
 	add	rdx,r10
@@ -3584,7 +3588,7 @@ JPSDR_V_BlurR6a_16_AVX_1:
 	vpavgw xmm2,xmm2,xmm0
 	vpavgw xmm6,xmm6,xmm2
 	vpavgw xmm6,xmm6,xmm2
-	vmovntdq XMMWORD ptr[r10+r9],xmm6
+	vmovdqa XMMWORD ptr[r10+r9],xmm6
 	add r10,16
 	add rdx,16
 	dec rcx
@@ -3647,7 +3651,7 @@ JPSDR_V_BlurR6b_8_SSE2_1:
 	pavgb xmm6,xmm2
 	pavgb xmm6,xmm2
 	
-	movntdq XMMWORD ptr[r11+r10],xmm6
+	movdqa XMMWORD ptr[r11+r10],xmm6
 	add r11,16
 	add rdx,16
 	add r9,16
@@ -3711,7 +3715,7 @@ JPSDR_V_BlurR6b_8_AVX_1:
 	vpavgb xmm6,xmm6,xmm2
 	vpavgb xmm6,xmm6,xmm2
 	
-	vmovntdq XMMWORD ptr[r11+r10],xmm6
+	vmovdqa XMMWORD ptr[r11+r10],xmm6
 	add r11,16
 	add rdx,16
 	add r9,16
@@ -3775,7 +3779,7 @@ JPSDR_V_BlurR6b_16_SSE2_1:
 	pavgw xmm6,xmm2
 	pavgw xmm6,xmm2
 	
-	movntdq XMMWORD ptr[r11+r10],xmm6
+	movdqa XMMWORD ptr[r11+r10],xmm6
 	add r11,16
 	add rdx,16
 	add r9,16
@@ -3839,7 +3843,7 @@ JPSDR_V_BlurR6b_16_AVX_1:
 	vpavgw xmm6,xmm6,xmm2
 	vpavgw xmm6,xmm6,xmm2
 	
-	vmovntdq XMMWORD ptr[r11+r10],xmm6
+	vmovdqa XMMWORD ptr[r11+r10],xmm6
 	add r11,16
 	add rdx,16
 	add r9,16
@@ -3872,9 +3876,10 @@ JPSDR_V_BlurR6c_8_SSE2 proc public frame
 	.endprolog
 	
 	movsxd rax,r8d
-	mov	r10,rdx
-	mov	r9,rcx
+	mov	r10,rcx
 	movsxd rcx,r9d
+	mov	r9,r10
+	mov	r10,rdx
 	lea	r8,[rax+2*rax]
 	lea	rdx,[r8+2*rax]
 	add	rdx,r10
@@ -3895,7 +3900,7 @@ JPSDR_V_BlurR6c_8_SSE2_1:
 	pavgb xmm2,xmm0
 	pavgb xmm6,xmm2
 	pavgb xmm6,xmm2
-	movntdq XMMWORD ptr[r10+r9],xmm6
+	movdqa XMMWORD ptr[r10+r9],xmm6
 	add r10,16
 	add rdx,16
 	dec rcx
@@ -3927,9 +3932,10 @@ JPSDR_V_BlurR6c_8_AVX proc public frame
 	.endprolog
 	
 	movsxd rax,r8d
-	mov	r10,rdx
-	mov	r9,rcx
+	mov	r10,rcx
 	movsxd rcx,r9d
+	mov	r9,r10
+	mov	r10,rdx
 	lea	r8,[rax+2*rax]
 	lea	rdx,[r8+2*rax]
 	add	rdx,r10
@@ -3950,7 +3956,7 @@ JPSDR_V_BlurR6c_8_AVX_1:
 	vpavgb xmm2,xmm2,xmm0
 	vpavgb xmm6,xmm6,xmm2
 	vpavgb xmm6,xmm6,xmm2
-	vmovntdq XMMWORD ptr[r10+r9],xmm6
+	vmovdqa XMMWORD ptr[r10+r9],xmm6
 	add r10,16
 	add rdx,16
 	dec rcx
@@ -3982,9 +3988,10 @@ JPSDR_V_BlurR6c_16_SSE2 proc public frame
 	.endprolog
 	
 	movsxd rax,r8d
-	mov	r10,rdx
-	mov	r9,rcx
+	mov	r10,rcx
 	movsxd rcx,r9d
+	mov	r9,r10
+	mov	r10,rdx
 	lea	r8,[rax+2*rax]
 	lea	rdx,[r8+2*rax]
 	add	rdx,r10
@@ -4005,7 +4012,7 @@ JPSDR_V_BlurR6c_16_SSE2_1:
 	pavgw xmm2,xmm0
 	pavgw xmm6,xmm2
 	pavgw xmm6,xmm2
-	movntdq XMMWORD ptr[r10+r9],xmm6
+	movdqa XMMWORD ptr[r10+r9],xmm6
 	add r10,16
 	add rdx,16
 	dec rcx
@@ -4037,9 +4044,10 @@ JPSDR_V_BlurR6c_16_AVX proc public frame
 	.endprolog
 	
 	movsxd rax,r8d
-	mov	r10,rdx
-	mov	r9,rcx
+	mov	r10,rcx
 	movsxd rcx,r9d
+	mov	r9,r10
+	mov	r10,rdx
 	lea	r8,[rax+2*rax]
 	lea	rdx,[r8+2*rax]
 	add	rdx,r10
@@ -4060,7 +4068,7 @@ JPSDR_V_BlurR6c_16_AVX_1:
 	vpavgw xmm2,xmm2,xmm0
 	vpavgw xmm6,xmm6,xmm2
 	vpavgw xmm6,xmm6,xmm2
-	vmovntdq XMMWORD ptr[r10+r9],xmm6
+	vmovdqa XMMWORD ptr[r10+r9],xmm6
 	add r10,16
 	add rdx,16
 	dec rcx
@@ -4119,7 +4127,7 @@ JPSDR_H_BlurR2_8_AVX_1:
 	vmovdqa xmm5,xmm6
 	vmovdqa xmm6,xmm7
 	vpavgb xmm0,xmm0,xmm1
-	vmovntdq XMMWORD ptr[rax+rdx],xmm0
+	vmovdqa XMMWORD ptr[rax+rdx],xmm0
 	add rax,16
 	sub rcx,16
 	ja short JPSDR_H_BlurR2_8_AVX_1
@@ -4142,7 +4150,7 @@ JPSDR_H_BlurR2_8_AVX_2:
 	vpavgb xmm1,xmm1,xmm3
 	vpavgb xmm0,xmm0,xmm6
 	vpavgb xmm0,xmm0,xmm1
-	vmovntdq XMMWORD ptr[rax+rdx],xmm0
+	vmovdqa XMMWORD ptr[rax+rdx],xmm0
 	
 	vmovdqa xmm7,XMMWORD ptr[rsp+16]
 	vmovdqa xmm6,XMMWORD ptr[rsp]
@@ -4371,7 +4379,7 @@ JPSDR_V_BlurR2_8_SSE2_1:
 	pavgb xmm0,xmm2
 	pavgb xmm0,xmm2
 	pavgb xmm0,xmm1
-	movntdq XMMWORD ptr[r11+r10],xmm0
+	movdqa XMMWORD ptr[r11+r10],xmm0
 	add	r11,16
 	sub	rcx,16
 	jnz	short JPSDR_V_BlurR2_8_SSE2_1
@@ -4416,7 +4424,7 @@ JPSDR_V_BlurR2_8_AVX_1:
 	vpavgb xmm0,xmm0,xmm2
 	vpavgb xmm0,xmm0,xmm2
 	vpavgb xmm0,xmm0,xmm1
-	vmovntdq XMMWORD ptr[r11+r10],xmm0
+	vmovdqa XMMWORD ptr[r11+r10],xmm0
 	add	r11,16
 	sub	rcx,16
 	jnz	short JPSDR_V_BlurR2_8_AVX_1
@@ -4461,7 +4469,7 @@ JPSDR_V_BlurR2_16_SSE2_1:
 	pavgw xmm0,xmm2
 	pavgw xmm0,xmm2
 	pavgw xmm0,xmm1
-	movntdq XMMWORD ptr[r11+r10],xmm0
+	movdqa XMMWORD ptr[r11+r10],xmm0
 	add	r11,16
 	sub	rcx,16
 	jnz	short JPSDR_V_BlurR2_16_SSE2_1
@@ -4506,7 +4514,7 @@ JPSDR_V_BlurR2_16_AVX_1:
 	vpavgw xmm0,xmm0,xmm2
 	vpavgw xmm0,xmm0,xmm2
 	vpavgw xmm0,xmm0,xmm1
-	vmovntdq XMMWORD ptr[r11+r10],xmm0
+	vmovdqa XMMWORD ptr[r11+r10],xmm0
 	add	r11,16
 	sub	rcx,16
 	jnz	short JPSDR_V_BlurR2_16_AVX_1
@@ -4533,8 +4541,8 @@ JPSDR_GuideChroma1_8_SSE2 proc public frame
 	.savexmm128 xmm6,0
 	.endprolog
 
-	mov r8,rcx
 	movsxd rax,r8d
+	mov r8,rcx
 	movsxd rcx,r9d
 	sub r8,rcx
 	sub r8,rcx
@@ -4570,7 +4578,7 @@ JPSDR_GuideChroma1_8_SSE2_1:
 	pavgb xmm0,xmm1
 	add rcx,16
 	jg short JPSDR_GuideChroma1_8_SSE2_2
-	movntdq XMMWORD ptr[rcx+rdx],xmm0
+	movdqa XMMWORD ptr[rcx+rdx],xmm0
 	jnz short JPSDR_GuideChroma1_8_SSE2_1
 	jmp short JPSDR_GuideChroma1_8_SSE2_3
 	
@@ -4603,8 +4611,8 @@ JPSDR_GuideChroma1_8_AVX proc public frame
 	.savexmm128 xmm6,0
 	.endprolog
 
-	mov r8,rcx
 	movsxd rax,r8d
+	mov r8,rcx
 	movsxd rcx,r9d
 	sub r8,rcx
 	sub r8,rcx
@@ -4636,7 +4644,7 @@ JPSDR_GuideChroma1_8_AVX_1:
 	vpavgb xmm0,xmm0,xmm1
 	add rcx,16
 	jg short JPSDR_GuideChroma1_8_AVX_2
-	vmovntdq XMMWORD ptr[rcx+rdx],xmm0
+	vmovdqa XMMWORD ptr[rcx+rdx],xmm0
 	jnz short JPSDR_GuideChroma1_8_AVX_1
 	jmp short JPSDR_GuideChroma1_8_AVX_3
 	
@@ -4669,8 +4677,8 @@ JPSDR_GuideChroma1_16_AVX proc public frame
 	.savexmm128 xmm6,0
 	.endprolog
 
-	mov r8,rcx
 	movsxd rax,r8d
+	mov r8,rcx
 	movsxd rcx,r9d
 	sub r8,rcx
 	sub r8,rcx
@@ -4702,7 +4710,7 @@ JPSDR_GuideChroma1_16_AVX_1:
 	vpavgw xmm0,xmm0,xmm1
 	add rcx,16
 	jg short JPSDR_GuideChroma1_16_AVX_2
-	vmovntdq XMMWORD ptr[rcx+rdx],xmm0
+	vmovdqa XMMWORD ptr[rcx+rdx],xmm0
 	jnz short JPSDR_GuideChroma1_16_AVX_1
 	jmp short JPSDR_GuideChroma1_16_AVX_3
 	
@@ -4757,7 +4765,7 @@ JPSDR_GuideChroma2_8_SSE2_1:
 	pavgb xmm0,xmm1
 	add rcx,16
 	jg short JPSDR_GuideChroma2_8_SSE2_2
-	movntdq XMMWORD ptr[rcx+rdx],xmm0
+	movdqa XMMWORD ptr[rcx+rdx],xmm0
 	jnz short JPSDR_GuideChroma2_8_SSE2_1
 	jmp short JPSDR_GuideChroma2_8_SSE2_3
 	
@@ -4810,7 +4818,7 @@ JPSDR_GuideChroma2_8_AVX_1:
 	vpavgb xmm0,xmm0,xmm1
 	add rcx,16
 	jg short JPSDR_GuideChroma2_8_AVX_2
-	vmovntdq XMMWORD ptr[rcx+rdx],xmm0
+	vmovdqa XMMWORD ptr[rcx+rdx],xmm0
 	jnz short JPSDR_GuideChroma2_8_AVX_1
 	jmp short JPSDR_GuideChroma2_8_AVX_3
 	
@@ -4863,7 +4871,7 @@ JPSDR_GuideChroma2_16_AVX_1:
 	vpavgw xmm0,xmm0,xmm1
 	add rcx,16
 	jg short JPSDR_GuideChroma2_16_AVX_2
-	vmovntdq XMMWORD ptr[rcx+rdx],xmm0
+	vmovdqa XMMWORD ptr[rcx+rdx],xmm0
 	jnz short JPSDR_GuideChroma2_16_AVX_1
 	jmp short JPSDR_GuideChroma2_16_AVX_3
 	
